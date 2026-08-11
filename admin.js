@@ -41,7 +41,7 @@ const emailEl = $("email");
 const passwordEl = $("password");
 
 if (!configReady()) {
-showLoginError("尚未設定 Supabase。請把原本可用的 config.js 放回來。");
+showLoginError("尚未設定 Supabase。請把你原本的 config.js 放回來。");
 return;
 }
 
@@ -64,26 +64,18 @@ headers: {
 "Content-Type": "application/json",
 "apikey": SUPABASE_ANON_KEY
 },
-body: JSON.stringify({
-email,
-password
-})
+body: JSON.stringify({ email, password })
 }
 );
 
 ```
 let d = {};
-
 try {
   d = await r.json();
 } catch (_) {}
 
 if (!r.ok) {
-  const msg =
-    d.error_description ||
-    d.msg ||
-    d.message ||
-    "";
+  const msg = d.error_description || d.msg || d.message || "";
 
   if (r.status === 400) {
     showLoginError(
@@ -95,8 +87,7 @@ if (!r.ok) {
     );
   } else {
     showLoginError(
-      "登入失敗：" +
-      (msg || ("HTTP " + r.status))
+      "登入失敗：" + (msg || ("HTTP " + r.status))
     );
   }
 
@@ -104,22 +95,14 @@ if (!r.ok) {
 }
 
 if (!d.access_token) {
-  showLoginError(
-    "登入失敗：沒有取得登入 Token。"
-  );
+  showLoginError("登入失敗：沒有取得登入 Token。");
   return;
 }
 
-localStorage.setItem(
-  "access_token",
-  d.access_token
-);
+localStorage.setItem("access_token", d.access_token);
 
 if (d.refresh_token) {
-  localStorage.setItem(
-    "refresh_token",
-    d.refresh_token
-  );
+  localStorage.setItem("refresh_token", d.refresh_token);
 }
 
 $("login").classList.add("hidden");
@@ -143,13 +126,12 @@ showLoginError(
 }
 
 /* =========================
-載入後台
+載入
 ========================= */
 
 async function load() {
 await content();
 await news();
-await loadVisitors();
 }
 
 /* =========================
@@ -157,17 +139,13 @@ await loadVisitors();
 ========================= */
 
 async function content() {
-if (
-!configReady() ||
-!localStorage.getItem("access_token")
-) {
+if (!configReady() || !localStorage.getItem("access_token")) {
 return;
 }
 
 try {
 const r = await fetch(
-SUPABASE_URL +
-"/rest/v1/site_settings?select=*&id=eq.1",
+SUPABASE_URL + "/rest/v1/site_settings?select=*&id=eq.1",
 {
 headers: authHeaders()
 }
@@ -175,10 +153,7 @@ headers: authHeaders()
 
 ```
 if (r.status === 401) {
-  showLoginError(
-    "登入狀態已失效，請重新登入。"
-  );
-
+  showLoginError("登入狀態已失效，請重新登入。");
   logout();
   return;
 }
@@ -215,8 +190,7 @@ body[k] = el ? el.value : "";
 
 try {
 const r = await fetch(
-SUPABASE_URL +
-"/rest/v1/site_settings?id=eq.1",
+SUPABASE_URL + "/rest/v1/site_settings?id=eq.1",
 {
 method: "PATCH",
 headers: {
@@ -228,26 +202,14 @@ body: JSON.stringify(body)
 );
 
 ```
-const msg = $("contentMsg");
-
-if (msg) {
-  msg.textContent = r.ok
-    ? "✅ 已儲存"
-    : "❌ 儲存失敗（請檢查 Supabase 權限）";
-}
+$("contentMsg").textContent = r.ok
+  ? "✅ 已儲存"
+  : "❌ 儲存失敗（請檢查 Supabase 權限）";
 ```
 
 } catch (e) {
 console.error(e);
-
-```
-const msg = $("contentMsg");
-
-if (msg) {
-  msg.textContent = "❌ 無法連線";
-}
-```
-
+$("contentMsg").textContent = "❌ 無法連線";
 }
 }
 
@@ -260,31 +222,16 @@ const titleEl = $("title");
 const contentEl = $("content");
 const dateEl = $("date");
 
-if (
-!titleEl ||
-!contentEl ||
-!dateEl
-) {
+if (!titleEl || !contentEl || !dateEl) return;
+
+if (!titleEl.value.trim() || !contentEl.value.trim()) {
+$("publishMsg").textContent = "請填寫標題與內容";
 return;
-}
-
-if (
-!titleEl.value.trim() ||
-!contentEl.value.trim()
-) {
-$("publishMsg").textContent =
-"請填寫標題與內容";
-
-```
-return;
-```
-
 }
 
 try {
 const r = await fetch(
-SUPABASE_URL +
-"/rest/v1/announcements",
+SUPABASE_URL + "/rest/v1/announcements",
 {
 method: "POST",
 headers: {
@@ -294,8 +241,7 @@ headers: {
 body: JSON.stringify({
 title: titleEl.value.trim(),
 content: contentEl.value,
-date:
-dateEl.value ||
+date: dateEl.value ||
 new Date().toISOString().slice(0, 10),
 published: true
 })
@@ -311,27 +257,18 @@ if (r.ok) {
   titleEl.value = "";
   dateEl.value = "";
   contentEl.value = "";
-
   await news();
 }
 ```
 
 } catch (e) {
 console.error(e);
-
-```
-$("publishMsg").textContent =
-  "❌ 無法連線";
-```
-
+$("publishMsg").textContent = "❌ 無法連線";
 }
 }
 
 async function news() {
-if (
-!configReady() ||
-!localStorage.getItem("access_token")
-) {
+if (!configReady() || !localStorage.getItem("access_token")) {
 return;
 }
 
@@ -354,48 +291,26 @@ if (!r.ok) return;
 
 const a = await r.json();
 
-const list = $("adminList");
-
-if (!list) return;
-
-list.innerHTML =
+$("adminList").innerHTML =
   a.map(x =>
     '<article class="notice">' +
-      '<div class="date">' +
-        esc(x.date) +
-      '</div>' +
-
-      '<h3>' +
-        esc(x.title) +
-      '</h3>' +
-
+      '<div class="date">' + esc(x.date) + '</div>' +
+      '<h3>' + esc(x.title) + '</h3>' +
       '<p>' +
         esc(x.content).replace(/\n/g, "<br>") +
       '</p>' +
-
       '<button type="button" class="deleteNotice" data-id="' +
         esc(x.id) +
-      '">' +
-        '刪除' +
-      '</button>' +
-
+      '">刪除</button>' +
     '</article>'
   ).join("") ||
-
   '<div class="empty">目前沒有公告。</div>';
 
-document
-  .querySelectorAll(".deleteNotice")
-  .forEach(button => {
-
-    button.addEventListener(
-      "click",
-      function () {
-        del(this.dataset.id);
-      }
-    );
-
+document.querySelectorAll(".deleteNotice").forEach(button => {
+  button.addEventListener("click", function () {
+    del(this.dataset.id);
   });
+});
 ```
 
 } catch (e) {
@@ -404,9 +319,7 @@ console.error(e);
 }
 
 async function del(id) {
-if (!confirm("確定刪除這則公告？")) {
-return;
-}
+if (!confirm("確定刪除這則公告？")) return;
 
 try {
 const r = await fetch(
@@ -421,9 +334,7 @@ headers: authHeaders()
 
 ```
 if (!r.ok) {
-  alert(
-    "刪除失敗，請檢查 Supabase 權限。"
-  );
+  alert("刪除失敗，請檢查 Supabase 權限。");
   return;
 }
 
@@ -432,72 +343,55 @@ await news();
 
 } catch (e) {
 console.error(e);
-
-```
-alert("無法連線到 Supabase。");
-```
-
 }
 }
 
 /* =========================
-訪客帳號 API
+訪客帳號管理
 ========================= */
 
 function visitorFunctionUrl() {
-return (
-SUPABASE_URL +
-"/functions/v1/manage-visitors"
-);
+return SUPABASE_URL + "/functions/v1/manage-visitors";
 }
 
-async function visitorRequest(body) {
-const token =
-localStorage.getItem("access_token");
+async function visitorRequest(data) {
+const token = localStorage.getItem("access_token");
 
 if (!token) {
-throw new Error("管理員登入狀態已失效。");
+throw new Error("管理員登入狀態已失效，請重新登入。");
 }
 
 const r = await fetch(
 visitorFunctionUrl(),
 {
 method: "POST",
-
-```
-  headers: {
-    "Content-Type": "application/json",
-    "apikey": SUPABASE_ANON_KEY,
-    "Authorization":
-      "Bearer " + token
-  },
-
-  body: JSON.stringify(body)
+headers: {
+"Content-Type": "application/json",
+"apikey": SUPABASE_ANON_KEY,
+"Authorization": "Bearer " + token
+},
+body: JSON.stringify(data)
 }
-```
-
 );
 
-let data = {};
+let result = {};
 
 try {
-data = await r.json();
+result = await r.json();
 } catch (_) {}
 
 if (!r.ok) {
 throw new Error(
-data.error ||
-data.message ||
+result.error ||
+result.message ||
 ("HTTP " + r.status)
 );
 }
 
-return data;
+return result;
 }
 
-/* =========================
-載入訪客
-========================= */
+/* 取得訪客 */
 
 async function loadVisitors() {
 const list = $("visitorList");
@@ -508,31 +402,27 @@ list.innerHTML =
 '<div class="loading">正在載入訪客…</div>';
 
 try {
-const data = await visitorRequest({
+const result = await visitorRequest({
 action: "list"
 });
 
 ```
-const visitors = data.visitors || [];
+const visitors = result.visitors || [];
 
 if (!visitors.length) {
   list.innerHTML =
     '<div class="empty">目前沒有訪客帳號。</div>';
-
   return;
 }
 
 list.innerHTML = visitors.map(v => {
 
-  const created =
-    v.created_at
-      ? new Date(v.created_at)
-          .toLocaleString("zh-TW")
-      : "";
+  const created = v.created_at
+    ? new Date(v.created_at).toLocaleString("zh-TW")
+    : "";
 
   return (
     '<article class="notice">' +
-
       '<div class="date">' +
         esc(created) +
       '</div>' +
@@ -547,12 +437,9 @@ list.innerHTML = visitors.map(v => {
           : "目前已停用") +
       '</p>' +
 
-      '<button ' +
-        'type="button" ' +
+      '<button type="button" ' +
         'class="deleteVisitor" ' +
-        'data-id="' +
-        esc(v.id) +
-        '">' +
+        'data-id="' + esc(v.id) + '">' +
         '刪除帳號' +
       '</button>' +
 
@@ -561,20 +448,11 @@ list.innerHTML = visitors.map(v => {
 
 }).join("");
 
-document
-  .querySelectorAll(".deleteVisitor")
-  .forEach(button => {
-
-    button.addEventListener(
-      "click",
-      function () {
-        deleteVisitor(
-          this.dataset.id
-        );
-      }
-    );
-
+document.querySelectorAll(".deleteVisitor").forEach(button => {
+  button.addEventListener("click", function () {
+    deleteVisitor(this.dataset.id);
   });
+});
 ```
 
 } catch (e) {
@@ -590,53 +468,34 @@ list.innerHTML =
 }
 }
 
-/* =========================
-建立訪客
-========================= */
+/* 建立訪客 */
 
 async function createVisitor() {
-const usernameEl =
-$("visitorUsername");
+const usernameEl = $("visitorUsername");
+const passwordEl = $("visitorPassword");
+const msg = $("visitorMsg");
 
-const passwordEl =
-$("visitorPassword");
+if (!usernameEl || !passwordEl || !msg) return;
 
-const msg =
-$("visitorMsg");
-
-if (!usernameEl || !passwordEl || !msg) {
-return;
-}
-
-const username =
-usernameEl.value.trim();
-
-const password =
-passwordEl.value;
+const username = usernameEl.value.trim();
+const password = passwordEl.value;
 
 if (!username || !password) {
-msg.textContent =
-"❌ 請輸入帳號與密碼";
-
-```
+msg.textContent = "❌ 請輸入帳號與密碼";
 return;
-```
-
 }
 
-msg.textContent =
-"正在建立訪客帳號…";
+msg.textContent = "正在建立訪客帳號…";
 
 try {
 await visitorRequest({
 action: "create",
-username,
-password
+username: username,
+password: password
 });
 
 ```
-msg.textContent =
-  "✅ 訪客帳號建立成功";
+msg.textContent = "✅ 訪客帳號建立成功";
 
 usernameEl.value = "";
 passwordEl.value = "";
@@ -648,44 +507,38 @@ await loadVisitors();
 console.error(e);
 
 ```
-msg.textContent =
-  "❌ " + e.message;
+msg.textContent = "❌ " + e.message;
 ```
 
 }
 }
 
-/* =========================
-刪除訪客
-========================= */
+/* 刪除訪客 */
 
 async function deleteVisitor(id) {
 if (!id) return;
 
-const ok = confirm(
+if (!confirm(
 "確定要刪除這個訪客帳號嗎？\n\n刪除後將無法使用這個帳號登入網站。"
-);
+)) {
+return;
+}
 
-if (!ok) return;
+const msg = $("visitorMsg");
+
+if (msg) {
+msg.textContent = "正在刪除訪客帳號…";
+}
 
 try {
-const msg =
-$("visitorMsg");
+await visitorRequest({
+action: "delete",
+id: id
+});
 
 ```
 if (msg) {
-  msg.textContent =
-    "正在刪除訪客帳號…";
-}
-
-await visitorRequest({
-  action: "delete",
-  id
-});
-
-if (msg) {
-  msg.textContent =
-    "✅ 訪客帳號已刪除";
+  msg.textContent = "✅ 訪客帳號已刪除";
 }
 
 await loadVisitors();
@@ -695,12 +548,8 @@ await loadVisitors();
 console.error(e);
 
 ```
-const msg =
-  $("visitorMsg");
-
 if (msg) {
-  msg.textContent =
-    "❌ " + e.message;
+  msg.textContent = "❌ " + e.message;
 }
 ```
 
@@ -714,9 +563,7 @@ if (msg) {
 function tab(id, b) {
 document
 .querySelectorAll(".tabPanel")
-.forEach(x =>
-x.classList.add("hidden")
-);
+.forEach(x => x.classList.add("hidden"));
 
 const panel = $(id);
 
@@ -726,9 +573,7 @@ panel.classList.remove("hidden");
 
 document
 .querySelectorAll(".tab")
-.forEach(x =>
-x.classList.remove("active")
-);
+.forEach(x => x.classList.remove("active"));
 
 if (b) {
 b.classList.add("active");
@@ -736,13 +581,9 @@ b.classList.add("active");
 
 if (id === "newsTab") {
 news();
-}
-
-else if (id === "visitorTab") {
+} else if (id === "visitorTab") {
 loadVisitors();
-}
-
-else {
+} else {
 content();
 }
 }
@@ -752,14 +593,8 @@ content();
 ========================= */
 
 function logout() {
-localStorage.removeItem(
-"access_token"
-);
-
-localStorage.removeItem(
-"refresh_token"
-);
-
+localStorage.removeItem("access_token");
+localStorage.removeItem("refresh_token");
 location.reload();
 }
 
@@ -768,8 +603,7 @@ HTML 安全處理
 ========================= */
 
 function esc(s) {
-return String(s ?? "")
-.replace(/[&<>"']/g, m => ({
+return String(s ?? "").replace(/[&<>"']/g, m => ({
 "&": "&",
 "<": "<",
 ">": ">",
@@ -782,36 +616,19 @@ return String(s ?? "")
 啟動
 ========================= */
 
-document.addEventListener(
-"DOMContentLoaded",
-() => {
+document.addEventListener("DOMContentLoaded", () => {
 
-```
 if (!configReady()) {
-  showLoginError(
-    "設定檔尚未完成：請將原本可用的 config.js 放回來。"
-  );
-
-  return;
-}
-
-if (
-  localStorage.getItem(
-    "access_token"
-  )
-) {
-
-  $("login")
-    .classList
-    .add("hidden");
-
-  $("dashboard")
-    .classList
-    .remove("hidden");
-
-  load();
-}
-```
-
-}
+showLoginError(
+"設定檔尚未完成：請將原本可用的 config.js 放回此資料夾。"
 );
+return;
+}
+
+if (localStorage.getItem("access_token")) {
+$("login").classList.add("hidden");
+$("dashboard").classList.remove("hidden");
+load();
+}
+
+});
