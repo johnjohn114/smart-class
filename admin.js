@@ -218,7 +218,7 @@ async function news() {
         '<div class="date">' + esc(x.date) + '</div>' +
         '<h3>' + esc(x.title) + '</h3>' +
         '<p>' + esc(x.content).replace(/\n/g, "<br>") + '</p>' +
-        '<button onclick="del(' + JSON.stringify(String(x.id)) + ')">刪除</button>' +
+        '<button type="button" onclick="window.del(' + JSON.stringify(String(x.id)) + ')">刪除</button>' +
         '</article>'
       ).join("") ||
       '<div class="empty">目前沒有公告。</div>';
