@@ -1,5 +1,5 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理後台</title><link rel="stylesheet" href="style.css"></head><body class="adminPage">
-<div id="loginBox" class="gate"><div class="gate-card"><div class="lock">👑</div><h1>管理員登入</h1><p>管理公告與網站內容</p><input id="email" type="email" placeholder="管理員 Email"><input id="password" type="password" placeholder="管理員密碼"><button id="loginButton" type="button">登入後台</button><small id="loginError"></small><a href="index.html">← 返回網站</a></div></div>
+<div id="login" class="gate"><div class="gate-card"><div class="lock">👑</div><h1>管理員登入</h1><p>管理公告與網站內容</p><input id="email" type="email" placeholder="管理員 Email"><input id="password" type="password" placeholder="管理員密碼"><button onclick="login()">登入後台</button><small id="loginError"></small><a href="index.html">← 返回網站</a></div></div>
 <div id="dashboard" class="dashboard hidden"><header><div class="nav"><div class="logo">👑 網站管理後台</div><nav><a href="index.html">查看網站</a><button onclick="logout()">登出</button></nav></div></header><main><section>
 <div class="adminTabs"><button class="tab active" onclick="tab('contentTab',this)">🎨 網站內容</button><button class="tab" onclick="tab('newsTab',this)">📢 公告管理</button></div>
 <div id="contentTab" class="tabPanel"><h2>🎨 網站內容</h2><p class="sub">修改後按儲存，訪客網站就會更新。</p><div class="editor">
@@ -10,4 +10,4 @@
 <label>Email<input id="contact1"></label><label>社群<input id="contact2"></label><label>其他聯絡方式<input id="contact3"></label><button class="btn" onclick="save()">💾 儲存網站內容</button><small id="contentMsg"></small>
 </div></div>
 <div id="newsTab" class="tabPanel hidden"><h2>📢 公告管理</h2><div class="editor"><label>公告標題<input id="title"></label><label>日期<input id="date" type="date"></label><label>公告內容<textarea id="content" rows="8"></textarea></label><button class="btn" onclick="publish()">＋ 發布公告</button><small id="publishMsg"></small></div><h2 style="margin-top:40px">已發布公告</h2><div id="adminList" class="newsList"></div></div>
-</section></main></div><script src="config.js"></script><script src="admin.js?v=1002"></script><script>console.log("login 類型：", typeof window.login);</script></body></html>
+</section></main></div><script src="config.js"></script><script src="admin.js?v=2"></script></body></html>
