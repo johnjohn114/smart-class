@@ -133,7 +133,7 @@ if (d.refresh_token) {
   localStorage.setItem("refresh_token", d.refresh_token);
 }
 
-const loginBox = $("login");
+const loginBox = $("loginBox");
 const dashboard = $("dashboard");
 
 if (loginBox) loginBox.classList.add("hidden");
