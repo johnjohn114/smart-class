@@ -212,16 +212,24 @@ async function news() {
     if (!r.ok) return;
 
     const a = await r.json();
-    $("adminList").innerHTML =
-      a.map(x =>
-        '<article class="notice">' +
-        '<div class="date">' + esc(x.date) + '</div>' +
-        '<h3>' + esc(x.title) + '</h3>' +
-        '<p>' + esc(x.content).replace(/\n/g, "<br>") + '</p>' +
-        '<button onclick="del(' + JSON.stringify(String(x.id)) + ')">刪除</button>' +
-        '</article>'
-      ).join("") ||
-      '<div class="empty">目前沒有公告。</div>';
+ $("adminList").innerHTML =
+  a.map(x =>
+    '<article class="notice">' +
+    '<div class="date">' + esc(x.date) + '</div>' +
+    '<h3>' + esc(x.title) + '</h3>' +
+    '<p>' + esc(x.content).replace(/\n/g, "<br>") + '</p>' +
+    '<button type="button" class="deleteNotice" data-id="' +
+      esc(x.id) +
+    '">刪除</button>' +
+    '</article>'
+  ).join("") ||
+  '<div class="empty">目前沒有公告。</div>';
+
+document.querySelectorAll(".deleteNotice").forEach(button => {
+  button.addEventListener("click", function () {
+    del(this.dataset.id);
+  });
+});
   } catch (e) {
     console.error(e);
   }
