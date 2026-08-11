@@ -525,16 +525,16 @@ location.reload();
 // =========================
 
 function esc(s) {
-return String(s ?? "").replace(
-/[&<>"']/g,
-(m) => ({
-"&": "&",
-"<": "<",
-">": ">",
-'"': """,
-"'": "'"
-}[m])
-);
+  return String(s ?? "").replace(
+    /[&<>"']/g,
+    (m) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    })[m]
+  );
 }
 
 // =========================
@@ -568,7 +568,7 @@ return;
 const token = localStorage.getItem("access_token");
 
 if (token) {
-const loginBox = $("login");
+const loginBox = $("loginBox");
 const dashboard = $("dashboard");
 
 if (loginBox) {
