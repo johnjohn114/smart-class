@@ -1,4 +1,4 @@
-```js
+```javascript
 const F = [
   "site_name", "hero_title", "hero_text", "hero_image",
   "about_title", "about_subtitle", "about1_title", "about1_text",
@@ -10,12 +10,14 @@ const F = [
 const $ = (id) => document.getElementById(id);
 
 function configReady() {
-  return typeof SUPABASE_URL !== "undefined" &&
+  return (
+    typeof SUPABASE_URL !== "undefined" &&
     typeof SUPABASE_ANON_KEY !== "undefined" &&
     SUPABASE_URL &&
     SUPABASE_ANON_KEY &&
     !String(SUPABASE_URL).includes("你的") &&
-    !String(SUPABASE_ANON_KEY).includes("你的");
+    !String(SUPABASE_ANON_KEY).includes("你的")
+  );
 }
 
 function authHeaders() {
@@ -30,25 +32,26 @@ function authHeaders() {
 
 function showLoginError(msg) {
   const el = $("loginError");
-  if (el) el.textContent = msg;
+  if (el) {
+    el.textContent = msg;
+  }
 }
 
-
-// =========================
-// 登入
-// =========================
+/* =========================
+   登入
+========================= */
 
 async function login() {
   const emailEl = $("email");
   const passwordEl = $("password");
 
   if (!configReady()) {
-    showLoginError("尚未設定 Supabase。請把你原本的 config.js 放回來。");
+    showLoginError("尚未設定 Supabase。請把原本的 config.js 放回來。");
     return;
   }
 
-  const email = emailEl.value.trim();
-  const password = passwordEl.value;
+  const email = emailEl ? emailEl.value.trim() : "";
+  const password = passwordEl ? passwordEl.value : "";
 
   if (!email || !password) {
     showLoginError("請輸入管理員 Email 與密碼。");
@@ -67,8 +70,8 @@ async function login() {
           "apikey": SUPABASE_ANON_KEY
         },
         body: JSON.stringify({
-          email,
-          password
+          email: email,
+          password: password
         })
       }
     );
@@ -77,7 +80,9 @@ async function login() {
 
     try {
       d = await r.json();
-    } catch (_) {}
+    } catch (_) {
+      d = {};
+    }
 
     if (!r.ok) {
       const msg =
@@ -96,8 +101,7 @@ async function login() {
         );
       } else {
         showLoginError(
-          "登入失敗：" +
-          (msg || ("HTTP " + r.status))
+          "登入失敗：" + (msg || ("HTTP " + r.status))
         );
       }
 
@@ -123,7 +127,7 @@ async function login() {
     await load();
 
   } catch (e) {
-    console.error(e);
+    console.error("登入錯誤：", e);
 
     showLoginError(
       "無法連線到 Supabase。請確認網址、Key 與網路連線。"
@@ -131,23 +135,24 @@ async function login() {
   }
 }
 
-
-// =========================
-// 載入
-// =========================
+/* =========================
+   載入全部資料
+========================= */
 
 async function load() {
   await content();
   await news();
 }
 
-
-// =========================
-// 網站內容
-// =========================
+/* =========================
+   網站內容
+========================= */
 
 async function content() {
-  if (!configReady() || !localStorage.getItem("access_token")) {
+  if (
+    !configReady() ||
+    !localStorage.getItem("access_token")
+  ) {
     return;
   }
 
@@ -167,13 +172,14 @@ async function content() {
     }
 
     if (!r.ok) {
+      console.error("讀取網站內容失敗：", r.status);
       return;
     }
 
     const a = await r.json();
 
     if (a[0]) {
-      F.forEach(k => {
+      F.forEach((k) => {
         const el = $(k);
 
         if (el) {
@@ -183,21 +189,22 @@ async function content() {
     }
 
   } catch (e) {
-    console.error(e);
+    console.error("讀取網站內容錯誤：", e);
   }
 }
 
-
-// =========================
-// 儲存網站內容
-// =========================
+/* =========================
+   儲存網站內容
+========================= */
 
 async function save() {
-  if (!configReady()) return;
+  if (!configReady()) {
+    return;
+  }
 
   const body = {};
 
-  F.forEach(k => {
+  F.forEach((k) => {
     const el = $(k);
     body[k] = el ? el.value : "";
   });
@@ -215,28 +222,42 @@ async function save() {
       }
     );
 
-    $("contentMsg").textContent =
-      r.ok
+    const msg = $("contentMsg");
+
+    if (msg) {
+      msg.textContent = r.ok
         ? "✅ 已儲存"
         : "❌ 儲存失敗（請檢查 Supabase 權限）";
+    }
 
   } catch (e) {
-    console.error(e);
-    $("contentMsg").textContent = "❌ 無法連線";
+    console.error("儲存網站內容錯誤：", e);
+
+    const msg = $("contentMsg");
+
+    if (msg) {
+      msg.textContent = "❌ 無法連線";
+    }
   }
 }
 
-
-// =========================
-// 發布公告
-// =========================
+/* =========================
+   發布公告
+========================= */
 
 async function publish() {
   const titleEl = $("title");
   const contentEl = $("content");
   const dateEl = $("date");
 
-  if (!titleEl.value.trim() || !contentEl.value.trim()) {
+  if (!titleEl || !contentEl || !dateEl) {
+    return;
+  }
+
+  if (
+    !titleEl.value.trim() ||
+    !contentEl.value.trim()
+  ) {
     $("publishMsg").textContent = "請填寫標題與內容";
     return;
   }
@@ -261,10 +282,9 @@ async function publish() {
       }
     );
 
-    $("publishMsg").textContent =
-      r.ok
-        ? "✅ 已發布"
-        : "❌ 發布失敗（請檢查 announcements 權限）";
+    $("publishMsg").textContent = r.ok
+      ? "✅ 已發布"
+      : "❌ 發布失敗（請檢查 announcements 權限）";
 
     if (r.ok) {
       titleEl.value = "";
@@ -275,18 +295,21 @@ async function publish() {
     }
 
   } catch (e) {
-    console.error(e);
+    console.error("發布公告錯誤：", e);
+
     $("publishMsg").textContent = "❌ 無法連線";
   }
 }
 
-
-// =========================
-// 載入公告
-// =========================
+/* =========================
+   載入公告
+========================= */
 
 async function news() {
-  if (!configReady() || !localStorage.getItem("access_token")) {
+  if (
+    !configReady() ||
+    !localStorage.getItem("access_token")
+  ) {
     return;
   }
 
@@ -300,75 +323,67 @@ async function news() {
     );
 
     if (r.status === 401) {
+      alert("登入狀態已失效，請重新登入。");
       logout();
       return;
     }
 
     if (!r.ok) {
-      console.error("載入公告失敗：", r.status);
+      console.error("讀取公告失敗：", r.status);
       return;
     }
 
     const a = await r.json();
+
     const list = $("adminList");
 
-    if (!list) return;
+    if (!list) {
+      return;
+    }
 
     list.innerHTML =
-      a.map(x =>
-        '<article class="notice">' +
-        '<div class="date">' +
-        esc(x.date) +
-        '</div>' +
-
-        '<h3>' +
-        esc(x.title) +
-        '</h3>' +
-
-        '<p>' +
-        esc(x.content).replace(/\n/g, "<br>") +
-        '</p>' +
-
-        '<button type="button" class="deleteAnnouncement" data-id="' +
-        esc(String(x.id)) +
-        '">刪除</button>' +
-
-        '</article>'
-      ).join("") ||
+      a.map((x) => {
+        return (
+          '<article class="notice">' +
+          '<div class="date">' +
+          esc(x.date) +
+          "</div>" +
+          "<h3>" +
+          esc(x.title) +
+          "</h3>" +
+          "<p>" +
+          esc(x.content).replace(/\n/g, "<br>") +
+          "</p>" +
+          '<button type="button" onclick="del(' +
+          JSON.stringify(String(x.id)) +
+          ')">刪除</button>' +
+          "</article>"
+        );
+      }).join("") ||
       '<div class="empty">目前沒有公告。</div>';
 
-    // 使用 addEventListener 綁定刪除
-    // 不使用 onclick，避免按鈕沒有反應
-    document
-      .querySelectorAll(".deleteAnnouncement")
-      .forEach(button => {
-
-        button.addEventListener("click", function () {
-          const id = this.getAttribute("data-id");
-
-          del(id);
-        });
-
-      });
-
   } catch (e) {
-    console.error("載入公告發生錯誤：", e);
+    console.error("讀取公告錯誤：", e);
   }
 }
 
-
-// =========================
-// 刪除公告
-// =========================
+/* =========================
+   刪除公告
+========================= */
 
 async function del(id) {
+  if (!id) {
+    alert("找不到這則公告的 ID。");
+    return;
+  }
 
-  if (!confirm("確定刪除這則公告？")) {
+  const ok = confirm("確定刪除這則公告？");
+
+  if (!ok) {
     return;
   }
 
   try {
-
     const r = await fetch(
       SUPABASE_URL +
       "/rest/v1/announcements?id=eq." +
@@ -382,16 +397,15 @@ async function del(id) {
       }
     );
 
-    // Token 失效
+    /* Token 失效 */
     if (r.status === 401) {
       alert("登入狀態已失效，請重新登入。");
       logout();
       return;
     }
 
-    // Supabase 拒絕刪除
+    /* 權限或 Supabase 錯誤 */
     if (!r.ok) {
-
       let msg = "";
 
       try {
@@ -401,9 +415,11 @@ async function del(id) {
           d.message ||
           d.error ||
           d.hint ||
+          d.details ||
           "";
-
-      } catch (_) {}
+      } catch (_) {
+        // 沒有 JSON 回應就忽略
+      }
 
       console.error(
         "刪除公告失敗：",
@@ -419,34 +435,26 @@ async function del(id) {
       return;
     }
 
-    // 成功
+    /* 成功 */
     alert("✅ 公告已刪除");
 
     await news();
 
   } catch (e) {
+    console.error("刪除公告發生錯誤：", e);
 
-    console.error(
-      "刪除公告發生錯誤：",
-      e
-    );
-
-    alert(
-      "無法連線，公告沒有刪除。"
-    );
+    alert("無法連線，公告沒有刪除。");
   }
 }
 
-
-// =========================
-// 分頁
-// =========================
+/* =========================
+   分頁
+========================= */
 
 function tab(id, b) {
-
   document
     .querySelectorAll(".tabPanel")
-    .forEach(x => {
+    .forEach((x) => {
       x.classList.add("hidden");
     });
 
@@ -458,7 +466,7 @@ function tab(id, b) {
 
   document
     .querySelectorAll(".tab")
-    .forEach(x => {
+    .forEach((x) => {
       x.classList.remove("active");
     });
 
@@ -473,10 +481,9 @@ function tab(id, b) {
   }
 }
 
-
-// =========================
-// 登出
-// =========================
+/* =========================
+   登出
+========================= */
 
 function logout() {
   localStorage.removeItem("access_token");
@@ -485,53 +492,43 @@ function logout() {
   location.reload();
 }
 
-
-// =========================
-// HTML Escape
-// =========================
+/* =========================
+   HTML 防注入處理
+========================= */
 
 function esc(s) {
-
   return String(s ?? "").replace(
     /[&<>"']/g,
-    m => ({
+    (m) => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
-      "'": "&#039;"
-    })[m]
+      "'": "&#39;"
+    }[m])
   );
-
 }
 
+/* =========================
+   頁面載入
+========================= */
 
-// =========================
-// 頁面載入
-// =========================
+document.addEventListener("DOMContentLoaded", () => {
+  if (!configReady()) {
+    showLoginError(
+      "設定檔尚未完成：請將原本可用的 config.js 放回此資料夾。"
+    );
 
-document.addEventListener(
-  "DOMContentLoaded",
-  () => {
-
-    if (!configReady()) {
-
-      showLoginError(
-        "設定檔尚未完成：請將原本可用的 config.js 放回此資料夾。"
-      );
-
-      return;
-    }
-
-    if (localStorage.getItem("access_token")) {
-
-      $("login").classList.add("hidden");
-
-      $("dashboard").classList.remove("hidden");
-
-      load();
-    }
-
+    return;
   }
-);
+
+  const token = localStorage.getItem("access_token");
+
+  if (token) {
+    $("login").classList.add("hidden");
+    $("dashboard").classList.remove("hidden");
+
+    load();
+  }
+});
 ```
