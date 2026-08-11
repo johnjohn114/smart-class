@@ -231,13 +231,51 @@ async function del(id) {
   if (!confirm("確定刪除這則公告？")) return;
 
   try {
-    await fetch(
-      SUPABASE_URL + "/rest/v1/announcements?id=eq." + encodeURIComponent(id),
-      { method: "DELETE", headers: authHeaders() }
+    const r = await fetch(
+      SUPABASE_URL + "/rest/v1/announcements?id=eq." +
+      encodeURIComponent(id),
+      {
+        method: "DELETE",
+        headers: {
+          ...authHeaders(),
+          "Prefer": "return=minimal"
+        }
+      }
     );
+
+    if (r.status === 401) {
+      alert("登入狀態已失效，請重新登入。");
+      logout();
+      return;
+    }
+
+    if (!r.ok) {
+      let msg = "";
+
+      try {
+        const d = await r.json();
+        msg = d.message || d.error || d.hint || "";
+      } catch (_) {}
+
+      alert(
+        "刪除失敗：" +
+        (msg || ("HTTP " + r.status))
+      );
+
+      console.error(
+        "DELETE announcements 失敗",
+        r.status,
+        msg
+      );
+
+      return;
+    }
+
     await news();
+
   } catch (e) {
     console.error(e);
+    alert("無法連線，公告沒有刪除。");
   }
 }
 
