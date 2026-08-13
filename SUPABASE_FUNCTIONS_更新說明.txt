@@ -1,0 +1,18 @@
+訪客功能修正版
+
+修正：
+- create-visitor CORS / OPTIONS
+- reset-visitor-password CORS / OPTIONS
+- POST 方法限制
+- 更清楚的 Edge Function 錯誤訊息
+- 建立 visitor profile / visitor_accounts 失敗時自動清理 Auth 使用者
+
+重新部署：
+supabase functions deploy create-visitor
+supabase functions deploy reset-visitor-password
+
+如果使用 Supabase Dashboard：
+Edge Functions → create-visitor → Edit → 貼上對應 index.ts → Deploy
+Edge Functions → reset-visitor-password → Edit → 貼上對應 index.ts → Deploy
+
+不要把 SUPABASE_SERVICE_ROLE_KEY 放進前端。
