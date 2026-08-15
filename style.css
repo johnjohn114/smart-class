@@ -30,3 +30,30 @@ footer{text-align:center;padding:45px 20px;background:#5f4b82;color:#fff;margin-
 .couponCode{background:#f5efff;border-radius:12px;padding:8px 12px;font-weight:900;letter-spacing:1px;text-align:center;margin:14px 0}
 .couponCard.used{opacity:.62}.couponCard.expired{opacity:.7}.couponCard.soon{border-color:#e8c978}
 .inlineGate{position:static;min-height:0;background:transparent;padding:20px 0}.inlineGate .gate-card{max-width:480px;margin:auto}
+
+
+.navDropdown{position:relative;display:inline-block}
+.navDropdown>button{font:inherit}
+.dropdownMenu{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:260px;max-width:340px;background:#fff;border:1px solid #eadff5;border-radius:18px;padding:8px;box-shadow:0 16px 40px rgba(83,62,120,.16);z-index:50}
+.navDropdown:hover .dropdownMenu,.navDropdown:focus-within .dropdownMenu{display:block}
+.dropdownMenu a,.dropdownMenu .dropdownEmpty{display:block;padding:8px 12px;border-radius:12px;text-decoration:none;color:#5d4b83;font-weight:700;white-space:normal}
+.dropdownMenu a:hover{background:#eee5ff;color:#6b4dcc}
+.dropdownGroup{padding:5px 0;border-top:1px solid #f0e9f8;margin-top:5px}
+.dropdownGroup b{display:block;padding:6px 12px;color:#6749cc}
+.dropdownEmpty{color:#9a8ea8!important;font-weight:600!important}
+.pageTitle{text-align:center;font-size:42px;color:#49356d;margin:20px 0 5px}
+.competitionFilters{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:0 auto 28px}
+.competitionFilters a{background:#eee5ff;color:#6749cc;text-decoration:none;font-weight:900;border-radius:18px;padding:8px 16px}
+.competitionFilters a:hover{background:#6749cc;color:#fff}
+.competitionCard{background:#fff;border:1px solid #eadff5;border-radius:28px;padding:26px;margin:0 0 24px;box-shadow:0 10px 28px rgba(83,62,120,.07)}
+.competitionCard h2{margin:3px 0 12px;text-align:left;font-size:30px}
+.competitionResults{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+.competitionResult h3{margin:3px 0;color:#4d3a70}
+.competitionActions{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}
+.resultEditor{margin-top:24px;padding-top:15px;border-top:1px solid #eadff5}
+.resultRow{display:grid;grid-template-columns:90px 1.5fr 120px 1fr auto;gap:10px;align-items:end;margin:10px 0;padding:12px;background:#faf7ff;border-radius:16px}
+.resultRow label{margin:0}
+.resultRow button{margin:0;padding:9px 12px;border:0;border-radius:12px;background:#ffd0df;color:#8b4770;font-weight:800;cursor:pointer}
+.resultRow input{margin-top:5px!important}
+@media(max-width:850px){.competitionResults{grid-template-columns:1fr 1fr}.resultRow{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.dropdownMenu{position:static;width:100%;max-width:none;box-shadow:none;margin-top:4px}.navDropdown{width:auto}.navDropdown:focus-within .dropdownMenu,.navDropdown:hover .dropdownMenu{display:block}.pageTitle{font-size:34px}.competitionResults{grid-template-columns:1fr}.resultRow{grid-template-columns:1fr}}

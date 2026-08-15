@@ -1,12 +1,34 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理後台</title><link rel="stylesheet" href="style.css"></head><body class="adminPage">
 <div id="login" class="gate"><div class="gate-card"><div class="lock">👑</div><h1>管理員登入</h1><p>管理公告、商品、訪客與客服</p><input id="email" type="email" placeholder="管理員 Email"><input id="password" type="password" placeholder="管理員密碼"><button id="loginButton">登入後台</button><small id="loginError"></small><a href="index.html">← 返回網站</a></div></div>
 <div id="dashboard" class="dashboard hidden"><header><div class="nav"><div class="logo">👑 網站管理後台</div><nav><a href="index.html">查看網站</a><button id="logoutButton">登出</button></nav></div></header><main><section>
-<div class="adminTabs"><button class="tab active" data-tab="contentTab">🎨 網站內容</button><button class="tab" data-tab="newsTab">📢 公告管理</button><button class="tab" data-tab="productTab">📦 商品管理</button><button class="tab" data-tab="visitorTab">👥 訪客帳號</button><button class="tab" data-tab="couponTab">🎟️ 優惠券</button><button class="tab" data-tab="supportTab">💬 客服中心</button></div>
+<div class="adminTabs"><button class="tab active" data-tab="contentTab">🎨 網站內容</button><button class="tab" data-tab="newsTab">📢 公告管理</button><button class="tab" data-tab="productTab">📦 商品管理</button><button class="tab" data-tab="visitorTab">👥 訪客帳號</button><button class="tab" data-tab="couponTab">🎟️ 優惠券</button><button class="tab" data-tab="competitionTab">🏆 達人榜</button><button class="tab" data-tab="supportTab">💬 客服中心</button></div>
 <div id="contentTab" class="tabPanel"><h2>🎨 網站內容</h2><p class="sub">修改後按儲存，訪客網站就會更新。</p><div class="editor">
 <label>網站名稱<input id="site_name"></label><label>首頁標題<input id="hero_title"></label><label>首頁介紹<textarea id="hero_text" rows="3"></textarea></label><label>主視覺圖片網址<input id="hero_image"></label><label>關於我們標題<input id="about_title"></label><label>關於我們副標題<input id="about_subtitle"></label><label>我們是誰：標題<input id="about1_title"></label><label>我們是誰：內容<textarea id="about1_text" rows="3"></textarea></label><label>我們的特色：標題<input id="about2_title"></label><label>我們的特色：內容<textarea id="about2_text" rows="3"></textarea></label><label>網站特色主標題<input id="features_title"></label><label>網站特色副標題<input id="features_subtitle"></label><div class="four"><div><label>特色 1 標題<input id="f1_title"></label><label>內容<textarea id="f1_text" rows="3"></textarea></label></div><div><label>特色 2 標題<input id="f2_title"></label><label>內容<textarea id="f2_text" rows="3"></textarea></label></div><div><label>特色 3 標題<input id="f3_title"></label><label>內容<textarea id="f3_text" rows="3"></textarea></label></div><div><label>特色 4 標題<input id="f4_title"></label><label>內容<textarea id="f4_text" rows="3"></textarea></label></div></div><label>Email<input id="contact1"></label><label>社群<input id="contact2"></label><label>其他聯絡方式<input id="contact3"></label><button class="btn" id="saveContent">💾 儲存網站內容</button><small id="contentMsg"></small></div></div>
 <div id="newsTab" class="tabPanel hidden"><h2>📢 公告管理</h2><div class="editor"><label>公告標題<input id="title"></label><label>分類<select id="category"><option>最新消息</option><option>活動</option><option>蛋仔</option><option>Minecraft伺服器更新</option></select></label><label>發布日期／時間<input id="published_at" type="datetime-local"></label><label class="check"><input id="pinned" type="checkbox"> 📌 置頂公告</label><label>公告內容<textarea id="content" rows="8"></textarea></label><button class="btn" id="publishButton">＋ 儲存公告</button><small id="publishMsg"></small></div><h2 style="margin-top:40px">公告列表</h2><div id="adminList" class="newsList"></div></div>
 <div id="productTab" class="tabPanel hidden"><h2>📦 商品管理</h2><div class="editor"><input id="productId" type="hidden"><label>商品名稱<input id="productName"></label><label>分類<input id="productCategory" placeholder="例如：遊戲周邊"></label><label>價格<input id="productPrice" type="number" min="0" step="1"></label><label>圖片網址<input id="productImage"></label><label>商品介紹<textarea id="productDescription" rows="5"></textarea></label><label class="check"><input id="productActive" type="checkbox" checked> 上架</label><button class="btn" id="saveProduct">📦 儲存商品</button><button class="btn secondary" id="clearProduct">清除表單</button><small id="productMsg"></small></div><h2 style="margin-top:40px">商品列表</h2><div id="adminProducts" class="productGrid"></div></div>
 <div id="visitorTab" class="tabPanel hidden"><h2>👥 訪客帳號</h2><div class="editor"><label>訪客 Email<input id="visitorAccountEmail" type="email"></label><label>統一訪客密碼<input id="sharedVisitorPassword" type="password" minlength="8" placeholder="所有訪客共用的密碼"></label><button class="btn" id="createVisitor">＋ 建立訪客帳號</button><button class="btn secondary" id="setSharedVisitorPassword">🔑 將此密碼套用到所有訪客</button><small id="visitorMsg"></small><small id="sharedPasswordMsg"></small><p class="sub">所有訪客使用同一組統一密碼；訪客仍以自己的 Email 識別，所以優惠券與客服紀錄可以分開。</p></div><div id="visitorList" class="newsList"></div></div>
 <div id="couponTab" class="tabPanel hidden"><h2>🎟️ 優惠券管理</h2><div class="editor"><label>優惠券名稱<input id="couponTitle" placeholder="例如：新會員 9 折券"></label><label>優惠內容<input id="couponDescription" placeholder="全站商品 9 折"></label><label>優惠碼<input id="couponCode" placeholder="WELCOME90"></label><label>折扣／面額<input id="couponDiscount" placeholder="例如：9 折"></label><label>有效期限<input id="couponExpires" type="date"></label><label>發送給<select id="couponVisitor"></select></label><button class="btn" id="createCoupon">🎟️ 發送優惠券</button><small id="couponMsg"></small></div><h2 style="margin-top:40px">優惠券紀錄</h2><div id="adminCoupons" class="newsList"></div></div>
+<div id="competitionTab" class="tabPanel hidden"><h2>🏆 達人榜管理</h2>
+<p class="sub">自己輸入比賽成績；儲存後先保持草稿，按「公布」後才會出現在網站的歷屆成績。</p>
+<div class="editor">
+<input id="competitionId" type="hidden">
+<label>比賽名稱<input id="competitionName" placeholder="例如：Minecraft 建築大賽 #1"></label>
+<label>分類<select id="competitionCategory"><option value="Minecraft">Minecraft</option><option value="蛋仔">蛋仔</option></select></label>
+<label>比賽日期<input id="competitionDate" type="date"></label>
+<label>比賽說明<textarea id="competitionDescription" rows="4" placeholder="比賽規則、主題或其他說明"></textarea></label>
+<div class="resultEditor">
+  <h3>參賽成績</h3>
+  <div id="competitionResults"></div>
+  <button class="btn secondary" type="button" id="addCompetitionResult">＋ 新增參賽者</button>
+</div>
+<div class="competitionActions">
+  <button class="btn" id="saveCompetition" type="button">💾 儲存草稿</button>
+  <button class="btn" id="publishCompetition" type="button">📢 公布結果</button>
+  <button class="btn secondary" id="unpublishCompetition" type="button">🔒 取消公布</button>
+  <button class="btn secondary" id="clearCompetition" type="button">清除表單</button>
+</div>
+<small id="competitionMsg"></small>
+</div>
+<h2 style="margin-top:40px">比賽列表</h2><div id="adminCompetitions" class="newsList"></div></div>
 <div id="supportTab" class="tabPanel hidden"><h2>💬 客服中心</h2><div id="ticketList" class="newsList"></div></div>
 </section></main></div><script src="config.js"></script><script src="admin.js"></script></body></html>

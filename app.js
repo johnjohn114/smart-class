@@ -36,4 +36,42 @@ async function loadMyCoupons(){
   const rows=r.ok?await r.json():[];
   box.innerHTML=rows.length?rows.map(couponCard).join(''):'<div class="empty">目前沒有優惠券。</div>';
 }
-window.addEventListener('DOMContentLoaded',()=>{if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;if(visitorToken()){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;if($('visitorGate')&&visitorToken())loadSite();else if(!$('visitorGate'))loadSite();if($('myCoupons')&&visitorToken())loadMyCoupons();});
+
+async function loadCompetitionMenu(){
+  const menu=$('competitionMenu');
+  if(!menu||!configured())return;
+  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const r=await fetch(SUPABASE_URL+'/rest/v1/competitions?select=id,name,category&published=eq.true&order=event_date.desc,created_at.desc',{headers:h});
+  const rows=r.ok?await r.json():[];
+  const groups={Minecraft:[],蛋仔:[]};
+  rows.forEach(x=>{if(groups[x.category])groups[x.category].push(x)});
+  const links=cat=>groups[cat].length?groups[cat].map(x=>'<a href="competitions.html?id='+encodeURIComponent(x.id)+'">'+esc(x.name)+'</a>').join(''):'<span class="dropdownEmpty">目前沒有公布比賽</span>';
+  menu.innerHTML='<a href="competitions.html">📚 全部歷屆成績</a><div class="dropdownGroup"><b>🎮 Minecraft</b>'+links('Minecraft')+'</div><div class="dropdownGroup"><b>🥚 蛋仔</b>'+links('蛋仔')+'</div>';
+}
+function competitionResultCard(r){
+  const medal=r.place===1?'🥇':r.place===2?'🥈':r.place===3?'🥉':'';
+  return '<article class="notice competitionResult"><div class="date">'+medal+' 第 '+esc(r.place)+' 名</div><h3>'+esc(r.player_name)+'</h3>'+(r.score!==null&&r.score!==undefined&&r.score!==''?'<p><b>分數：</b>'+esc(r.score)+'</p>':'')+(r.prize?'<p><b>獎項：</b>'+esc(r.prize)+'</p>':'')+'</article>';
+}
+async function loadCompetitionPage(){
+  const box=$('competitionList');
+  if(!box||!configured())return;
+  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const params=new URLSearchParams(location.search);
+  const id=params.get('id');
+  const category=params.get('category');
+  let url=SUPABASE_URL+'/rest/v1/competitions?select=*&published=eq.true&order=event_date.desc,created_at.desc';
+  if(id)url+='&id=eq.'+encodeURIComponent(id);
+  else if(category&&(category==='Minecraft'||category==='蛋仔'))url+='&category=eq.'+encodeURIComponent(category);
+  const r=await fetch(url,{headers:h});
+  const comps=r.ok?await r.json():[];
+  if(!comps.length){box.innerHTML='<div class="empty">目前沒有已公布的比賽成績。</div>';return}
+  const all=[];
+  for(const c of comps){
+    const rr=await fetch(SUPABASE_URL+'/rest/v1/competition_results?select=*&competition_id=eq.'+encodeURIComponent(c.id)+'&order=place.asc',{headers:h});
+    const results=rr.ok?await rr.json():[];
+    all.push('<section class="competitionCard"><div class="competitionHeader"><div><div class="date">'+esc(c.category)+' · '+esc(c.event_date||'未設定日期')+'</div><h2>'+esc(c.name)+'</h2></div></div>'+(c.description?'<p class="sub">'+esc(c.description).replace(/\n/g,'<br>')+'</p>':'')+'<div class="competitionResults">'+(results.length?results.map(competitionResultCard).join(''):'<div class="empty">這場比賽尚未輸入成績。</div>')+'</div></section>');
+  }
+  box.innerHTML=all.join('');
+}
+
+window.addEventListener('DOMContentLoaded',()=>{if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;if(visitorToken()){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;if($('visitorGate')&&visitorToken())loadSite();else if(!$('visitorGate'))loadSite();if($('myCoupons')&&visitorToken())loadMyCoupons();loadCompetitionMenu();if($('competitionList')&&visitorToken())loadCompetitionPage();});

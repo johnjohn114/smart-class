@@ -142,3 +142,56 @@ create policy coupon_admin_all on public.coupons
 
 create index if not exists coupons_user_id_idx on public.coupons(user_id);
 create index if not exists coupons_expires_at_idx on public.coupons(expires_at);
+
+
+-- 達人榜：管理員建立比賽、輸入成績，確認後再公布。
+create table if not exists public.competitions (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  category text not null default 'Minecraft' check(category in ('Minecraft','蛋仔')),
+  event_date date,
+  description text,
+  published boolean not null default false,
+  published_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.competition_results (
+  id uuid primary key default gen_random_uuid(),
+  competition_id uuid not null references public.competitions(id) on delete cascade,
+  player_name text not null,
+  place integer not null check(place > 0),
+  score numeric(12,2),
+  prize text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.competitions enable row level security;
+alter table public.competition_results enable row level security;
+
+drop policy if exists competition_public_read on public.competitions;
+drop policy if exists competition_admin_all on public.competitions;
+create policy competition_public_read on public.competitions
+  for select using(public.is_admin() or (published=true and (published_at is null or published_at<=now())));
+create policy competition_admin_all on public.competitions
+  for all to authenticated using(public.is_admin()) with check(public.is_admin());
+
+drop policy if exists competition_result_public_read on public.competition_results;
+drop policy if exists competition_result_admin_all on public.competition_results;
+create policy competition_result_public_read on public.competition_results
+  for select using(
+    public.is_admin() or exists(
+      select 1 from public.competitions c
+      where c.id=competition_results.competition_id
+        and c.published=true
+        and (c.published_at is null or c.published_at<=now())
+    )
+  );
+create policy competition_result_admin_all on public.competition_results
+  for all to authenticated using(public.is_admin()) with check(public.is_admin());
+
+create index if not exists competitions_category_idx on public.competitions(category);
+create index if not exists competitions_published_idx on public.competitions(published, published_at);
+create index if not exists competition_results_competition_idx on public.competition_results(competition_id);
+create index if not exists competition_results_place_idx on public.competition_results(competition_id, place);
