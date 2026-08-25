@@ -37,6 +37,8 @@ alter table public.announcements add column if not exists category text not null
 alter table public.announcements add column if not exists pinned boolean not null default false;
 alter table public.announcements add column if not exists published_at timestamptz not null default now();
 alter table public.announcements add column if not exists updated_at timestamptz not null default now();
+alter table public.announcements add column if not exists link_url text;
+alter table public.announcements add column if not exists link_label text;
 
 -- 商品
 create table if not exists public.products (
@@ -157,6 +159,34 @@ create table if not exists public.competitions (
   updated_at timestamptz not null default now()
 );
 
+-- 達人榜分類管理：Minecraft / 蛋仔為預設，可再新增、修改、刪除自訂分類。
+create table if not exists public.competition_categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+alter table public.competition_categories enable row level security;
+drop policy if exists competition_categories_admin_all on public.competition_categories;
+create policy competition_categories_admin_all on public.competition_categories
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+insert into public.competition_categories(name)
+values ('Minecraft'),('蛋仔')
+on conflict (name) do nothing;
+
+-- 既有 competitions 以前有固定 CHECK；移除後才能使用自訂分類。
+alter table public.competitions drop constraint if exists competitions_category_check;
+
+-- 將既有比賽中的非預設分類補進分類表。
+insert into public.competition_categories(name)
+select distinct category
+from public.competitions
+where category is not null
+on conflict (name) do nothing;
+
 create table if not exists public.competition_results (
   id uuid primary key default gen_random_uuid(),
   competition_id uuid not null references public.competitions(id) on delete cascade,
@@ -195,3 +225,53 @@ create index if not exists competitions_category_idx on public.competitions(cate
 create index if not exists competitions_published_idx on public.competitions(published, published_at);
 create index if not exists competition_results_competition_idx on public.competition_results(competition_id);
 create index if not exists competition_results_place_idx on public.competition_results(competition_id, place);
+-- 達人榜公布時間由資料庫自動決定，避免瀏覽器時區／前端時間造成未來時間。
+create or replace function public.set_competition_publish_time()
+returns trigger
+language plpgsql
+security invoker
+set search_path=public
+as $$
+begin
+  if NEW.published = true then
+    NEW.published_at := now();
+  else
+    NEW.published_at := null;
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_competition_publish_time on public.competitions;
+create trigger trg_competition_publish_time
+before insert or update of published
+on public.competitions
+for each row execute function public.set_competition_publish_time();
+
+
+-- 快速連結
+create table if not exists public.quick_links (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  url text not null,
+  icon text,
+  sort_order integer not null default 1,
+  visible boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.quick_links add column if not exists icon text;
+alter table public.quick_links add column if not exists sort_order integer not null default 1;
+alter table public.quick_links add column if not exists visible boolean not null default true;
+alter table public.quick_links add column if not exists updated_at timestamptz not null default now();
+alter table public.quick_links enable row level security;
+drop policy if exists "quick_links_public_read" on public.quick_links;
+create policy "quick_links_public_read" on public.quick_links
+for select to public using (visible = true);
+drop policy if exists "quick_links_admin_all" on public.quick_links;
+create policy "quick_links_admin_all" on public.quick_links
+for all to public using (is_admin()) with check (is_admin());
+
+
+
+create index if not exists competition_categories_name_idx on public.competition_categories(name);

@@ -57,3 +57,31 @@ footer{text-align:center;padding:45px 20px;background:#5f4b82;color:#fff;margin-
 .resultRow input{margin-top:5px!important}
 @media(max-width:850px){.competitionResults{grid-template-columns:1fr 1fr}.resultRow{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.dropdownMenu{position:static;width:100%;max-width:none;box-shadow:none;margin-top:4px}.navDropdown{width:auto}.navDropdown:focus-within .dropdownMenu,.navDropdown:hover .dropdownMenu{display:block}.pageTitle{font-size:34px}.competitionResults{grid-template-columns:1fr}.resultRow{grid-template-columns:1fr}}
+
+/* 快速連結側欄 */
+.quickLinksPanel{position:fixed;right:16px;top:118px;width:245px;z-index:18;background:#fff;border:1px solid #e1e8cf;border-radius:18px;padding:12px;box-shadow:0 14px 36px rgba(43,64,18,.16)}
+.quickLinksHead{font-size:20px;font-weight:900;color:#53436f;text-align:center;margin:2px 0 10px}
+.quickLinksList{display:flex;flex-direction:column;gap:7px;max-height:calc(100vh - 185px);overflow:auto;padding-right:2px}
+.quickLinkItem{display:flex;align-items:center;gap:8px;min-height:42px;padding:7px 10px;border-radius:9px;background:#8ee600;color:#fff;text-decoration:none;font-weight:900;box-shadow:0 2px 6px rgba(71,110,12,.18);transition:transform .15s ease,filter .15s ease}
+.quickLinkItem:hover{filter:brightness(.96);transform:translateX(-2px)}
+.quickLinkIcon{width:28px;height:28px;display:grid;place-items:center;flex:0 0 28px;font-size:21px;background:rgba(255,255,255,.2);border-radius:6px}
+.quickLinksEmpty{font-size:13px;text-align:center;color:#8b809c;padding:10px}
+.quickLinkAdminGrid{display:grid;grid-template-columns:1fr 1.35fr;gap:22px}
+.quickLinkAdminListWrap{background:#fff;border:1px solid #eadff5;border-radius:20px;padding:20px}
+.quickLinkAdminItem{margin-bottom:12px}
+@media (max-width:950px){.quickLinksPanel{position:static;width:auto;margin:12px 18px}.quickLinksList{max-height:none}.quickLinkAdminGrid{grid-template-columns:1fr}}
+@media (max-width:760px){.quickLinksPanel{margin:12px}.quickLinksList{display:grid;grid-template-columns:1fr 1fr}.quickLinkItem{font-size:14px}.quickLinksHead{text-align:left}}
+
+/* 表單 */
+.formCard{max-width:850px;margin:0 auto;background:#fff;border:1px solid #eadff5;border-radius:28px;padding:28px;box-shadow:0 10px 28px rgba(83,62,120,.07)}
+.formField{display:block;margin:18px 0;color:#5b4a75;font-weight:800}
+.formField>span{display:block;margin-bottom:7px}
+.formField input,.formField textarea,.formField select{display:block;width:100%;padding:12px 14px;border:1px solid #ddd1ed;border-radius:14px;font:inherit;color:#46395c;background:#fff;box-sizing:border-box}
+.formField b{color:#c94c78}
+.formOptions{display:grid;gap:8px;margin-top:8px;padding:12px;background:#faf7ff;border-radius:14px}
+.formOptions label{font-weight:700;color:#59476f}
+.formQuestionRow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin:12px 0;padding:16px;background:#faf7ff;border-radius:16px}
+.formQuestionRow label{display:block;margin:8px 0;font-weight:800;color:#6749cc}
+.formQuestionRow input,.formQuestionRow select{display:block;width:100%;margin-top:6px;padding:10px 12px;border:1px solid #ddd1ed;border-radius:12px;box-sizing:border-box;font:inherit}
+.formQuestionRow .removeFormQuestion{margin:0;padding:10px 12px;border:0;border-radius:12px;background:#ffd0df;color:#8b4770;font-weight:800;cursor:pointer}
+@media(max-width:600px){.formQuestionRow{grid-template-columns:1fr}.formCard{padding:18px}}

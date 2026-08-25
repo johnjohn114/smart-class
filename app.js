@@ -7,7 +7,10 @@ async function visitorLogin(){if(!configured()){show('visitorLoginError','尚未
 function visitorLogout(){localStorage.removeItem('visitor_access_token');localStorage.removeItem('visitor_refresh_token');location.href='index.html';}
 function show(id,msg){const e=$(id);if(e)e.textContent=msg;}
 async function loadSite(){if(!configured())return;try{const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};const s=await fetch(SUPABASE_URL+'/rest/v1/site_settings?select=*&id=eq.1',{headers:h});if(s.ok){const a=await s.json();if(a[0])apply(a[0])}const n=await fetch(SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc&limit=3',{headers:h});if(n.ok){const rows=await n.json();$('newsList')&&($('newsList').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前還沒有公告。</div>')}}catch(e){console.error(e);$('newsList')&&($('newsList').innerHTML='<div class="empty">目前無法載入公告。</div>')}}
-function card(x){return '<article class="notice"><div class="date">'+(x.pinned?'📌 ':'')+esc(x.date||String(x.published_at||'').slice(0,10))+' · '+esc(x.category||'最新消息')+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.content).replace(/\n/g,'<br>')+'</p></article>'}
+function card(x){
+  const link=x.link_url?'<p><a class="btn secondary" href="'+esc(x.link_url)+'" target="_blank" rel="noopener noreferrer">🔗 '+esc(x.link_label||'查看連結')+'</a></p>':'';
+  return '<article class="notice"><div class="date">'+(x.pinned?'📌 ':'')+esc(x.date||String(x.published_at||'').slice(0,10))+' · '+esc(x.category||'最新消息')+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.content).replace(/\n/g,'<br>')+'</p>'+link+'</article>';
+}
 function apply(s){const ids=['siteName','heroTitle','heroText','aboutTitle','aboutSubtitle','about1Title','about1Text','about2Title','about2Text','featuresTitle','featuresSubtitle','f1Title','f1Text','f2Title','f2Text','f3Title','f3Text','f4Title','f4Text','contact1','contact2','contact3'];const keys=['site_name','hero_title','hero_text','about_title','about_subtitle','about1_title','about1_text','about2_title','about2_text','features_title','features_subtitle','f1_title','f1_text','f2_title','f2_text','f3_title','f3_text','f4_title','f4_text','contact1','contact2','contact3'];ids.forEach((id,i)=>{const e=$(id);if(e&&s[keys[i]]!=null)e.textContent=s[keys[i]]});if(s.hero_image&&$('heroImage'))$('heroImage').src=s.hero_image;if(s.site_name){document.title=s.site_name;if($('footerName'))$('footerName').textContent=s.site_name;if($('footerText'))$('footerText').textContent='© 2026 '+s.site_name+'｜私人網站'}}
 async function loadAllNews(category='all'){if(!configured())return;const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};let url=SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc';if(category!=='all')url+='&category=eq.'+encodeURIComponent(category);const r=await fetch(url,{headers:h});const rows=r.ok?await r.json():[];if($('allNews'))$('allNews').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前沒有符合條件的公告。</div>';document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');loadAllNews(b.dataset.category)})}
 async function loadProducts(){if(!configured())return;const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};const r=await fetch(SUPABASE_URL+'/rest/v1/products?select=*&active=eq.true&order=created_at.desc',{headers:h});const rows=r.ok?await r.json():[];if($('productGrid'))$('productGrid').innerHTML=rows.length?rows.map(productCard).join(''):'<div class="empty">目前沒有上架商品。</div>'}
@@ -37,16 +40,122 @@ async function loadMyCoupons(){
   box.innerHTML=rows.length?rows.map(couponCard).join(''):'<div class="empty">目前沒有優惠券。</div>';
 }
 
+const competitionCategoryIcon=name=>{
+  const icons={Minecraft:'🎮',蛋仔:'🥚'};
+  return icons[name]||'🏆';
+};
+
+async function fetchCompetitionCategories(headers){
+  // 優先使用後台管理的分類表；若公開 RLS 尚未開放，則自動由已公布比賽回推分類。
+  let categories=[];
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/competition_categories?select=id,name&order=name.asc',{headers});
+    if(r.ok){
+      const rows=await r.json();
+      categories=rows.map(x=>x.name).filter(Boolean);
+    }
+  }catch(e){
+    console.warn('讀取分類表失敗，改用已公布比賽分類。',e);
+  }
+  return [...new Set(categories)];
+}
+
 async function loadCompetitionMenu(){
   const menu=$('competitionMenu');
   if(!menu||!configured())return;
   const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
-  const r=await fetch(SUPABASE_URL+'/rest/v1/competitions?select=id,name,category&published=eq.true&order=event_date.desc,created_at.desc',{headers:h});
+
+  const r=await fetch(
+    SUPABASE_URL+'/rest/v1/competitions?select=id,name,category&published=eq.true&order=event_date.desc,created_at.desc',
+    {headers:h}
+  );
   const rows=r.ok?await r.json():[];
-  const groups={Minecraft:[],蛋仔:[]};
-  rows.forEach(x=>{if(groups[x.category])groups[x.category].push(x)});
-  const links=cat=>groups[cat].length?groups[cat].map(x=>'<a href="competitions.html?id='+encodeURIComponent(x.id)+'">'+esc(x.name)+'</a>').join(''):'<span class="dropdownEmpty">目前沒有公布比賽</span>';
-  menu.innerHTML='<a href="competitions.html">📚 全部歷屆成績</a><div class="dropdownGroup"><b>🎮 Minecraft</b>'+links('Minecraft')+'</div><div class="dropdownGroup"><b>🥚 蛋仔</b>'+links('蛋仔')+'</div>';
+
+  let categories=await fetchCompetitionCategories(h);
+  rows.forEach(x=>{if(x.category&&!categories.includes(x.category))categories.push(x.category);});
+
+  if(!categories.length){
+    menu.innerHTML='<a href="competitions.html">📚 全部歷屆成績</a><span class="dropdownEmpty">目前沒有分類</span>';
+    return;
+  }
+
+  const groups={};
+  categories.forEach(cat=>groups[cat]=[]);
+  rows.forEach(x=>{
+    if(x.category){
+      (groups[x.category]||(groups[x.category]=[])).push(x);
+    }
+  });
+
+  menu.innerHTML='<a href="competitions.html">📚 全部歷屆成績</a>'
+    +categories.map(cat=>{
+      const icon=competitionCategoryIcon(cat);
+      const items=groups[cat]||[];
+      const list=items.length
+        ? items.map(x=>'<a href="competitions.html?id='+encodeURIComponent(x.id)+'">'+esc(x.name)+'</a>').join('')
+        : '<span class="dropdownEmpty">目前沒有公布比賽</span>';
+      return '<div class="dropdownGroup"><b>'+icon+' '+esc(cat)+'</b>'
+        +'<a href="competitions.html?category='+encodeURIComponent(cat)+'">查看 '+esc(cat)+' 全部成績</a>'
+        +list+'</div>';
+    }).join('');
+}
+
+async function loadCompetitionFilters(){
+  const box=$('competitionFilters');
+  if(!box||!configured())return;
+
+  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const params=new URLSearchParams(location.search);
+  const current=params.get('category')||'';
+
+  const r=await fetch(
+    SUPABASE_URL+'/rest/v1/competitions?select=category&published=eq.true',
+    {headers:h}
+  );
+  const rows=r.ok?await r.json():[];
+
+  let categories=await fetchCompetitionCategories(h);
+  rows.forEach(x=>{if(x.category&&!categories.includes(x.category))categories.push(x.category);});
+
+  box.innerHTML='<a class="'+(!current?'active':'')+'" href="competitions.html">全部</a>'
+    +categories.map(cat=>{
+      const active=current===cat?'active':'';
+      return '<a class="'+active+'" href="competitions.html?category='+encodeURIComponent(cat)+'">'
+        +competitionCategoryIcon(cat)+' '+esc(cat)+'</a>';
+    }).join('');
+}
+
+async function loadQuickLinks(){
+  const panel=$('quickLinksPanel');
+  const list=$('quickLinksList');
+  if(!panel||!list||!configured()){if(panel)panel.classList.add('hidden');return}
+  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/quick_links?select=id,name,url,icon,sort_order&visible=eq.true&order=sort_order.asc,created_at.asc',{headers:h});
+    if(!r.ok){panel.classList.add('hidden');return}
+    const rows=await r.json();
+    if(!rows.length){panel.classList.add('hidden');return}
+    list.innerHTML=rows.map(x=>{
+      const icon=x.icon?'<span class="quickLinkIcon">'+esc(x.icon)+'</span>':'<span class="quickLinkIcon">🔗</span>';
+      const target=/^https?:\/\//i.test(x.url)?' target="_blank" rel="noopener noreferrer"':'';
+      return '<a class="quickLinkItem" href="'+esc(x.url)+'"'+target+'>'+icon+'<span>'+esc(x.name)+'</span></a>';
+    }).join('');
+    panel.classList.remove('hidden');
+  }catch(e){
+    console.error('快速連結載入失敗:',e);
+    panel.classList.add('hidden');
+  }
+}
+
+
+async function getCurrentUser(){
+  const token=visitorToken();
+  if(!token)return null;
+  try{
+    const r=await fetch(SUPABASE_URL+'/auth/v1/user',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+token}});
+    if(!r.ok)return null;
+    return await r.json();
+  }catch(e){return null}
 }
 function competitionResultCard(r){
   const medal=r.place===1?'🥇':r.place===2?'🥈':r.place===3?'🥉':'';
@@ -61,7 +170,7 @@ async function loadCompetitionPage(){
   const category=params.get('category');
   let url=SUPABASE_URL+'/rest/v1/competitions?select=*&published=eq.true&order=event_date.desc,created_at.desc';
   if(id)url+='&id=eq.'+encodeURIComponent(id);
-  else if(category&&(category==='Minecraft'||category==='蛋仔'))url+='&category=eq.'+encodeURIComponent(category);
+  else if(category)url+='&category=eq.'+encodeURIComponent(category);
   const r=await fetch(url,{headers:h});
   const comps=r.ok?await r.json():[];
   if(!comps.length){box.innerHTML='<div class="empty">目前沒有已公布的比賽成績。</div>';return}
@@ -74,4 +183,4 @@ async function loadCompetitionPage(){
   box.innerHTML=all.join('');
 }
 
-window.addEventListener('DOMContentLoaded',()=>{if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;if(visitorToken()){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;if($('visitorGate')&&visitorToken())loadSite();else if(!$('visitorGate'))loadSite();if($('myCoupons')&&visitorToken())loadMyCoupons();loadCompetitionMenu();if($('competitionList')&&visitorToken())loadCompetitionPage();});
+window.addEventListener('DOMContentLoaded',()=>{if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;if(visitorToken()){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;if($('visitorGate')&&visitorToken())loadSite();else if(!$('visitorGate'))loadSite();if($('myCoupons')&&visitorToken())loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadCompetitionFilters();if($('competitionList')&&visitorToken())loadCompetitionPage();});
