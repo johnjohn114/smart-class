@@ -4,7 +4,7 @@ html{scroll-behavior:smooth}
 body{margin:0;font-family:system-ui,-apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif;color:#40355b;background:linear-gradient(180deg,#fff8fc,#f7f1ff 55%,#fff);line-height:1.8}
 a{color:inherit} header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.9);backdrop-filter:blur(12px);border-bottom:1px solid #eadff7}
 .nav{max-width:1120px;margin:auto;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:20px}.logo{font-size:24px;font-weight:900;color:#6b4dcc;white-space:nowrap}
-nav{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}nav a,nav button{border:0;background:transparent;text-decoration:none;padding:8px 12px;border-radius:18px;font-weight:800;color:#5d4b83;cursor:pointer}nav a:hover,nav button:hover{background:#eee5ff;color:#6b4dcc}nav .admin{background:#6b4dcc;color:#fff}
+nav{display:flex;align-items:center;gap:7px;flex-wrap:nowrap;justify-content:flex-end}nav a,nav button{border:0;background:transparent;text-decoration:none;padding:8px 12px;border-radius:18px;font-weight:800;color:#5d4b83;cursor:pointer}nav a:hover,nav button:hover{background:#eee5ff;color:#6b4dcc}nav .admin{background:#6b4dcc;color:#fff}
 main{max-width:1120px;margin:auto}.hero{min-height:520px;margin:28px 18px 60px;border-radius:34px;overflow:hidden;position:relative;background:#eadfff;box-shadow:0 18px 50px rgba(94,70,145,.14)}.hero img{width:100%;height:520px;object-fit:cover;display:block}.heroShade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(54,37,86,.72),rgba(54,37,86,.18),rgba(54,37,86,.05))}.heroCard{position:absolute;left:8%;top:50%;transform:translateY(-50%);max-width:540px;color:#fff}.heroCard h1{font-size:56px;line-height:1.15;margin:0 0 12px;text-shadow:0 4px 18px rgba(0,0,0,.2)}.heroCard p{font-size:21px;margin:0 0 25px}.btn{display:inline-block;background:#fff;color:#6849c7;border:0;border-radius:25px;padding:12px 22px;text-decoration:none;font-weight:900;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.12)}
 section{padding:55px 22px;scroll-margin-top:85px}section h2{font-size:38px;line-height:1.25;text-align:center;margin:0 0 8px;color:#49356d}.sub{text-align:center;color:#796d91;margin:0 auto 30px}
 .newsList{display:grid;gap:18px}.notice{background:#fff;border:1px solid #eadff5;border-radius:24px;padding:22px 25px;box-shadow:0 10px 28px rgba(83,62,120,.08)}.notice .date{font-size:14px;color:#9a7cc8;font-weight:800}.notice h3{font-size:24px;margin:5px 0;color:#4d3a70}.notice p{margin:5px 0;color:#655a78}
@@ -206,3 +206,31 @@ footer{text-align:center;padding:45px 20px;background:#5f4b82;color:#fff;margin-
 
 
 .categoryManager{margin-top:18px;padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#fafafa}.categoryManager h3{margin:0 0 6px}.categoryManager .sub{margin:0 0 12px}.inlineForm{display:flex;gap:10px;align-items:center;margin-bottom:12px}.inlineForm input{flex:1}.categoryManager .newsList{margin-top:10px}.categoryManager .newsList .notice{padding:12px 14px}.categoryManager .newsList .notice .date{margin-bottom:8px}@media (max-width:640px){.inlineForm{flex-direction:column;align-items:stretch}.inlineForm .btn{width:100%}}
+
+/* Round 2 #9/#10: 後台流程與活動進階 */
+.dashboardQuickActions{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 20px}.dashboardAction{display:inline-flex;align-items:center;justify-content:center;border:0;background:#e8ddff;color:#6749cc;border-radius:14px;padding:10px 14px;font-weight:900;cursor:pointer}.dashboardAction.primary{background:#6749cc;color:#fff}.dashboardQuickActions .dashboardAction{box-shadow:0 5px 14px rgba(83,62,120,.08)}
+.adminListTools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0 10px}.adminListTools input,.adminListTools select{padding:10px 12px;border:1px solid #ddd1ed;border-radius:13px;background:#fff;font:inherit;color:#46395c}.adminListTools input{flex:1;min-width:220px}.adminListTools select{min-width:130px}
+.competitionSummary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.competitionSummaryItem{background:#faf7ff;border:1px solid #eadff5;border-radius:16px;padding:12px 14px;text-align:center}.competitionSummaryItem b{display:block;font-size:25px;color:#5d43a0}.competitionSummaryItem span{font-size:12px;color:#8b7e9f;font-weight:800}
+@media(max-width:650px){.dashboardQuickActions{display:grid;grid-template-columns:1fr 1fr}.dashboardQuickActions .dashboardAction{width:100%}.adminListTools{display:grid;grid-template-columns:1fr}.adminListTools input,.adminListTools select{width:100%;min-width:0}.competitionSummary{grid-template-columns:repeat(2,1fr)}}
+
+/* account experience v1 */
+#visitorLoginButton:disabled{opacity:.65;cursor:wait}
+.formField strong.memberNumber{letter-spacing:.08em}
+
+.registrationBox{margin:18px 0;padding:18px;border:1px solid #dbe3ee;border-radius:14px;background:#f8fafc}.registrationForm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.registrationForm label{display:flex;flex-direction:column;gap:6px;font-weight:600}.registrationForm input,.registrationForm textarea{width:100%;box-sizing:border-box}.registrationForm label:last-child{grid-column:1/-1}.registrationStatus{font-size:1.05rem;margin-bottom:6px}.registrationAdminPanel{margin:20px 0;padding:18px;border:1px solid #dbe3ee;border-radius:14px;background:#f8fafc}.registrationAdminPanel .adminListTools{margin-bottom:14px}@media(max-width:700px){.registrationForm{grid-template-columns:1fr}.registrationForm label:last-child{grid-column:auto}.registrationBox,.registrationAdminPanel{padding:14px}}
+
+.registrationAdvancedGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:10px 0}.registrationAdvancedGrid .check{display:flex;align-items:center;gap:8px}.registrationAdvancedGrid input[type=checkbox]{width:auto}.registrationFieldGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}.registrationFieldGrid label{margin:0}.registrationStatus{margin-bottom:8px}.registrationMeta{font-size:.9rem}.statusPending{color:#8a5a00}.statusApproved{color:#176b3a}.statusRejected{color:#9b2226}@media(max-width:700px){.registrationAdvancedGrid,.registrationFieldGrid{grid-template-columns:1fr}}
+
+.notificationActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.notificationActions .btn{margin:0}@media(max-width:600px){.notificationActions{justify-content:flex-start;width:100%}.notificationActions .btn{flex:1;min-width:150px}}
+
+/* 歷屆成績分類階層 v4 */
+.dropdownNested{position:relative;margin-top:4px}
+.dropdownNestedTitle{display:flex!important;align-items:center;justify-content:space-between;gap:14px;font-weight:900!important;background:#faf7ff}
+.dropdownNestedTitle span{font-size:14px;opacity:.65}
+.dropdownSubmenu{display:none;position:absolute;right:100%;top:0;min-width:220px;background:#fff;border:1px solid #eadff5;border-radius:16px;padding:7px;box-shadow:0 16px 40px rgba(83,62,120,.14);z-index:60;margin-right:6px}
+.dropdownNested:hover>.dropdownSubmenu,.dropdownNested:focus-within>.dropdownSubmenu{display:block}
+.dropdownSubLink{display:block!important;padding:9px 12px!important;border-radius:10px!important;white-space:normal!important}
+@media(max-width:600px){
+  .dropdownSubmenu{display:block;position:static;min-width:0;margin:2px 0 0;box-shadow:none;border:0;border-radius:10px;padding:2px 0 2px 10px}
+  .dropdownNestedTitle span{transform:rotate(90deg)}
+}

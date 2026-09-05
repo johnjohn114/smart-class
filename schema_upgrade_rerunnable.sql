@@ -163,8 +163,15 @@ create table if not exists public.competitions (
 create table if not exists public.competition_categories (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
+  parent_category text,
   created_at timestamptz not null default now()
 );
+
+-- 歷屆成績分類階層：既有自訂分類歸到「蛋仔派對」子選單；之後新建分類預設為最外層。
+alter table public.competition_categories add column if not exists parent_category text;
+update public.competition_categories
+set parent_category='蛋仔'
+where name not in ('Minecraft','蛋仔') and parent_category is null;
 
 alter table public.competition_categories enable row level security;
 drop policy if exists competition_categories_admin_all on public.competition_categories;
@@ -173,8 +180,8 @@ create policy competition_categories_admin_all on public.competition_categories
   using (public.is_admin())
   with check (public.is_admin());
 
-insert into public.competition_categories(name)
-values ('Minecraft'),('蛋仔')
+insert into public.competition_categories(name, parent_category)
+values ('Minecraft',null),('蛋仔',null)
 on conflict (name) do nothing;
 
 -- 既有 competitions 以前有固定 CHECK；移除後才能使用自訂分類。
@@ -443,11 +450,90 @@ alter table public.notifications add column if not exists read_at timestamptz;
 alter table public.notifications enable row level security;
 drop policy if exists notification_owner_read on public.notifications;
 drop policy if exists notification_owner_update on public.notifications;
+drop policy if exists notification_owner_delete on public.notifications;
 drop policy if exists notification_admin_all on public.notifications;
 create policy notification_owner_read on public.notifications
 for select to authenticated using(user_id=auth.uid() or public.is_admin());
 create policy notification_owner_update on public.notifications
 for update to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
+create policy notification_owner_delete on public.notifications
+for delete to authenticated using(user_id=auth.uid());
 create policy notification_admin_all on public.notifications
 for all to authenticated using(public.is_admin()) with check(public.is_admin());
 create index if not exists notifications_user_idx on public.notifications(user_id, created_at desc);
+
+-- #12 線上報名系統 v1
+create table if not exists public.competition_registrations (
+  id uuid primary key default gen_random_uuid(),
+  competition_id uuid not null references public.competitions(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  member_no integer,
+  nickname text not null,
+  email text,
+  note text,
+  status text not null default 'active' check (status in ('active','cancelled')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  cancelled_at timestamptz,
+  custom_fields jsonb not null default '{}'::jsonb,
+  unique (competition_id,user_id)
+);
+
+-- #13 線上報名進階：報名截止、名額、審核與自訂欄位
+alter table public.competitions add column if not exists registration_deadline timestamptz;
+alter table public.competitions add column if not exists registration_capacity integer;
+alter table public.competitions add column if not exists registration_approval boolean not null default false;
+alter table public.competitions add column if not exists registration_fields jsonb not null default '[]'::jsonb;
+alter table public.competition_registrations add column if not exists custom_fields jsonb not null default '{}'::jsonb;
+alter table public.competition_registrations drop constraint if exists competition_registrations_status_check;
+alter table public.competition_registrations add constraint competition_registrations_status_check check (status in ('active','pending','approved','rejected','cancelled'));
+
+create index if not exists competitions_registration_deadline_idx on public.competitions(registration_deadline);
+create index if not exists competition_registrations_status_idx on public.competition_registrations(competition_id,status);
+
+create or replace function public.check_competition_registration_rules()
+returns trigger
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  c public.competitions%rowtype;
+  active_count integer;
+  next_status text;
+begin
+  select * into c from public.competitions where id=new.competition_id;
+  if c.id is null then raise exception '找不到活動／比賽'; end if;
+  if new.status in ('cancelled','rejected') then return new; end if;
+  if c.registration_deadline is not null and now() > c.registration_deadline then
+    raise exception '報名已截止';
+  end if;
+  if c.registration_capacity is not null and c.registration_capacity > 0 then
+    select count(*) into active_count from public.competition_registrations
+      where competition_id=new.competition_id
+        and user_id<>new.user_id
+        and status in ('active','pending','approved');
+    if active_count >= c.registration_capacity then raise exception '報名名額已滿'; end if;
+  end if;
+  next_status := case when c.registration_approval then 'pending' else 'approved' end;
+  if tg_op='INSERT' then new.status := next_status; end if;
+  if tg_op='UPDATE' and new.status='active' then new.status := next_status; end if;
+  return new;
+end; $$;
+
+drop trigger if exists trg_check_competition_registration_rules on public.competition_registrations;
+create trigger trg_check_competition_registration_rules
+before insert or update on public.competition_registrations
+for each row execute function public.check_competition_registration_rules();
+alter table public.competition_registrations enable row level security;
+drop policy if exists "competition_registrations_owner_select" on public.competition_registrations;
+drop policy if exists "competition_registrations_owner_insert" on public.competition_registrations;
+drop policy if exists "competition_registrations_owner_update" on public.competition_registrations;
+drop policy if exists "competition_registrations_owner_delete" on public.competition_registrations;
+drop policy if exists "competition_registrations_admin_all" on public.competition_registrations;
+create policy "competition_registrations_owner_select" on public.competition_registrations for select to authenticated using (user_id=auth.uid() or exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='admin'));
+create policy "competition_registrations_owner_insert" on public.competition_registrations for insert to authenticated with check (user_id=auth.uid() or exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='admin'));
+create policy "competition_registrations_owner_update" on public.competition_registrations for update to authenticated using (user_id=auth.uid() or exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='admin')) with check (user_id=auth.uid() or exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='admin'));
+create policy "competition_registrations_owner_delete" on public.competition_registrations for delete to authenticated using (user_id=auth.uid() or exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='admin'));
+create index if not exists competition_registrations_competition_idx on public.competition_registrations(competition_id,created_at desc);
+create index if not exists competition_registrations_user_idx on public.competition_registrations(user_id,created_at desc);
