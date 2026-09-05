@@ -17,3 +17,10 @@
 4. 再部署網站檔案。
 
 既有 #12 報名資料會保留。新活動可在後台設定進階報名規則。
+
+
+客服系統升級 v2 修正版
+- 修正會員「✓ 我已解決」因 RLS 不允許會員直接 UPDATE 而無法結案的問題。
+- 改用安全的 close_my_support_ticket RPC，會員只能結案自己的案件。
+- 更新前端 cache-busting 版本。
+- SQL 執行後會自動通知 PostgREST reload schema。

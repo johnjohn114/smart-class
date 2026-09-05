@@ -39,6 +39,27 @@ alter table public.announcements add column if not exists published_at timestamp
 alter table public.announcements add column if not exists updated_at timestamptz not null default now();
 alter table public.announcements add column if not exists link_url text;
 alter table public.announcements add column if not exists link_label text;
+alter table public.announcements add column if not exists popup_enabled boolean not null default false;
+alter table public.announcements add column if not exists popup_mode text not null default 'once';
+alter table public.announcements add column if not exists popup_start_at timestamptz;
+alter table public.announcements add column if not exists popup_end_at timestamptz;
+update public.announcements set popup_start_at=published_at where popup_start_at is null and popup_enabled=true;
+alter table public.announcements drop constraint if exists announcements_popup_mode_check;
+alter table public.announcements add constraint announcements_popup_mode_check check (popup_mode in ('once','every_visit'));
+
+create table if not exists public.announcement_reads (
+  announcement_id uuid not null references public.announcements(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  read_at timestamptz not null default now(),
+  primary key (announcement_id,user_id)
+);
+alter table public.announcement_reads enable row level security;
+drop policy if exists announcement_read_owner_select on public.announcement_reads;
+drop policy if exists announcement_read_owner_insert on public.announcement_reads;
+create policy announcement_read_owner_select on public.announcement_reads for select to authenticated using(user_id=auth.uid() or public.is_admin());
+create policy announcement_read_owner_insert on public.announcement_reads for insert to authenticated with check(user_id=auth.uid());
+create index if not exists announcement_reads_user_idx on public.announcement_reads(user_id);
+
 
 -- 商品
 create table if not exists public.products (
@@ -68,12 +89,20 @@ create table if not exists public.support_tickets (
   subject text not null, message text not null, status text not null default 'open' check(status in ('open','answered','closed')),
   admin_reply text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+alter table public.support_tickets add column if not exists updated_at timestamptz not null default now();
+alter table public.support_tickets add column if not exists status text;
+
 
 alter table public.site_settings enable row level security;
 alter table public.profiles enable row level security;
 alter table public.announcements enable row level security;
 alter table public.products enable row level security;
 alter table public.visitor_accounts enable row level security;
+
+update public.support_tickets set status='open' where status is null;
+alter table public.support_tickets drop constraint if exists support_tickets_status_check;
+alter table public.support_tickets add constraint support_tickets_status_check check (status in ('open','answered','closed'));
+create index if not exists support_tickets_status_idx on public.support_tickets(status);
 alter table public.support_tickets enable row level security;
 
 drop policy if exists site_public_read on public.site_settings;
@@ -107,6 +136,26 @@ create policy ticket_owner_insert on public.support_tickets for insert to authen
 create policy ticket_owner_read on public.support_tickets for select to authenticated using(user_id=auth.uid() or public.is_admin());
 create policy ticket_admin_all on public.support_tickets for update to authenticated using(public.is_admin()) with check(public.is_admin());
 create policy ticket_admin_delete on public.support_tickets for delete to authenticated using(public.is_admin());
+
+-- 會員安全結案：會員只能將自己的客服案件標記為已結案，不能透過一般 UPDATE 改寫主旨、內容或管理員回覆。
+create or replace function public.close_my_support_ticket(p_ticket_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.support_tickets
+     set status='closed', updated_at=now()
+   where id=p_ticket_id
+     and user_id=auth.uid()
+     and status <> 'closed';
+  return found;
+end;
+$$;
+revoke all on function public.close_my_support_ticket(uuid) from public;
+grant execute on function public.close_my_support_ticket(uuid) to authenticated;
+
 
 -- 將既有公告的分類／排程資料整理好
 update public.announcements set category='最新消息' where category is null or category='';
@@ -447,6 +496,7 @@ create table if not exists public.notifications (
 );
 alter table public.notifications add column if not exists type text not null default '一般';
 alter table public.notifications add column if not exists read_at timestamptz;
+alter table public.notifications add column if not exists ticket_id uuid references public.support_tickets(id) on delete set null;
 alter table public.notifications enable row level security;
 drop policy if exists notification_owner_read on public.notifications;
 drop policy if exists notification_owner_update on public.notifications;
@@ -461,6 +511,7 @@ for delete to authenticated using(user_id=auth.uid());
 create policy notification_admin_all on public.notifications
 for all to authenticated using(public.is_admin()) with check(public.is_admin());
 create index if not exists notifications_user_idx on public.notifications(user_id, created_at desc);
+create index if not exists notifications_ticket_idx on public.notifications(ticket_id);
 
 -- #12 線上報名系統 v1
 create table if not exists public.competition_registrations (
@@ -537,3 +588,5 @@ create policy "competition_registrations_owner_update" on public.competition_reg
 create policy "competition_registrations_owner_delete" on public.competition_registrations for delete to authenticated using (user_id=auth.uid() or exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='admin'));
 create index if not exists competition_registrations_competition_idx on public.competition_registrations(competition_id,created_at desc);
 create index if not exists competition_registrations_user_idx on public.competition_registrations(user_id,created_at desc);
+
+notify pgrst, 'reload schema';

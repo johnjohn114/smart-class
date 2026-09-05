@@ -234,3 +234,33 @@ footer{text-align:center;padding:45px 20px;background:#5f4b82;color:#fff;margin-
   .dropdownSubmenu{display:block;position:static;min-width:0;margin:2px 0 0;box-shadow:none;border:0;border-radius:10px;padding:2px 0 2px 10px}
   .dropdownNestedTitle span{transform:rotate(90deg)}
 }
+
+/* 我的會員中心 v2：總覽 */
+.memberOverviewHead{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.memberOverviewHead h2{margin:0 0 4px}.memberOverviewGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.memberOverviewCard{border:1px solid #eadff5;background:#fcfaff;border-radius:20px;padding:18px;text-align:left;display:flex;align-items:center;gap:13px;color:#4d3a70;cursor:pointer;font:inherit;transition:transform .15s,box-shadow .15s}.memberOverviewCard:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(83,62,120,.10)}.memberOverviewCard>span:last-child{display:flex;flex-direction:column;min-width:0}.overviewIcon{font-size:30px;line-height:1}.memberOverviewCard small{font-weight:900;color:#8b7e9f}.memberOverviewCard strong{font-size:28px;line-height:1.2;color:#5f43ad}.memberOverviewCard em{font-style:normal;font-size:12px;color:#8b7e9f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.overviewQuick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid #eee5f5}.overviewQuick>span{font-size:13px;font-weight:900;color:#8b7e9f;margin-right:4px}.overviewQuick button{border:0;border-radius:14px;padding:9px 13px;background:#eee5ff;color:#6749cc;font-weight:900;cursor:pointer}.overviewQuick button:hover{background:#e2d4ff}
+@media(max-width:850px){.memberOverviewGrid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.memberOverviewGrid{grid-template-columns:1fr}.memberOverviewCard{padding:16px}.overviewQuick{align-items:flex-start;flex-direction:column}.overviewQuick button{width:100%;text-align:left}}
+
+.notificationTicketBtn{margin-right:8px;margin-top:8px}.notificationTicketBtn+.markRead{margin-top:8px}
+
+
+/* 彈窗公告 */
+body.popupOpen{overflow:hidden}
+.announcementPopup{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+.announcementPopupBackdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.announcementPopupDialog{position:relative;width:min(620px,100%);max-height:min(82vh,760px);overflow:auto;background:#fff;border-radius:22px;padding:30px;box-shadow:0 20px 60px rgba(0,0,0,.28);text-align:left}
+.announcementPopupIcon{font-size:42px;text-align:center;margin-bottom:4px}
+.announcementPopupDate{text-align:center;font-size:14px;font-weight:700;opacity:.7;margin-bottom:8px}
+.announcementPopupDialog h2{margin:0 0 18px;text-align:center}
+.announcementPopupContent{line-height:1.9;white-space:normal;word-break:break-word;margin-bottom:20px}
+.announcementPopupConfirm{display:block;width:100%;font-size:16px;margin-top:20px}
+@media(max-width:600px){.announcementPopup{padding:12px}.announcementPopupDialog{padding:22px;border-radius:18px;max-height:88vh}.announcementPopupIcon{font-size:36px}.announcementPopupDialog h2{font-size:21px}}
+
+
+/* Popup announcement admin settings v2 */
+.popupSettingsBox{margin:14px 0;padding:16px;border:2px solid #2563eb;border-radius:12px;background:#eff6ff}
+.popupSettingsTitle{font-size:18px;font-weight:700;margin-bottom:10px}
+.popupEnableRow{font-size:16px;padding:10px 12px;border-radius:8px;background:#fff}
+.popupEnableRow input{width:auto}
+.popupHint{margin:8px 0 12px;font-size:13px;line-height:1.6;color:#475569}
+.popupSettingsBox label{display:block;margin-top:10px}
+@media (max-width:600px){.popupSettingsBox{padding:12px}.popupSettingsTitle{font-size:17px}}

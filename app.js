@@ -40,7 +40,51 @@ function bindMobileNav(){
   }));
 }
 function show(id,msg){const e=$(id);if(e)e.textContent=msg;}
-async function loadSite(){if(!configured())return;try{const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};const s=await fetch(SUPABASE_URL+'/rest/v1/site_settings?select=*&id=eq.1',{headers:h});if(s.ok){const a=await s.json();if(a[0])apply(a[0])}const n=await fetch(SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc&limit=3',{headers:h});if(n.ok){const rows=await n.json();$('newsList')&&($('newsList').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前還沒有公告。</div>')}}catch(e){console.error(e);$('newsList')&&($('newsList').innerHTML='<div class="empty">目前無法載入公告。</div>')}}
+let __popupAnnouncements=[];
+function popupStorageKey(id){return 'announcement_popup_read_'+id}
+async function loadPopupAnnouncement(){
+  if(!configured())return;
+  try{
+    const now=new Date().toISOString();
+    const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+    const url=SUPABASE_URL+'/rest/v1/announcements?select=id,title,content,link_url,link_label,popup_mode,popup_start_at,popup_end_at,published_at&published=eq.true&popup_enabled=eq.true&popup_start_at=lte.'+encodeURIComponent(now)+'&or=(popup_end_at.is.null,popup_end_at.gte.'+encodeURIComponent(now)+')&order=pinned.desc,published_at.desc,created_at.desc&limit=5';
+    const r=await fetch(url,{headers:h});
+    if(!r.ok)return;
+    const rows=await r.json();
+    if(!rows.length)return;
+    const uid=(await getCurrentUser())?.id||null;
+    let readIds=new Set();
+    if(uid){
+      const rr=await fetch(SUPABASE_URL+'/rest/v1/announcement_reads?user_id=eq.'+encodeURIComponent(uid)+'&announcement_id=in.('+rows.map(x=>encodeURIComponent(x.id)).join(',')+')&select=announcement_id',{headers:auth()});
+      if(rr.ok)(await rr.json()).forEach(x=>readIds.add(x.announcement_id));
+    }
+    const candidate=rows.find(x=>{
+      if(x.popup_mode==='once') return !readIds.has(x.id) && localStorage.getItem(popupStorageKey(x.id))!=='1';
+      return sessionStorage.getItem(popupStorageKey(x.id))!=='1';
+    });
+    if(candidate)showPopupAnnouncement(candidate);
+  }catch(e){console.warn('彈窗公告載入失敗:',e)}
+}
+function showPopupAnnouncement(x){
+  document.getElementById('announcementPopup')?.remove();
+  const wrap=document.createElement('div');wrap.id='announcementPopup';wrap.className='announcementPopup';
+  wrap.innerHTML='<div class="announcementPopupBackdrop" data-popup-close></div><div class="announcementPopupDialog" role="dialog" aria-modal="true" aria-labelledby="announcementPopupTitle"><div class="announcementPopupIcon">📢</div><div class="announcementPopupDate">重要公告</div><h2 id="announcementPopupTitle">'+esc(x.title)+'</h2><div class="announcementPopupContent">'+esc(x.content).replace(/\n/g,'<br>')+'</div>'+(x.link_url?'<p><a class="btn secondary" href="'+esc(x.link_url)+'" target="_blank" rel="noopener noreferrer">🔗 '+esc(x.link_label||'查看詳情')+'</a></p>':'')+'<button class="btn announcementPopupConfirm" type="button" id="announcementPopupConfirm">✓ 我已閱讀</button></div>';
+  document.body.appendChild(wrap);
+  document.body.classList.add('popupOpen');
+  const close=async()=>{
+    if(x.popup_mode==='once'){
+      localStorage.setItem(popupStorageKey(x.id),'1');
+      const uid=(await getCurrentUser())?.id;
+      if(uid){
+        await fetch(SUPABASE_URL+'/rest/v1/announcement_reads',{method:'POST',headers:{...auth(),Prefer:'resolution=ignore-duplicates'},body:JSON.stringify({announcement_id:x.id,user_id:uid})}).catch(()=>{});
+      }
+    }else sessionStorage.setItem(popupStorageKey(x.id),'1');
+    wrap.remove();document.body.classList.remove('popupOpen');
+  };
+  $('announcementPopupConfirm')?.addEventListener('click',close);
+  document.addEventListener('keydown',function escPopup(e){if(e.key==='Escape'){close();document.removeEventListener('keydown',escPopup)}});
+}
+async function loadSite(){if(!configured())return;try{const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};const s=await fetch(SUPABASE_URL+'/rest/v1/site_settings?select=*&id=eq.1',{headers:h});if(s.ok){const a=await s.json();if(a[0])apply(a[0])}const n=await fetch(SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc&limit=3',{headers:h});if(n.ok){const rows=await n.json();$('newsList')&&($('newsList').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前還沒有公告。</div>')}await loadPopupAnnouncement()}catch(e){console.error(e);$('newsList')&&($('newsList').innerHTML='<div class="empty">目前無法載入公告。</div>')}}
 function card(x){
   const link=x.link_url?'<p><a class="btn secondary" href="'+esc(x.link_url)+'" target="_blank" rel="noopener noreferrer">🔗 '+esc(x.link_label||'查看連結')+'</a></p>':'';
   return '<article class="notice"><div class="date">'+(x.pinned?'📌 ':'')+esc(x.date||String(x.published_at||'').slice(0,10))+' · '+esc(x.category||'最新消息')+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.content).replace(/\n/g,'<br>')+'</p>'+link+'</article>';
@@ -50,7 +94,19 @@ async function loadAllNews(category='all'){if(!configured())return;const h={apik
 async function loadProducts(){if(!configured())return;const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};const r=await fetch(SUPABASE_URL+'/rest/v1/products?select=*&active=eq.true&order=created_at.desc',{headers:h});const rows=r.ok?await r.json():[];if($('productGrid'))$('productGrid').innerHTML=rows.length?rows.map(productCard).join(''):'<div class="empty">目前沒有上架商品。</div>'}
 function productCard(p){return '<article class="productCard">'+(p.image_url?'<img src="'+esc(p.image_url)+'" alt="'+esc(p.name)+'">':'<div class="productImage">📦</div>')+'<div class="productBody"><div class="date">'+esc(p.category||'商品')+'</div><h3>'+esc(p.name)+'</h3><p>'+esc(p.description||'')+'</p><strong>NT$ '+Number(p.price||0).toLocaleString()+'</strong></div></article>'}
 async function sendTicket(){if(!visitorToken()){show('ticketMsg','請先登入訪客帳號。');return}const subject=$('ticketSubject').value.trim(),message=$('ticketMessage').value.trim();if(!subject||!message){show('ticketMsg','請填寫主旨與內容。');return}const r=await fetch(SUPABASE_URL+'/rest/v1/support_tickets',{method:'POST',headers:auth(),body:JSON.stringify({subject,message})});show('ticketMsg',r.ok?'✅ 已送出，管理員會處理。':'❌ 送出失敗，請稍後再試。');if(r.ok){$('ticketSubject').value='';$('ticketMessage').value='';await loadMyTickets()}}
-async function loadMyTickets(){if(!$('myTickets')||!visitorToken())return;const r=await fetch(SUPABASE_URL+'/rest/v1/support_tickets?select=*&order=created_at.desc',{headers:auth()});const rows=r.ok?await r.json():[];$('myTickets').innerHTML=rows.length?rows.map(t=>'<article class="notice"><div class="date">'+esc(t.status)+' · '+esc(String(t.created_at).slice(0,10))+'</div><h3>'+esc(t.subject)+'</h3><p>'+esc(t.message).replace(/\n/g,'<br>')+'</p>'+(t.admin_reply?'<hr><p><b>管理員回覆：</b>'+esc(t.admin_reply).replace(/\n/g,'<br>')+'</p>':'')+'</article>').join(''):'<div class="empty">尚無客服紀錄。</div>'}
+function supportStatusText(s){return s==='closed'?'⚪ 已結案':s==='answered'?'🟢 已回覆':'🟠 處理中'}
+async function loadMyTickets(){
+  if(!$('myTickets')||!visitorToken())return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/support_tickets?select=*&order=created_at.desc',{headers:auth()});
+  const rows=r.ok?await r.json():[];
+  $('myTickets').innerHTML=rows.length?rows.map(t=>{
+    const reply=t.admin_reply?'<hr><p><b>管理員回覆：</b>'+esc(t.admin_reply).replace(/\n/g,'<br>')+'</p>':'<p class="sub">等待管理員回覆。</p>';
+    const action=t.status!=='closed'?'<div class="supportActions"><button class="btn secondary" type="button" data-close-ticket="'+esc(t.id)+'">✓ 我已解決</button></div>':'';
+    return '<article class="notice supportTicketCard"><div class="date">'+supportStatusText(t.status)+' · '+esc(String(t.updated_at||t.created_at).slice(0,16).replace('T',' '))+'</div><h3>'+esc(t.subject)+'</h3><p>'+esc(t.message).replace(/\n/g,'<br>')+'</p>'+reply+action+'</article>';
+  }).join(''):'<div class="empty">尚無客服紀錄。</div>';
+  document.querySelectorAll('[data-close-ticket]').forEach(b=>b.addEventListener('click',()=>closeMyTicket(b.dataset.closeTicket)));
+}
+async function closeMyTicket(id){if(!visitorToken()||!confirm('確定要將此客服案件結案嗎？'))return;const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/close_my_support_ticket',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_ticket_id:id})});let ok=false;if(r.ok){const d=await r.json().catch(()=>false);ok=d===true||(Array.isArray(d)&&d[0]===true)}if(ok){await loadMyTickets();await loadMyOverview()}else alert('結案失敗，請稍後再試。')}
 
 function couponStatus(c){
   if(c.used) return {text:'⚫ 已使用',cls:'used'};
@@ -355,6 +411,36 @@ async function loadCompetitionPage(){
 
 
 
+async function loadMyOverview(){
+  if(!$('myOverviewPanel')||!visitorToken()||!configured())return;
+  const uid=(await getCurrentUser())?.id;if(!uid)return;
+  const h=auth();
+  try{
+    const [regR,notR,couponR,ticketR]=await Promise.all([
+      fetch(SUPABASE_URL+'/rest/v1/competition_registrations?select=id,status&user_id=eq.'+encodeURIComponent(uid)+'&status=in.(active,pending,approved)',{headers:h}),
+      fetch(SUPABASE_URL+'/rest/v1/notifications?select=id&user_id=eq.'+encodeURIComponent(uid)+'&read_at=is.null',{headers:h}),
+      fetch(SUPABASE_URL+'/rest/v1/coupons?select=id,used,expires_at&order=created_at.desc',{headers:h}),
+      fetch(SUPABASE_URL+'/rest/v1/support_tickets?select=id,status&order=created_at.desc',{headers:h})
+    ]);
+    const regs=regR.ok?await regR.json():[];
+    const unread=notR.ok?await notR.json():[];
+    const coupons=couponR.ok?await couponR.json():[];
+    const tickets=ticketR.ok?await ticketR.json():[];
+    const now=Date.now();
+    const usableCoupons=coupons.filter(c=>!c.used&&(!c.expires_at||new Date(c.expires_at).getTime()>=now));
+    const openTickets=tickets.filter(t=>t.status!=='closed');
+    $('overviewCompetitionCount').textContent=regs.length;
+    $('overviewCompetitionText').textContent=regs.length?'有 '+regs.length+' 個進行中的報名':'目前沒有進行中的報名';
+    $('overviewUnreadCount').textContent=unread.length;
+    $('overviewNotificationText').textContent=unread.length?'有新的通知':'目前沒有未讀通知';
+    $('overviewCouponCount').textContent=usableCoupons.length;
+    $('overviewCouponText').textContent=usableCoupons.length?'張優惠券可以使用':'目前沒有可用優惠券';
+    $('overviewSupportCount').textContent=openTickets.length;
+    $('overviewSupportText').textContent=openTickets.length?'個客服案件處理中':'目前沒有待處理案件';
+  }catch(e){
+    console.error('會員中心總覽載入失敗:',e);
+  }
+}
 async function loadMyProfile(){
   const box=$('myProfile'); if(!box||!visitorToken()) return;
   const u=await getCurrentUser(); if(!u) return;
@@ -417,8 +503,9 @@ function renderMyNotifications(){
   const rows=filter==='unread'?myNotificationRows.filter(x=>!x.read_at):filter==='read'?myNotificationRows.filter(x=>x.read_at):myNotificationRows;
   const unread=myNotificationRows.filter(x=>!x.read_at).length;
   const summary=$('notificationSummary'); if(summary)summary.textContent='共 '+myNotificationRows.length+' 則通知 · 未讀 '+unread+' 則';
-  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at).slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.content).replace(/\n/g,'<br>')+'</p>'+(!x.read_at?'<button class="markRead" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
+  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at).slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.content).replace(/\n/g,'<br>')+'</p>'+((x.type==='客服'&&x.ticket_id)?'<button class="btn secondary notificationTicketBtn" type="button" data-ticket-notice="'+esc(x.ticket_id)+'">💬 查看客服案件</button> ':'')+(!x.read_at?'<button class="markRead" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
   document.querySelectorAll('.markRead').forEach(b=>b.onclick=()=>markNotificationRead(b.dataset.notice));
+  document.querySelectorAll('[data-ticket-notice]').forEach(b=>b.onclick=async()=>{await markNotificationRead(b.closest('.notice')?.querySelector('[data-notice]')?.dataset.notice||''); showMySection('mySupportPanel'); location.hash='mySupportPanel';});
 }
 async function loadMyNotifications(){
   const box=$('myNotifications'); if(!box||!visitorToken())return;
@@ -485,7 +572,7 @@ function initSiteSearch(){
   if(input.value.trim())runSiteSearch();
 }
 
-function showMySection(id){document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));$(id)?.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));}
+function showMySection(id){document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));$(id)?.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();}
 
-window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;if(sessionOk)loadSite();else if(!$('visitorGate'))loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();if($('competitionList'))loadCompetitionPage();if($('myProfile')&&sessionOk){loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
+window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();if($('competitionList'))loadCompetitionPage();if($('myProfile')&&sessionOk){loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
 window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id&&$(id))showMySection(id);});
