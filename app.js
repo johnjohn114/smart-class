@@ -441,6 +441,37 @@ async function loadMyOverview(){
     console.error('會員中心總覽載入失敗:',e);
   }
 }
+
+async function loadMyGrowth(){
+  const panel=$('myGrowthPanel'); if(!panel||!visitorToken()||!configured())return;
+  try{
+    const u=await getCurrentUser(); if(!u)return;
+    // 先執行可自動完成的任務與成就，再重新讀取積分／等級，避免畫面顯示舊資料。
+    const tr0=await fetch(SUPABASE_URL+'/rest/v1/growth_tasks?select=*&order=created_at.asc',{headers:auth()});
+    const tasks=tr0.ok?await tr0.json():[];
+    for(const task of tasks){
+      await fetch(SUPABASE_URL+'/rest/v1/rpc/complete_growth_task',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_task_code:task.code})}).catch(()=>{});
+    }
+    await fetch(SUPABASE_URL+'/rest/v1/rpc/check_growth_achievements',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_user_id:u.id})}).catch(()=>{});
+    await fetch(SUPABASE_URL+'/rest/v1/rpc/refresh_growth_level',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_user_id:u.id})}).catch(()=>{});
+
+    const pr=await fetch(SUPABASE_URL+'/rest/v1/profiles?id=eq.'+encodeURIComponent(u.id)+'&select=growth_points,growth_level,nickname',{headers:auth()});
+    const p=pr.ok?(await pr.json())[0]:null;
+    const lr=await fetch(SUPABASE_URL+'/rest/v1/growth_levels?select=*&order=min_points.asc',{headers:auth()});
+    const levels=lr.ok?await lr.json():[]; const lvl=levels.find(x=>x.code===(p?.growth_level||'newbie'))||levels[0];
+    const pts=Number(p?.growth_points||0), next=levels.find(x=>x.min_points>pts);
+    const pct=next?Math.min(100,Math.max(0,Math.round((pts-(lvl?.min_points||0))/Math.max(1,next.min_points-(lvl?.min_points||0))*100))):100;
+    $('growthSummary').innerHTML='<div class="growthLevelCard"><div class="growthBigIcon">'+esc(lvl?.icon||'💎')+'</div><div><div class="growthLabel">目前等級</div><h3>'+esc(lvl?.name||'新手')+'</h3><b>💎 '+pts+' 積分</b><div class="growthProgress"><i style="width:'+pct+'%"></i></div><small>'+(next?'距離 '+esc(next.name)+' 還差 '+(next.min_points-pts)+' 分':'已達目前最高等級')+'</small></div></div>';
+    const ur=await fetch(SUPABASE_URL+'/rest/v1/growth_user_tasks?user_id=eq.'+encodeURIComponent(u.id)+'&select=task_id,progress,completed_at',{headers:auth()}); const uts=ur.ok?await ur.json():[]; const um=new Map(uts.map(x=>[x.task_id,x]));
+    $('growthTasks').innerHTML=tasks.map(x=>{const s=um.get(x.id)||{progress:0};return '<div class="growthItem"><div><b>'+esc(x.title)+'</b><p>'+esc(x.description||'')+'</p><small>獎勵 💎 '+x.reward_points+' · 進度 '+Math.min(s.progress||0,x.requirement_count)+'/'+x.requirement_count+'</small></div><span>'+ (s.completed_at?'✅ 已完成':'🎯 進行中')+'</span></div>'}).join('')||'<div class="empty">目前沒有任務。</div>';
+    const ar=await fetch(SUPABASE_URL+'/rest/v1/growth_achievements?select=*&order=created_at.asc',{headers:auth()}); const ach=ar.ok?await ar.json():[];
+    const ua=await fetch(SUPABASE_URL+'/rest/v1/growth_user_achievements?user_id=eq.'+encodeURIComponent(u.id)+'&select=achievement_id,unlocked_at',{headers:auth()}); const uas=ua.ok?await ua.json():[]; const am=new Map(uas.map(x=>[x.achievement_id,x]));
+    $('growthAchievements').innerHTML=ach.map(x=>{const a=am.get(x.id);return '<div class="growthItem"><div><b>'+esc(x.title)+'</b><p>'+esc(x.description||'')+'</p><small>解鎖條件：'+esc(x.requirement_count)+' '+esc(x.achievement_type==='points'?'積分':'次數')+(x.reward_points?' · 獎勵 💎 '+x.reward_points:'')+'</small></div><span>'+ (a?'🏆 已解鎖':'🔒 未解鎖')+'</span></div>'}).join('')||'<div class="empty">目前沒有成就。</div>';
+    const hr=await fetch(SUPABASE_URL+'/rest/v1/growth_point_transactions?user_id=eq.'+encodeURIComponent(u.id)+'&select=amount,reason,source_type,created_at&order=created_at.desc&limit=30',{headers:auth()}); const hist=hr.ok?await hr.json():[];
+    $('growthHistory').innerHTML=hist.map(x=>'<div class="growthHistoryRow"><span>'+new Date(x.created_at).toLocaleString('zh-TW')+'</span><b class="'+(x.amount>0?'growthPlus':'growthMinus')+'">'+(x.amount>0?'+':'')+x.amount+' 💎</b><em>'+esc(x.reason)+'</em></div>').join('')||'<div class="empty">目前還沒有積分紀錄。</div>';
+  }catch(e){console.error('會員成長載入失敗:',e);$('growthSummary').innerHTML='<div class="empty">❌ 無法載入會員成長資料。</div>'}
+}
+
 async function loadMyProfile(){
   const box=$('myProfile'); if(!box||!visitorToken()) return;
   const u=await getCurrentUser(); if(!u) return;
@@ -572,7 +603,7 @@ function initSiteSearch(){
   if(input.value.trim())runSiteSearch();
 }
 
-function showMySection(id){document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));$(id)?.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();}
+function showMySection(id){document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));$(id)?.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();if(id==='myGrowthPanel')loadMyGrowth();}
 
 window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();if($('competitionList'))loadCompetitionPage();if($('myProfile')&&sessionOk){loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
 window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id&&$(id))showMySection(id);});

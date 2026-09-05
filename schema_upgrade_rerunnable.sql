@@ -589,4 +589,238 @@ create policy "competition_registrations_owner_delete" on public.competition_reg
 create index if not exists competition_registrations_competition_idx on public.competition_registrations(competition_id,created_at desc);
 create index if not exists competition_registrations_user_idx on public.competition_registrations(user_id,created_at desc);
 
+
+
+notify pgrst, 'reload schema';
+
+
+-- #21 會員成長系統 v1：積分、等級、任務、成就與管理紀錄
+alter table public.profiles add column if not exists growth_points integer not null default 0;
+alter table public.profiles add column if not exists growth_level text not null default 'newbie';
+
+create table if not exists public.growth_levels (
+  code text primary key,
+  name text not null,
+  min_points integer not null default 0 check(min_points >= 0),
+  icon text not null default '⭐',
+  sort_order integer not null default 0
+);
+insert into public.growth_levels(code,name,min_points,icon,sort_order) values
+ ('newbie','新手',0,'🌱',1),('bronze','青銅會員',100,'⭐',2),('silver','白銀會員',300,'🥈',3),('gold','黃金會員',600,'🥇',4),('diamond','鑽石會員',1000,'💎',5)
+on conflict(code) do nothing;
+
+create table if not exists public.growth_point_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  amount integer not null check(amount <> 0),
+  reason text not null,
+  source_type text not null default 'manual',
+  source_id text,
+  source_key text unique,
+  admin_user_id uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists growth_points_user_idx on public.growth_point_transactions(user_id,created_at desc);
+
+create table if not exists public.growth_tasks (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  title text not null,
+  description text,
+  task_type text not null check(task_type in ('profile_complete','first_registration','first_result','registration_count','result_count')),
+  requirement_count integer not null default 1 check(requirement_count > 0),
+  reward_points integer not null default 0 check(reward_points >= 0),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+insert into public.growth_tasks(code,title,description,task_type,requirement_count,reward_points) values
+ ('complete_profile','完成會員資料','完成會員暱稱設定', 'profile_complete',1,20),
+ ('first_registration','第一次報名','第一次成功報名活動／比賽', 'first_registration',1,20),
+ ('first_result','第一次參賽成績','第一次產生已公布的比賽成績', 'first_result',1,30)
+on conflict(code) do nothing;
+
+create table if not exists public.growth_user_tasks (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  task_id uuid not null references public.growth_tasks(id) on delete cascade,
+  progress integer not null default 0,
+  completed_at timestamptz,
+  primary key(user_id,task_id)
+);
+create index if not exists growth_user_tasks_user_idx on public.growth_user_tasks(user_id);
+
+create table if not exists public.growth_achievements (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  title text not null,
+  description text,
+  achievement_type text not null check(achievement_type in ('registration_count','result_place','points')),
+  requirement_count integer not null default 1 check(requirement_count > 0),
+  reward_points integer not null default 0 check(reward_points >= 0),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+insert into public.growth_achievements(code,title,description,achievement_type,requirement_count,reward_points) values
+ ('first_registration','初次參賽','完成第一次活動／比賽報名','registration_count',1,10),
+ ('first_champion','首次冠軍','取得一次第一名','result_place',1,30),
+ ('points_100','積分達人','累積取得 100 積分','points',100,20)
+on conflict(code) do nothing;
+
+create table if not exists public.growth_user_achievements (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  achievement_id uuid not null references public.growth_achievements(id) on delete cascade,
+  unlocked_at timestamptz not null default now(),
+  primary key(user_id,achievement_id)
+);
+create index if not exists growth_user_achievements_user_idx on public.growth_user_achievements(user_id,unlocked_at desc);
+
+-- 成就自動解鎖
+create or replace function public.check_growth_achievements(p_user_id uuid default auth.uid())
+returns integer language plpgsql security definer set search_path=public as $$
+declare a growth_achievements%rowtype; unlocked integer:=0; n integer:=0; pts integer:=0;
+begin
+ if p_user_id is null then raise exception '請先登入'; end if;
+ select growth_points into pts from public.profiles where id=p_user_id;
+ for a in select * from public.growth_achievements where active=true loop
+   if exists(select 1 from public.growth_user_achievements where user_id=p_user_id and achievement_id=a.id) then continue; end if;
+   if a.achievement_type='registration_count' then
+     select count(*) into n from public.competition_registrations where user_id=p_user_id and status in ('active','pending','approved');
+   elsif a.achievement_type='result_place' then
+     select count(*) into n from public.competition_results r join public.competitions c on c.id=r.competition_id where r.user_id=p_user_id and c.published=true and r.place=1;
+   elsif a.achievement_type='points' then n:=coalesce(pts,0);
+   end if;
+   if n>=a.requirement_count then
+     insert into public.growth_user_achievements(user_id,achievement_id) values(p_user_id,a.id) on conflict do nothing;
+     if found then
+       unlocked:=unlocked+1;
+       if a.reward_points>0 then perform public.award_growth_points(p_user_id,a.reward_points,'解鎖成就：'||a.title,'achievement',a.id::text,'achievement:'||a.id::text||':'||p_user_id::text,null); end if;
+     end if;
+   end if;
+ end loop;
+ return unlocked;
+end; $$;
+revoke all on function public.check_growth_achievements(uuid) from public;
+grant execute on function public.check_growth_achievements(uuid) to authenticated;
+
+
+alter table public.growth_levels enable row level security;
+drop policy if exists growth_levels_public_read on public.growth_levels;
+create policy growth_levels_public_read on public.growth_levels for select to authenticated using(true);
+alter table public.growth_point_transactions enable row level security;
+drop policy if exists growth_points_owner_read on public.growth_point_transactions;
+drop policy if exists growth_points_admin_all on public.growth_point_transactions;
+create policy growth_points_owner_read on public.growth_point_transactions for select to authenticated using(user_id=auth.uid() or public.is_admin());
+create policy growth_points_admin_all on public.growth_point_transactions for all to authenticated using(public.is_admin()) with check(public.is_admin());
+alter table public.growth_tasks enable row level security;
+drop policy if exists growth_tasks_read on public.growth_tasks;
+drop policy if exists growth_tasks_admin_all on public.growth_tasks;
+create policy growth_tasks_read on public.growth_tasks for select to authenticated using(active or public.is_admin());
+create policy growth_tasks_admin_all on public.growth_tasks for all to authenticated using(public.is_admin()) with check(public.is_admin());
+alter table public.growth_user_tasks enable row level security;
+drop policy if exists growth_user_tasks_owner on public.growth_user_tasks;
+create policy growth_user_tasks_owner on public.growth_user_tasks for select to authenticated using(user_id=auth.uid() or public.is_admin());
+alter table public.growth_achievements enable row level security;
+drop policy if exists growth_achievements_read on public.growth_achievements;
+drop policy if exists growth_achievements_admin_all on public.growth_achievements;
+create policy growth_achievements_read on public.growth_achievements for select to authenticated using(active or public.is_admin());
+create policy growth_achievements_admin_all on public.growth_achievements for all to authenticated using(public.is_admin()) with check(public.is_admin());
+alter table public.growth_user_achievements enable row level security;
+drop policy if exists growth_user_achievements_owner on public.growth_user_achievements;
+create policy growth_user_achievements_owner on public.growth_user_achievements for select to authenticated using(user_id=auth.uid() or public.is_admin());
+
+create or replace function public.refresh_growth_level(p_user_id uuid)
+returns text language plpgsql security definer set search_path=public as $$
+declare lvl growth_levels%rowtype;
+begin
+ select * into lvl from public.growth_levels where min_points <= coalesce((select growth_points from public.profiles where id=p_user_id),0) order by min_points desc,sort_order desc limit 1;
+ if lvl.code is null then lvl.code:='newbie'; end if;
+ update public.profiles set growth_level=lvl.code where id=p_user_id;
+ return lvl.code;
+end; $$;
+revoke all on function public.refresh_growth_level(uuid) from public;
+grant execute on function public.refresh_growth_level(uuid) to authenticated;
+
+create or replace function public.award_growth_points(p_user_id uuid,p_amount integer,p_reason text,p_source_type text default 'manual',p_source_id text default null,p_source_key text default null,p_admin_user_id uuid default null)
+returns integer language plpgsql security definer set search_path=public as $$
+declare new_points integer; old_points integer;
+begin
+ if p_user_id is null or p_amount=0 then raise exception '積分資料無效'; end if;
+ if p_source_key is not null and exists(select 1 from public.growth_point_transactions where source_key=p_source_key) then
+   return coalesce((select growth_points from public.profiles where id=p_user_id),0);
+ end if;
+ select growth_points into old_points from public.profiles where id=p_user_id for update;
+ if old_points is null then raise exception '找不到會員'; end if;
+ new_points:=old_points+p_amount;
+ if new_points<0 then raise exception '積分不足，無法扣除'; end if;
+ update public.profiles set growth_points=new_points where id=p_user_id;
+ insert into public.growth_point_transactions(user_id,amount,reason,source_type,source_id,source_key,admin_user_id) values(p_user_id,p_amount,p_reason,p_source_type,p_source_id,p_source_key,p_admin_user_id);
+ perform public.refresh_growth_level(p_user_id);
+ return new_points;
+end; $$;
+revoke all on function public.award_growth_points(uuid,integer,text,text,text,text,uuid) from public;
+revoke all on function public.award_growth_points(uuid,integer,text,text,text,text,uuid) from authenticated;
+
+create or replace function public.complete_growth_task(p_task_code text)
+returns boolean language plpgsql security definer set search_path=public as $$
+declare uid uuid:=auth.uid(); t growth_tasks%rowtype; n integer:=0; done boolean:=false;
+begin
+ if uid is null then raise exception '請先登入'; end if;
+ select * into t from public.growth_tasks where code=p_task_code and active=true;
+ if t.id is null then raise exception '找不到任務'; end if;
+ if exists(select 1 from public.growth_user_tasks where user_id=uid and task_id=t.id and completed_at is not null) then return true; end if;
+ if t.task_type='profile_complete' then select count(*) into n from public.profiles where id=uid and coalesce(nullif(trim(nickname),''),'')<>'';
+ elsif t.task_type='first_registration' then select count(*) into n from public.competition_registrations where user_id=uid and status in ('active','pending','approved');
+ elsif t.task_type='first_result' then select count(*) into n from public.competition_results r join public.competitions c on c.id=r.competition_id where r.user_id=uid and c.published=true;
+ elsif t.task_type='registration_count' then select count(*) into n from public.competition_registrations where user_id=uid and status in ('active','pending','approved');
+ elsif t.task_type='result_count' then select count(*) into n from public.competition_results r join public.competitions c on c.id=r.competition_id where r.user_id=uid and c.published=true;
+ end if;
+ insert into public.growth_user_tasks(user_id,task_id,progress) values(uid,t.id,least(n,t.requirement_count)) on conflict(user_id,task_id) do update set progress=excluded.progress;
+ if n>=t.requirement_count then
+   update public.growth_user_tasks set completed_at=now(),progress=t.requirement_count where user_id=uid and task_id=t.id and completed_at is null;
+   if t.reward_points>0 then perform public.award_growth_points(uid,t.reward_points,'完成任務：'||t.title,'task',t.id::text,'task:'||t.id::text||':'||uid::text,null); end if;
+   return true;
+ end if;
+ return false;
+end; $$;
+revoke all on function public.complete_growth_task(text) from public;
+grant execute on function public.complete_growth_task(text) to authenticated;
+
+create or replace function public.admin_adjust_growth_points(p_user_id uuid,p_amount integer,p_reason text)
+returns integer language plpgsql security definer set search_path=public as $$
+begin
+ if not public.is_admin() then raise exception '沒有管理員權限'; end if;
+ if p_reason is null or trim(p_reason)='' then raise exception '請填寫調整原因'; end if;
+ return public.award_growth_points(p_user_id,p_amount,p_reason,'admin',null,null,auth.uid());
+end; $$;
+revoke all on function public.admin_adjust_growth_points(uuid,integer,text) from public;
+grant execute on function public.admin_adjust_growth_points(uuid,integer,text) to authenticated;
+
+-- 報名／成績自動積分（只在第一次產生來源紀錄時發放，避免重複）
+create or replace function public.growth_registration_reward()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+ if new.status in ('active','pending','approved') then
+   perform public.award_growth_points(new.user_id,5,'完成活動／比賽報名','registration',new.id::text,'registration:'||new.id::text,null);
+ end if;
+ return new;
+end; $$;
+drop trigger if exists trg_growth_registration_reward on public.competition_registrations;
+create trigger trg_growth_registration_reward after insert on public.competition_registrations for each row execute function public.growth_registration_reward();
+
+create or replace function public.growth_result_reward()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare pts integer:=10; published boolean;
+begin
+ if new.user_id is null then return new; end if;
+ select c.published into published from public.competitions c where c.id=new.competition_id;
+ if coalesce(published,false) then
+   pts:=case when new.place=1 then 50 when new.place=2 then 30 when new.place=3 then 20 else 10 end;
+   perform public.award_growth_points(new.user_id,pts,'比賽成績：第 '||new.place||' 名','result',new.id::text,'result:'||new.id::text,null);
+ end if;
+ return new;
+end; $$;
+drop trigger if exists trg_growth_result_reward on public.competition_results;
+create trigger trg_growth_result_reward after insert on public.competition_results for each row execute function public.growth_result_reward();
+
+
+
 notify pgrst, 'reload schema';
