@@ -116,7 +116,27 @@ function couponStatus(c){
 }
 function couponCard(c){
   const s=couponStatus(c);
-  return '<article class="couponCard '+s.cls+'"><div class="couponTop"><span>'+esc(s.text)+'</span><span>🎟️</span></div><h3>'+esc(c.title)+'</h3><p>'+esc(c.description||'')+'</p>'+(c.discount?'<strong class="couponDiscount">'+esc(c.discount)+'</strong>':'')+'<div class="couponCode">'+esc(c.code)+'</div><div class="date">'+(c.expires_at?'有效至：'+esc(String(c.expires_at).slice(0,10)):'無期限')+'</div></article>';
+  const canUse=!c.used&&(!c.expires_at||new Date(c.expires_at)>=new Date());
+  return '<article class="couponCard '+s.cls+'"><div class="couponTop"><span>'+esc(s.text)+'</span><span>🎟️</span></div><h3>'+esc(c.title)+'</h3><p>'+esc(c.description||'')+'</p>'+(c.discount?'<strong class="couponDiscount">'+esc(c.discount)+'</strong>':'')+'<div class="couponCode">'+esc(c.code)+'</div><div class="date">'+(c.expires_at?'有效至：'+esc(String(c.expires_at).slice(0,10)):'無期限')+'</div>'+(canUse?'<button class="couponUseBtn" data-coupon-use="'+esc(c.id)+'">🎟️ 使用優惠券</button>':'')+'</article>';
+}
+
+async function useMyCoupon(id){
+  if(!id||!visitorToken())return;
+  if(!confirm('確定要使用這張優惠券嗎？\n使用後將無法再次使用。'))return;
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/use_growth_coupon',{method:'POST',headers:{...auth(),'Content-Type':'application/json'},body:JSON.stringify({p_coupon_id:id})});
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok||data.success===false){
+      alert('❌ 使用失敗：'+(data.error||data.message||'請稍後再試'));
+      return;
+    }
+    alert('✅ 優惠券已使用！');
+    await loadMyCoupons();
+    if($('overviewCouponCount'))loadMyOverview();
+  }catch(e){
+    console.error('使用優惠券例外:',e);
+    alert('❌ 使用失敗：請檢查網路連線後再試');
+  }
 }
 async function loadMyCoupons(){
   const box=$('myCoupons'), gate=$('couponGate');
@@ -125,9 +145,21 @@ async function loadMyCoupons(){
     box.classList.add('hidden'); gate?.classList.remove('hidden'); return;
   }
   gate?.classList.add('hidden'); box.classList.remove('hidden');
-  const r=await fetch(SUPABASE_URL+'/rest/v1/coupons?select=*&order=created_at.desc',{headers:auth()});
-  const rows=r.ok?await r.json():[];
-  box.innerHTML=rows.length?rows.map(couponCard).join(''):'<div class="empty">目前沒有優惠券。</div>';
+  box.innerHTML='<div class="loading">正在載入優惠券…</div>';
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/coupons?select=*&order=created_at.desc',{headers:auth()});
+    const rows=r.ok?await r.json():[];
+    if(!r.ok){
+      console.error('優惠券載入失敗:',r.status,rows);
+      box.innerHTML='<div class="empty">優惠券載入失敗，請重新整理後再試。</div>';
+      return;
+    }
+    box.innerHTML=rows.length?rows.map(couponCard).join(''):'<div class="empty">目前沒有優惠券。</div>';
+    box.querySelectorAll('[data-coupon-use]').forEach(btn=>btn.addEventListener('click',()=>useMyCoupon(btn.dataset.couponUse)));
+  }catch(e){
+    console.error('優惠券載入例外:',e);
+    box.innerHTML='<div class="empty">優惠券載入失敗，請重新整理後再試。</div>';
+  }
 }
 
 async function loadCompetitionMenu(){
@@ -446,6 +478,9 @@ async function loadMyGrowth(){
   const panel=$('myGrowthPanel'); if(!panel||!visitorToken()||!configured())return;
   try{
     const u=await getCurrentUser(); if(!u)return;
+    // 記錄今日活躍，讓連續登入／活躍成就可以即時判定。
+    const activityR=await fetch(SUPABASE_URL+'/rest/v1/rpc/record_growth_activity',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:'{}'});
+    const activity=activityR.ok?await activityR.json():{};
     // 先執行可自動完成的任務與成就，再重新讀取積分／等級，避免畫面顯示舊資料。
     const tr0=await fetch(SUPABASE_URL+'/rest/v1/growth_tasks?select=*&order=created_at.asc',{headers:auth()});
     const tasks=tr0.ok?await tr0.json():[];
@@ -466,10 +501,64 @@ async function loadMyGrowth(){
     $('growthTasks').innerHTML=tasks.map(x=>{const s=um.get(x.id)||{progress:0};return '<div class="growthItem"><div><b>'+esc(x.title)+'</b><p>'+esc(x.description||'')+'</p><small>獎勵 💎 '+x.reward_points+' · 進度 '+Math.min(s.progress||0,x.requirement_count)+'/'+x.requirement_count+'</small></div><span>'+ (s.completed_at?'✅ 已完成':'🎯 進行中')+'</span></div>'}).join('')||'<div class="empty">目前沒有任務。</div>';
     const ar=await fetch(SUPABASE_URL+'/rest/v1/growth_achievements?select=*&order=created_at.asc',{headers:auth()}); const ach=ar.ok?await ar.json():[];
     const ua=await fetch(SUPABASE_URL+'/rest/v1/growth_user_achievements?user_id=eq.'+encodeURIComponent(u.id)+'&select=achievement_id,unlocked_at',{headers:auth()}); const uas=ua.ok?await ua.json():[]; const am=new Map(uas.map(x=>[x.achievement_id,x]));
-    $('growthAchievements').innerHTML=ach.map(x=>{const a=am.get(x.id);return '<div class="growthItem"><div><b>'+esc(x.title)+'</b><p>'+esc(x.description||'')+'</p><small>解鎖條件：'+esc(x.requirement_count)+' '+esc(x.achievement_type==='points'?'積分':'次數')+(x.reward_points?' · 獎勵 💎 '+x.reward_points:'')+'</small></div><span>'+ (a?'🏆 已解鎖':'🔒 未解鎖')+'</span></div>'}).join('')||'<div class="empty">目前沒有成就。</div>';
+    $('growthAchievements').innerHTML=ach.map(x=>{const a=am.get(x.id);const hiddenLocked=x.hidden&&!a;const icon=hiddenLocked?'🔒':(x.icon||'🏆');const title=hiddenLocked?'？？？':x.title;const desc=hiddenLocked?'這是一個隱藏成就，自己探索看看吧！':(x.description||'');const rarity={common:'普通',rare:'稀有',epic:'史詩',legendary:'傳說'}[x.rarity]||'普通';const cond=hiddenLocked?'解鎖條件：？？？':('解鎖條件：'+esc(x.requirement_count)+' '+esc(x.achievement_type==='points'?'積分':x.achievement_type==='result_place'?'次冠軍':x.achievement_type==='active_days'?'活躍天數':x.achievement_type==='login_streak'?'連續活躍':'次數'));return '<div class="growthItem achievementItem'+(hiddenLocked?' hiddenAchievement':'')+'"><div><b>'+esc(icon)+' '+esc(title)+'</b><p>'+esc(desc)+'</p><small>'+esc(rarity)+' · '+cond+(x.reward_points&&!hiddenLocked?' · 獎勵 💎 '+x.reward_points:'')+'</small></div><span>'+ (a?'🏆 已解鎖':(hiddenLocked?'🥚 待發現':'🔒 未解鎖'))+'</span></div>'}).join('')||'<div class="empty">目前沒有成就。</div>';
     const hr=await fetch(SUPABASE_URL+'/rest/v1/growth_point_transactions?user_id=eq.'+encodeURIComponent(u.id)+'&select=amount,reason,source_type,created_at&order=created_at.desc&limit=30',{headers:auth()}); const hist=hr.ok?await hr.json():[];
     $('growthHistory').innerHTML=hist.map(x=>'<div class="growthHistoryRow"><span>'+new Date(x.created_at).toLocaleString('zh-TW')+'</span><b class="'+(x.amount>0?'growthPlus':'growthMinus')+'">'+(x.amount>0?'+':'')+x.amount+' 💎</b><em>'+esc(x.reason)+'</em></div>').join('')||'<div class="empty">目前還沒有積分紀錄。</div>';
+    const monthStart=new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0); const ms=monthStart.toISOString();
+    const [regm,resm]=await Promise.all([fetch(SUPABASE_URL+'/rest/v1/competition_registrations?select=id,created_at,status&user_id=eq.'+encodeURIComponent(u.id)+'&created_at=gte.'+encodeURIComponent(ms),{headers:auth()}),fetch(SUPABASE_URL+'/rest/v1/competition_results?select=id,place,created_at&user_id=eq.'+encodeURIComponent(u.id)+'&created_at=gte.'+encodeURIComponent(ms),{headers:auth()})]);
+    const regsMonth=regm.ok?await regm.json():[], resultsMonth=resm.ok?await resm.json():[], wins=resultsMonth.filter(x=>Number(x.place)===1).length;
+    const monthPoints=hist.filter(x=>new Date(x.created_at)>=monthStart&&Number(x.amount)>0).reduce((a,x)=>a+Number(x.amount),0); const completedTasks=tasks.filter(t=>(um.get(t.id)||{}).completed_at).length; const unlockedAchievements=uas.length; const activeTasks=tasks.filter(t=>t.active && (!t.start_at||new Date(t.start_at)<=new Date()) && (!t.end_at||new Date(t.end_at)>=new Date())).length;
+    $('growthStats').innerHTML='<div class="growthStatCard"><b>'+regsMonth.filter(x=>['active','pending','approved'].includes(x.status)).length+'</b><span>本月參與</span></div><div class="growthStatCard"><b>'+resultsMonth.length+'</b><span>本月成績</span></div><div class="growthStatCard"><b>'+wins+'</b><span>本月冠軍</span></div><div class="growthStatCard"><b>'+monthPoints+'</b><span>本月獲得積分</span></div>';
+    const nextText=next?('距離 '+esc(next.name)+' 還差 '+(next.min_points-pts)+' 分'):'已達目前最高等級'; const pctText=next?Math.round(pct)+'%':'100%';
+    $('growthDashboardDetail').innerHTML='<div class="growthDashGrid"><div class="growthDashCard"><b>🎯 任務</b><strong>'+completedTasks+' / '+activeTasks+'</strong><span>目前完成的啟用任務</span></div><div class="growthDashCard"><b>🏆 成就</b><strong>'+unlockedAchievements+' / '+ach.length+'</strong><span>已解鎖成就</span></div><div class="growthDashCard"><b>🔥 活躍</b><strong>'+Number(activity?.active_days||0)+' 天</strong><span>本月活躍 · 連續 '+Number(activity?.login_streak||0)+' 天</span></div><div class="growthDashCard"><b>📜 最近積分</b><strong>'+((hist[0]?.amount>0?'+':'')+(hist[0]?.amount||0))+' 💎</strong><span>'+esc(hist[0]?.reason||'尚無紀錄')+'</span></div><div class="growthDashCard"><b>⭐ 等級進度</b><strong>'+pctText+'</strong><span>'+nextText+'</span></div></div>';
   }catch(e){console.error('會員成長載入失敗:',e);$('growthSummary').innerHTML='<div class="empty">❌ 無法載入會員成長資料。</div>'}
+}
+
+
+function rewardLevelRank(code){return {newbie:0,bronze:1,silver:2,gold:3,diamond:4}[code]??0}
+function rewardStatusText(r, pts){
+  if(!r.enabled) return ['⚪ 已停用','disabled'];
+  if(r.total_limit!=null && Number(r.redeemed_count||0)>=Number(r.total_limit)) return ['🔴 已兌換完','soldout'];
+  if(r.required_achievement_id && !r.required_achievement_unlocked) return ['🔒 需解鎖成就','locked'];
+  if(rewardLevelRank(r.min_level)>rewardLevelRank(r.user_level||'newbie')) return ['🔒 等級不足','locked'];
+  if(Number(pts)<Number(r.point_cost||0)) return ['💎 積分不足','insufficient'];
+  if(r.user_limit!=null && Number(r.user_redeemed_count||0)>=Number(r.user_limit)) return ['⛔ 已達個人上限','limit'];
+  return ['🟢 可兌換','available'];
+}
+function rewardCard(r, pts){
+  const [status,cls]=rewardStatusText(r,pts); const can=cls==='available';
+  const cost=Number(r.point_cost||0).toLocaleString();
+  const limit=r.user_limit!=null?'每人最多 '+r.user_limit+' 次':'';
+  return '<article class="rewardCard '+cls+'"><div class="rewardTop"><span>'+esc(r.icon||'🎁')+'</span><span class="rewardStatus '+cls+'">'+esc(status)+'</span></div><h3>'+esc(r.title)+'</h3><p>'+esc(r.description||'')+'</p>'+(r.discount?'<strong class="rewardDiscount">'+esc(r.discount)+'</strong>':'')+'<div class="rewardMeta"><b>💎 '+cost+' 點</b><span>'+esc(limit)+'</span></div><button class="btn '+(can?'':'secondary')+'" type="button" '+(can?'':'disabled')+' data-redeem-reward="'+esc(r.id)+'">'+(can?'🎁 立即兌換':'目前不可兌換')+'</button></article>';
+}
+async function loadMyRewards(){
+  const box=$('rewardList'); if(!box||!visitorToken()||!configured())return;
+  try{
+    const u=await getCurrentUser(); if(!u)return;
+    const [pr,rr,ur,ar]=await Promise.all([
+      fetch(SUPABASE_URL+'/rest/v1/profiles?id=eq.'+encodeURIComponent(u.id)+'&select=growth_points,growth_level',{headers:auth()}),
+      fetch(SUPABASE_URL+'/rest/v1/growth_rewards?select=*&enabled=eq.true&order=sort_order.asc,created_at.asc',{headers:auth()}),
+      fetch(SUPABASE_URL+'/rest/v1/growth_reward_redemptions?user_id=eq.'+encodeURIComponent(u.id)+'&select=reward_id,status,created_at,coupon_id&order=created_at.desc',{headers:auth()}),
+      fetch(SUPABASE_URL+'/rest/v1/growth_user_achievements?user_id=eq.'+encodeURIComponent(u.id)+'&select=achievement_id',{headers:auth()})
+    ]);
+    const p=pr.ok?(await pr.json())[0]:null, rewards=rr.ok?await rr.json():[], reds=ur.ok?await ur.json():[], uas=ar.ok?await ar.json():[];
+    const unlocked=new Set(uas.map(x=>x.achievement_id)); const counts={}; reds.forEach(x=>{if(x.status!=='cancelled')counts[x.reward_id]=(counts[x.reward_id]||0)+1});
+    const pts=Number(p?.growth_points||0); const level=p?.growth_level||'newbie';
+    $('rewardBalance').innerHTML='<div class="rewardBalanceCard"><div class="rewardBalanceIcon">💎</div><div><small>目前可用成長積分</small><strong>'+pts.toLocaleString()+'</strong><span>會員等級：'+esc(({newbie:'新手',bronze:'青銅會員',silver:'白銀會員',gold:'黃金會員',diamond:'鑽石會員'})[level]||level)+'</span></div></div>';
+    const decorated=rewards.map(r=>({...r,user_level:level,user_redeemed_count:counts[r.id]||0,required_achievement_unlocked:!r.required_achievement_id||unlocked.has(r.required_achievement_id)}));
+    box.innerHTML=decorated.length?decorated.map(r=>rewardCard(r,pts)).join(''):'<div class="empty">目前還沒有可兌換的獎勵。</div>';
+    document.querySelectorAll('[data-redeem-reward]').forEach(b=>b.addEventListener('click',()=>redeemReward(b.dataset.redeemReward)));
+    $('rewardHistory').innerHTML=reds.length?reds.map(x=>'<article class="notice"><div class="date">'+esc(new Date(x.created_at).toLocaleString('zh-TW'))+'</div><h3>🎁 '+esc(decorated.find(r=>r.id===x.reward_id)?.title||'會員獎勵')+'</h3><p>狀態：'+esc(x.status==='redeemed'?'已兌換':'處理中')+(x.coupon_id?' · 已產生優惠券':'')+'</p></article>').join(''):'<div class="empty">尚無兌換紀錄。</div>';
+  }catch(e){console.error('獎勵中心載入失敗:',e);box.innerHTML='<div class="empty">❌ 無法載入獎勵中心。</div>'}
+}
+async function redeemReward(id){
+  if(!visitorToken()||!id)return;
+  if(!confirm('確定要使用成長積分兌換這項獎勵嗎？'))return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/redeem_growth_reward',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_reward_id:id})});
+  const d=await r.json().catch(()=>null);
+  if(!r.ok){alert('❌ 兌換失敗：'+(d?.message||d?.hint||d?.details||('HTTP '+r.status)));return}
+  alert('🎉 兌換成功！已將獎勵加入你的帳戶。');
+  await loadMyRewards(); await loadMyOverview();
 }
 
 async function loadMyProfile(){
@@ -603,7 +692,7 @@ function initSiteSearch(){
   if(input.value.trim())runSiteSearch();
 }
 
-function showMySection(id){document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));$(id)?.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();if(id==='myGrowthPanel')loadMyGrowth();}
+function showMySection(id){document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));$(id)?.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();if(id==='myGrowthPanel')loadMyGrowth();if(id==='myRewardsPanel')loadMyRewards();}
 
 window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();if($('competitionList'))loadCompetitionPage();if($('myProfile')&&sessionOk){loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
 window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id&&$(id))showMySection(id);});
