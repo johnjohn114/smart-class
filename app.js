@@ -474,6 +474,13 @@ async function loadMyOverview(){
   }
 }
 
+function showGrowthToast(title,content){
+  let box=document.getElementById('growthToast');
+  if(!box){box=document.createElement('div');box.id='growthToast';box.className='growthToast';document.body.appendChild(box);}
+  box.innerHTML='<strong>'+esc(title)+'</strong><span>'+esc(content)+'</span>';
+  box.classList.add('show'); clearTimeout(window.__growthToastTimer); window.__growthToastTimer=setTimeout(()=>box.classList.remove('show'),4500);
+}
+
 async function loadMyGrowth(){
   const panel=$('myGrowthPanel'); if(!panel||!visitorToken()||!configured())return;
   try{
@@ -481,6 +488,7 @@ async function loadMyGrowth(){
     // 記錄今日活躍，讓連續登入／活躍成就可以即時判定。
     const activityR=await fetch(SUPABASE_URL+'/rest/v1/rpc/record_growth_activity',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:'{}'});
     const activity=activityR.ok?await activityR.json():{};
+    if(Number(activity?.new_achievements||0)>0){ showGrowthToast('🏆 成就解鎖！','你剛剛解鎖了 '+Number(activity.new_achievements)+' 個新成就。'); }
     // 先執行可自動完成的任務與成就，再重新讀取積分／等級，避免畫面顯示舊資料。
     const tr0=await fetch(SUPABASE_URL+'/rest/v1/growth_tasks?select=*&order=created_at.asc',{headers:auth()});
     const tasks=tr0.ok?await tr0.json():[];
@@ -516,8 +524,12 @@ async function loadMyGrowth(){
 
 
 function rewardLevelRank(code){return {newbie:0,bronze:1,silver:2,gold:3,diamond:4}[code]??0}
+const rewardCategoryNames={cash:'現金折抵',discount:'折扣優惠',gift:'贈品',other:'其他'};
 function rewardStatusText(r, pts){
+  const now=new Date();
   if(!r.enabled) return ['⚪ 已停用','disabled'];
+  if(r.available_from && new Date(r.available_from)>now) return ['🕒 尚未開始','scheduled'];
+  if(r.available_until && new Date(r.available_until)<now) return ['⚪ 已結束','expired'];
   if(r.total_limit!=null && Number(r.redeemed_count||0)>=Number(r.total_limit)) return ['🔴 已兌換完','soldout'];
   if(r.required_achievement_id && !r.required_achievement_unlocked) return ['🔒 需解鎖成就','locked'];
   if(rewardLevelRank(r.min_level)>rewardLevelRank(r.user_level||'newbie')) return ['🔒 等級不足','locked'];
@@ -529,7 +541,9 @@ function rewardCard(r, pts){
   const [status,cls]=rewardStatusText(r,pts); const can=cls==='available';
   const cost=Number(r.point_cost||0).toLocaleString();
   const limit=r.user_limit!=null?'每人最多 '+r.user_limit+' 次':'';
-  return '<article class="rewardCard '+cls+'"><div class="rewardTop"><span>'+esc(r.icon||'🎁')+'</span><span class="rewardStatus '+cls+'">'+esc(status)+'</span></div><h3>'+esc(r.title)+'</h3><p>'+esc(r.description||'')+'</p>'+(r.discount?'<strong class="rewardDiscount">'+esc(r.discount)+'</strong>':'')+'<div class="rewardMeta"><b>💎 '+cost+' 點</b><span>'+esc(limit)+'</span></div><button class="btn '+(can?'':'secondary')+'" type="button" '+(can?'':'disabled')+' data-redeem-reward="'+esc(r.id)+'">'+(can?'🎁 立即兌換':'目前不可兌換')+'</button></article>';
+  const stock=r.total_limit!=null?'剩餘 '+Math.max(0,Number(r.total_limit)-Number(r.redeemed_count||0))+' 份':'';
+  const period=(r.available_from||r.available_until)?'活動：'+(r.available_from?String(r.available_from).slice(0,10):'即日起')+' ～ '+(r.available_until?String(r.available_until).slice(0,10):'不限') : '';
+  return '<article class="rewardCard '+cls+'" data-reward-category="'+esc(r.category||'other')+'"><div class="rewardTop"><span>'+esc(r.icon||'🎁')+'</span><span class="rewardStatus '+cls+'">'+esc(status)+'</span></div><div class="date">'+esc(rewardCategoryNames[r.category]||'其他')+'</div><h3>'+esc(r.title)+'</h3><p>'+esc(r.description||'')+'</p>'+(r.discount?'<strong class="rewardDiscount">'+esc(r.discount)+'</strong>':'')+'<div class="rewardMeta"><b>💎 '+cost+' 點</b><span>'+esc([limit,stock].filter(Boolean).join(' · '))+'</span></div>'+(period?'<div class="date">'+esc(period)+'</div>':'')+'<button class="btn '+(can?'':'secondary')+'" type="button" '+(can?'':'disabled')+' data-redeem-reward="'+esc(r.id)+'">'+(can?'🎁 立即兌換':'目前不可兌換')+'</button></article>';
 }
 async function loadMyRewards(){
   const box=$('rewardList'); if(!box||!visitorToken()||!configured())return;
@@ -546,8 +560,9 @@ async function loadMyRewards(){
     const pts=Number(p?.growth_points||0); const level=p?.growth_level||'newbie';
     $('rewardBalance').innerHTML='<div class="rewardBalanceCard"><div class="rewardBalanceIcon">💎</div><div><small>目前可用成長積分</small><strong>'+pts.toLocaleString()+'</strong><span>會員等級：'+esc(({newbie:'新手',bronze:'青銅會員',silver:'白銀會員',gold:'黃金會員',diamond:'鑽石會員'})[level]||level)+'</span></div></div>';
     const decorated=rewards.map(r=>({...r,user_level:level,user_redeemed_count:counts[r.id]||0,required_achievement_unlocked:!r.required_achievement_id||unlocked.has(r.required_achievement_id)}));
-    box.innerHTML=decorated.length?decorated.map(r=>rewardCard(r,pts)).join(''):'<div class="empty">目前還沒有可兌換的獎勵。</div>';
-    document.querySelectorAll('[data-redeem-reward]').forEach(b=>b.addEventListener('click',()=>redeemReward(b.dataset.redeemReward)));
+    box.innerHTML='<div class="rewardFilters"><button type="button" class="rewardFilter active" data-cat="all">全部</button>'+Object.entries(rewardCategoryNames).map(([k,v])=>'<button type="button" class="rewardFilter" data-cat="'+k+'">'+esc(v)+'</button>').join('')+'</div><div id="rewardCards" class="rewardGrid">'+(decorated.length?decorated.map(r=>rewardCard(r,pts)).join(''):'<div class="empty">目前還沒有可兌換的獎勵。</div>')+'</div>';
+    const cards=$('rewardCards'); cards?.querySelectorAll('[data-redeem-reward]').forEach(b=>b.addEventListener('click',()=>redeemReward(b.dataset.redeemReward)));
+    box.querySelectorAll('.rewardFilter').forEach(b=>b.addEventListener('click',()=>{box.querySelectorAll('.rewardFilter').forEach(x=>x.classList.remove('active'));b.classList.add('active');const cat=b.dataset.cat;cards?.querySelectorAll('.rewardCard').forEach(c=>c.classList.toggle('filterHidden',cat!=='all'&&c.dataset.rewardCategory!==cat))}));
     $('rewardHistory').innerHTML=reds.length?reds.map(x=>'<article class="notice"><div class="date">'+esc(new Date(x.created_at).toLocaleString('zh-TW'))+'</div><h3>🎁 '+esc(decorated.find(r=>r.id===x.reward_id)?.title||'會員獎勵')+'</h3><p>狀態：'+esc(x.status==='redeemed'?'已兌換':'處理中')+(x.coupon_id?' · 已產生優惠券':'')+'</p></article>').join(''):'<div class="empty">尚無兌換紀錄。</div>';
   }catch(e){console.error('獎勵中心載入失敗:',e);box.innerHTML='<div class="empty">❌ 無法載入獎勵中心。</div>'}
 }
@@ -607,7 +622,7 @@ async function loadMyAwards(){
   box.innerHTML=awards.length?awards.map(x=>'<article class="notice"><div class="date">'+(Number(x.place)===1?'🥇':Number(x.place)===2?'🥈':Number(x.place)===3?'🥉':'🏅')+' '+esc(x.competitions?.category||'')+' · '+esc(x.competitions?.event_date||'')+'</div><h3>'+esc(x.competitions?.name||'比賽')+'</h3><p><b>名次：</b>'+esc(x.place)+(x.prize?'　<b>獎項：</b>'+esc(x.prize):'')+'</p></article>').join(''):'<div class="empty">目前還沒有獎項紀錄。</div>';
 }
 let myNotificationRows=[];
-function notificationIcon(type){return type==='比賽'?'🏆':type==='優惠券'?'🎟️':type==='客服'?'💬':'📢'}
+function notificationIcon(type){return type==='比賽'?'🏆':type==='優惠券'?'🎟️':type==='客服'?'💬':type==='成長'?'💎':'📢'}
 async function loadNotificationBadge(){
   const btn=document.querySelector('.myNavMenu')?.previousElementSibling;
   if(!btn||!visitorToken()||!configured())return;

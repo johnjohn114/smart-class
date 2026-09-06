@@ -284,3 +284,7 @@ body.popupOpen{overflow:hidden}
 
 .couponUseBtn{width:100%;margin-top:12px;border:0;border-radius:12px;padding:11px 14px;font-weight:900;cursor:pointer}
 .couponUseBtn:active{transform:translateY(1px)}
+
+
+.growthToast{position:fixed;right:20px;bottom:20px;z-index:9999;display:flex;flex-direction:column;gap:4px;min-width:240px;max-width:360px;padding:14px 16px;border-radius:14px;background:var(--card,#fff);border:1px solid var(--line,#ddd);box-shadow:0 12px 35px rgba(0,0,0,.14);opacity:0;transform:translateY(12px);pointer-events:none;transition:.25s ease}.growthToast.show{opacity:1;transform:translateY(0)}.growthToast strong{font-size:16px}.growthToast span{font-size:13px;line-height:1.5}@media(max-width:640px){.growthToast{left:14px;right:14px;bottom:14px;min-width:0;max-width:none}}
+.rewardFilters{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 18px}.rewardFilter{border:1px solid #ded3ec;background:#fff;border-radius:999px;padding:9px 15px;cursor:pointer;font-weight:800;color:#5c4a75}.rewardFilter.active{background:#6849c7;color:#fff;border-color:#6849c7}.rewardCard.filterHidden{display:none}.rewardStatus.scheduled{color:#87652b}.rewardStatus.expired{color:#888}.rewardCard.scheduled,.rewardCard.expired{opacity:.72}
