@@ -1,7 +1,7 @@
 const F=['site_name','hero_title','hero_text','hero_image','about_title','about_subtitle','about1_title','about1_text','about2_title','about2_text','features_title','features_subtitle','f1_title','f1_text','f2_title','f2_text','f3_title','f3_text','f4_title','f4_text','contact1','contact2','contact3'];
 const $=id=>document.getElementById(id); const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 function configured(){return typeof SUPABASE_URL!=='undefined'&&typeof SUPABASE_ANON_KEY!=='undefined'&&SUPABASE_URL&&SUPABASE_ANON_KEY&&!String(SUPABASE_URL).includes('你的')&&!String(SUPABASE_URL).includes('請填入')&&!String(SUPABASE_ANON_KEY).includes('你的')}
-function auth(){const t=localStorage.getItem('access_token');return {'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(t||SUPABASE_ANON_KEY)}}
+function auth(){const t=recoverStoredSession().access||localStorage.getItem('access_token')||sessionStorage.getItem('access_token');return {'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(t||SUPABASE_ANON_KEY)}}
 function msg(id,t){if($(id))$(id).textContent=t}
 async function login(){if(!configured()){msg('loginError','請把可用的 config.js 放回來。');return}const email=$('email').value.trim(),password=$('password').value;if(!email||!password){msg('loginError','請輸入 Email 與密碼。');return}msg('loginError','登入中…');try{const r=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY},body:JSON.stringify({email,password})});const d=await r.json().catch(()=>({}));if(!r.ok||!d.access_token){msg('loginError',d.error_description||d.msg||'登入失敗。');return}localStorage.setItem('access_token',d.access_token);if(d.refresh_token)localStorage.setItem('refresh_token',d.refresh_token);const pr=await fetch(SUPABASE_URL+'/rest/v1/profiles?select=role&id=eq.'+encodeURIComponent(d.user?.id||'') ,{headers:{...auth(),'Authorization':'Bearer '+d.access_token}});const pa=pr.ok?await pr.json():[];if(pa[0]?.role!=='admin'){localStorage.removeItem('access_token');localStorage.removeItem('refresh_token');msg('loginError','此帳號不是管理員帳號。');return} $('login').classList.add('hidden');$('dashboard').classList.remove('hidden');await load() }catch(e){console.error(e);msg('loginError','無法連線到 Supabase。')}}
 
@@ -657,6 +657,74 @@ function editVideo(id){const v=adminVideos.find(x=>x.id===id);if(!v)return;$('vi
 async function saveVideo(){const id=$('videoId').value.trim(),title=$('videoTitle').value.trim(),youtube_url=$('videoUrl').value.trim(),youtube_id=parseYouTubeId(youtube_url),description=$('videoDescription').value.trim(),category=$('videoCategoryInput').value,sort_order=Number($('videoSortOrder').value||0),featured=$('videoFeatured').checked,published=$('videoPublished').checked;if(!title||!youtube_url||!youtube_id){msg('videoMsg','請填寫標題與有效的 YouTube 網址。');return}try{const payload={...(id?{id}:{}),title,description,youtube_url,youtube_id,thumbnail_url:'https://img.youtube.com/vi/'+youtube_id+'/hqdefault.jpg',category,sort_order,featured,published,published_at:new Date().toISOString()};const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_upsert_video',{method:'POST',headers:{...auth(),'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({p_video:payload})});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.message||d?.hint||('HTTP '+r.status));msg('videoMsg',id?'✅ 影片已更新':'✅ 影片已新增');clearVideo();await loadVideosAdmin()}catch(e){msg('videoMsg','❌ '+e.message)}}
 async function deleteVideo(id){if(!confirm('確定刪除這部影片？'))return;try{const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_delete_video',{method:'POST',headers:{...auth(),'Content-Type':'application/json'},body:JSON.stringify({p_video_id:id})});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.message||d?.hint||('HTTP '+r.status));await loadVideosAdmin()}catch(e){alert('❌ 刪除失敗：'+e.message)}}
 
+function recoverStoredSession(){
+  let access=localStorage.getItem('access_token')||sessionStorage.getItem('access_token');
+  let refresh=localStorage.getItem('refresh_token')||sessionStorage.getItem('refresh_token');
+  if(access)return {access,refresh};
+  for(const store of [localStorage,sessionStorage]){
+    for(const key of Object.keys(store)){
+      if(!key.includes('auth-token'))continue;
+      try{
+        const raw=JSON.parse(store.getItem(key)||'null');
+        const session=raw?.currentSession||raw?.session||raw;
+        if(session?.access_token){
+          access=session.access_token; refresh=session.refresh_token||refresh;
+          localStorage.setItem('access_token',access);
+          if(refresh)localStorage.setItem('refresh_token',refresh);
+          return {access,refresh};
+        }
+      }catch(e){}
+    }
+  }
+  return {access:null,refresh};
+}
+async function refreshAccessToken(){
+  const stored=recoverStoredSession(), refreshToken=stored.refresh;
+  if(!refreshToken)return false;
+  try{
+    const r=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY},body:JSON.stringify({refresh_token:refreshToken})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.access_token)return false;
+    localStorage.setItem('access_token',d.access_token); if(d.refresh_token)localStorage.setItem('refresh_token',d.refresh_token); return true;
+  }catch(e){console.error('refresh token:',e);return false}
+}
+async function ensureAdminSession(){
+  const token=recoverStoredSession().access; if(token)return token;
+  if(await refreshAccessToken())return localStorage.getItem('access_token'); return null;
+}
+async function callAiAnnouncement(payload){
+  let token=await ensureAdminSession();
+  if(!token)throw new Error('登入狀態不存在，請先重新登入管理後台。');
+  const request=()=>fetch(SUPABASE_URL+'/functions/v1/ai-generate-announcement',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+token},body:JSON.stringify(payload)});
+  let r=await request();
+  if(r.status===401){const refreshed=await refreshAccessToken();if(refreshed){token=localStorage.getItem('access_token');r=await request();}}
+  const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d?.error||d?.message||d?.detail||('HTTP '+r.status)); return d;
+}
+
+async function generateAiAnnouncement(){
+  if(!configured()){msg('aiAnnouncementMsg','❌ Supabase 尚未設定。');return}
+  const topic=$('aiTopic')?.value.trim()||'', eventInfo=$('aiEventInfo')?.value.trim()||'', audience=$('aiAudience')?.value.trim()||'', importantNotes=$('aiImportantNotes')?.value.trim()||'', style=$('aiStyle')?.value||'活潑';
+  if(!topic){msg('aiAnnouncementMsg','請先輸入公告主題。');return}
+  const btn=$('generateAiAnnouncement'); if(btn)btn.disabled=true; msg('aiAnnouncementMsg','🤖 AI 正在撰寫公告…');
+  try{
+    const d=await callAiAnnouncement({topic,event_info:eventInfo,audience,important_notes:importantNotes,style});
+    $('aiGeneratedTitle').value=d.title||'';$('aiGeneratedSummary').value=d.summary||'';$('aiGeneratedContent').value=d.content||'';
+    msg('aiAnnouncementMsg','✅ 產生完成。你可以修改後套用到公告編輯器。');
+  }catch(e){
+    console.error(e);
+    if(String(e.message).includes('登入狀態不存在')){msg('aiAnnouncementMsg','❌ 目前瀏覽器沒有可用的管理員登入 Session。請先重新登入一次，再按 AI 產生。');return}
+    msg('aiAnnouncementMsg','❌ '+e.message);
+  }finally{if(btn)btn.disabled=false}
+}
+function clearAiAnnouncement(){['aiTopic','aiEventInfo','aiAudience','aiImportantNotes','aiGeneratedTitle','aiGeneratedSummary','aiGeneratedContent'].forEach(id=>{if($(id))$(id).value=''});if($('aiStyle'))$('aiStyle').value='活潑';msg('aiAnnouncementMsg','')}
+function applyAiAnnouncement(){
+  const title=$('aiGeneratedTitle')?.value.trim()||'',content=$('aiGeneratedContent')?.value.trim()||'';
+  if(!title||!content){msg('aiAnnouncementMsg','❌ 請先產生公告。');return}
+  if($('title'))$('title').value=title; if($('content'))$('content').value=content;
+  const newsTab=document.querySelector('[data-tab="newsTab"]'); if(newsTab)newsTab.click();
+  msg('publishMsg','✅ AI 草稿已套用；請確認後按「儲存公告」。');
+}
+
 function logout(){localStorage.removeItem('access_token');localStorage.removeItem('refresh_token');location.reload()}
 function bindMobileAdminNav(){
   document.querySelectorAll('.mobileNavToggle').forEach(btn=>btn.addEventListener('click',()=>{const nav=btn.nextElementSibling;if(!nav)return;const open=nav.classList.toggle('mobileOpen');btn.setAttribute('aria-expanded',open?'true':'false');btn.textContent=open?'✕ 關閉選單':'☰ 選單'}));
@@ -667,5 +735,5 @@ function bind(){
   if($('couponSearch'))$('couponSearch').addEventListener('input',renderAdminCoupons);
   if($('supportSearch'))$('supportSearch').addEventListener('input',renderTickets); if($('supportStatusFilter'))$('supportStatusFilter').addEventListener('change',renderTickets);
   if($('competitionSearch'))$('competitionSearch').addEventListener('input',renderAdminCompetitions); if($('competitionStatusFilter'))$('competitionStatusFilter').addEventListener('change',renderAdminCompetitions); if($('competitionCategoryFilter'))$('competitionCategoryFilter').addEventListener('change',renderAdminCompetitions); if($('registrationSearch'))$('registrationSearch').addEventListener('input',renderCompetitionRegistrations); if($('exportCompetitionRegistrations'))$('exportCompetitionRegistrations').onclick=exportCompetitionRegistrations; if($('registrationStatusFilter'))$('registrationStatusFilter').addEventListener('change',renderCompetitionRegistrations);
-  if($('loginButton'))$('loginButton').onclick=login;if($('refreshDashboard'))$('refreshDashboard').onclick=dashboard;if($('logoutButton'))$('logoutButton').onclick=logout;if($('saveContent'))$('saveContent').onclick=save;if($('publishButton'))$('publishButton').onclick=publish;if($('saveProduct'))$('saveProduct').onclick=saveProduct;if($('clearProduct'))$('clearProduct').onclick=clearProduct;if($('createVisitor'))$('createVisitor').onclick=createVisitor;if($('refreshGrowthAdmin'))$('refreshGrowthAdmin').onclick=growthAdmin;if($('refreshRewardsAdmin'))$('refreshRewardsAdmin').onclick=loadRewardManagers;if($('saveReward'))$('saveReward').onclick=saveGrowthReward;if($('clearReward'))$('clearReward').onclick=clearReward;if($('adjustGrowthPoints'))$('adjustGrowthPoints').onclick=adjustGrowthPoints;if($('saveGrowthTask'))$('saveGrowthTask').onclick=saveGrowthTask;if($('clearGrowthTask'))$('clearGrowthTask').onclick=clearGrowthTask;if($('saveGrowthAchievement'))$('saveGrowthAchievement').onclick=saveGrowthAchievement;if($('clearGrowthAchievement'))$('clearGrowthAchievement').onclick=clearGrowthAchievement;if($('growthMemberSearch'))$('growthMemberSearch').addEventListener('input',growthAdmin);if($('resetGrowthMember'))$('resetGrowthMember').onclick=resetGrowthMember;if($('growthResetMemberSelect'))$('growthResetMemberSelect').addEventListener('change',e=>loadGrowthResetHistory(e.target.value));if($('growthLogSearch'))$('growthLogSearch').addEventListener('input',renderGrowthLogs);if($('growthLogFilter'))$('growthLogFilter').addEventListener('change',renderGrowthLogs);if($('setSharedVisitorPassword'))$('setSharedVisitorPassword').onclick=setSharedVisitorPassword;if($('createCoupon'))$('createCoupon').onclick=createCoupon;if($('createNotification'))$('createNotification').onclick=createNotification;if($('addCompetitionResult'))$('addCompetitionResult').onclick=()=>addCompetitionResult();if($('saveCompetition'))$('saveCompetition').onclick=saveCompetition;if($('publishCompetition'))$('publishCompetition').onclick=async()=>{const ok=await saveCompetition();const id=$('competitionId').value;if(ok&&id)await setCompetitionPublished(id,true)};if($('unpublishCompetition'))$('unpublishCompetition').onclick=async()=>{const id=$('competitionId').value;if(id)await setCompetitionPublished(id,false)};if($('clearCompetition'))$('clearCompetition').onclick=clearCompetition;if($('addCompetitionCategory'))$('addCompetitionCategory').onclick=addCompetitionCategory;if($('saveQuickLink'))$('saveQuickLink').onclick=saveQuickLink;if($('clearQuickLink'))$('clearQuickLink').onclick=clearQuickLink;if($('saveVideo'))$('saveVideo').onclick=saveVideo;if($('clearVideo'))$('clearVideo').onclick=clearVideo;if($('refreshVideosAdmin'))$('refreshVideosAdmin').onclick=loadVideosAdmin;if($('videoUrl'))$('videoUrl').addEventListener('input',previewVideo);if($('videoAdminSearch'))$('videoAdminSearch').addEventListener('input',renderAdminVideos);document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabPanel').forEach(x=>x.classList.add('hidden'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));$(b.dataset.tab).classList.remove('hidden');b.classList.add('active');if(b.dataset.tab==='dashboardTab')dashboard();if(b.dataset.tab==='newsTab')news();if(b.dataset.tab==='productTab')products();if(b.dataset.tab==='visitorTab')visitors();if(b.dataset.tab==='growthTab')growthAdmin();if(b.dataset.tab==='rewardTab')loadRewardManagers();if(b.dataset.tab==='couponTab')coupons();if(b.dataset.tab==='competitionTab'){competitionCategories();competitions();if(!$('competitionResults').children.length)addCompetitionResult()}if(b.dataset.tab==='quickLinkTab')quickLinks();if(b.dataset.tab==='videoTab')loadVideosAdmin();if(b.dataset.tab==='supportTab')tickets();if(b.dataset.tab==='notificationTab')notifications()})}
-document.addEventListener('DOMContentLoaded',()=>{bindMobileAdminNav();bind();if(localStorage.getItem('access_token')){$('login').classList.add('hidden');$('dashboard').classList.remove('hidden');load()}else if(!configured())msg('loginError','請把你原本可用的 config.js 放回來。')});
+  if($('loginButton'))$('loginButton').onclick=login;if($('refreshDashboard'))$('refreshDashboard').onclick=dashboard;if($('logoutButton'))$('logoutButton').onclick=logout;if($('saveContent'))$('saveContent').onclick=save;if($('publishButton'))$('publishButton').onclick=publish;if($('saveProduct'))$('saveProduct').onclick=saveProduct;if($('clearProduct'))$('clearProduct').onclick=clearProduct;if($('createVisitor'))$('createVisitor').onclick=createVisitor;if($('refreshGrowthAdmin'))$('refreshGrowthAdmin').onclick=growthAdmin;if($('refreshRewardsAdmin'))$('refreshRewardsAdmin').onclick=loadRewardManagers;if($('saveReward'))$('saveReward').onclick=saveGrowthReward;if($('clearReward'))$('clearReward').onclick=clearReward;if($('adjustGrowthPoints'))$('adjustGrowthPoints').onclick=adjustGrowthPoints;if($('saveGrowthTask'))$('saveGrowthTask').onclick=saveGrowthTask;if($('clearGrowthTask'))$('clearGrowthTask').onclick=clearGrowthTask;if($('saveGrowthAchievement'))$('saveGrowthAchievement').onclick=saveGrowthAchievement;if($('clearGrowthAchievement'))$('clearGrowthAchievement').onclick=clearGrowthAchievement;if($('growthMemberSearch'))$('growthMemberSearch').addEventListener('input',growthAdmin);if($('resetGrowthMember'))$('resetGrowthMember').onclick=resetGrowthMember;if($('growthResetMemberSelect'))$('growthResetMemberSelect').addEventListener('change',e=>loadGrowthResetHistory(e.target.value));if($('growthLogSearch'))$('growthLogSearch').addEventListener('input',renderGrowthLogs);if($('growthLogFilter'))$('growthLogFilter').addEventListener('change',renderGrowthLogs);if($('setSharedVisitorPassword'))$('setSharedVisitorPassword').onclick=setSharedVisitorPassword;if($('createCoupon'))$('createCoupon').onclick=createCoupon;if($('createNotification'))$('createNotification').onclick=createNotification;if($('generateAiAnnouncement'))$('generateAiAnnouncement').onclick=generateAiAnnouncement;if($('clearAiAnnouncement'))$('clearAiAnnouncement').onclick=clearAiAnnouncement;if($('applyAiAnnouncement'))$('applyAiAnnouncement').onclick=applyAiAnnouncement;if($('addCompetitionResult'))$('addCompetitionResult').onclick=()=>addCompetitionResult();if($('saveCompetition'))$('saveCompetition').onclick=saveCompetition;if($('publishCompetition'))$('publishCompetition').onclick=async()=>{const ok=await saveCompetition();const id=$('competitionId').value;if(ok&&id)await setCompetitionPublished(id,true)};if($('unpublishCompetition'))$('unpublishCompetition').onclick=async()=>{const id=$('competitionId').value;if(id)await setCompetitionPublished(id,false)};if($('clearCompetition'))$('clearCompetition').onclick=clearCompetition;if($('addCompetitionCategory'))$('addCompetitionCategory').onclick=addCompetitionCategory;if($('saveQuickLink'))$('saveQuickLink').onclick=saveQuickLink;if($('clearQuickLink'))$('clearQuickLink').onclick=clearQuickLink;if($('saveVideo'))$('saveVideo').onclick=saveVideo;if($('clearVideo'))$('clearVideo').onclick=clearVideo;if($('refreshVideosAdmin'))$('refreshVideosAdmin').onclick=loadVideosAdmin;if($('videoUrl'))$('videoUrl').addEventListener('input',previewVideo);if($('videoAdminSearch'))$('videoAdminSearch').addEventListener('input',renderAdminVideos);document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabPanel').forEach(x=>x.classList.add('hidden'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));$(b.dataset.tab).classList.remove('hidden');b.classList.add('active');if(b.dataset.tab==='dashboardTab')dashboard();if(b.dataset.tab==='newsTab')news();if(b.dataset.tab==='productTab')products();if(b.dataset.tab==='visitorTab')visitors();if(b.dataset.tab==='growthTab')growthAdmin();if(b.dataset.tab==='rewardTab')loadRewardManagers();if(b.dataset.tab==='couponTab')coupons();if(b.dataset.tab==='competitionTab'){competitionCategories();competitions();if(!$('competitionResults').children.length)addCompetitionResult()}if(b.dataset.tab==='quickLinkTab')quickLinks();if(b.dataset.tab==='videoTab')loadVideosAdmin();if(b.dataset.tab==='supportTab')tickets();if(b.dataset.tab==='notificationTab')notifications()})}
+document.addEventListener('DOMContentLoaded',()=>{bindMobileAdminNav();bind();const session=recoverStoredSession();if(session.access){localStorage.setItem('access_token',session.access);if(session.refresh)localStorage.setItem('refresh_token',session.refresh);$('login').classList.add('hidden');$('dashboard').classList.remove('hidden');load()}else if(!configured())msg('loginError','請把你原本可用的 config.js 放回來。')});
