@@ -270,9 +270,49 @@ async function replyTicket(id){const ta=document.querySelector('[data-reply="'+C
 async function loadCompetitionRegistrations(competitionId){
   const panel=$('competitionRegistrationPanel'),box=$('competitionRegistrations'); if(!panel||!box||!competitionId)return;
   panel.classList.remove('hidden'); panel.dataset.competitionId=competitionId;
+  await loadCompetitionAttendance(competitionId);
   const r=await fetch(SUPABASE_URL+'/rest/v1/competition_registrations?select=*&competition_id=eq.'+encodeURIComponent(competitionId)+'&order=created_at.asc',{headers:auth()});
-  const rows=r.ok?await r.json():[]; window.__competitionRegistrations=rows; renderCompetitionRegistrations();
+  const rows=r.ok?await r.json():[]; window.__competitionRegistrations=rows; renderCompetitionRegistrations(); await loadCompetitionWaitlist(competitionId);
 }
+
+async function loadCompetitionWaitlist(competitionId){
+  const box=$('competitionWaitlist'); if(!box||!competitionId)return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/competition_waitlist?select=*&competition_id=eq.'+encodeURIComponent(competitionId)+'&order=position.asc',{headers:auth()});
+  const rows=r.ok?await r.json():[]; window.__competitionWaitlist=rows; renderCompetitionWaitlist();
+}
+function renderCompetitionWaitlist(){
+  const box=$('competitionWaitlist');if(!box)return;const rows=window.__competitionWaitlist||[];
+  box.innerHTML=rows.length?rows.map(x=>'<article class="notice"><div class="date">'+(x.status==='waiting'?'🕐 等待中':x.status==='promoted'?'🟢 已遞補':'⚪ 已取消')+' · 候補第 '+esc(x.position)+'</div><h3>會員 '+esc(x.member_no!=null?String(x.member_no).padStart(3,'0'):'—')+'｜'+esc(x.nickname||'')+'</h3><p>Email：'+esc(x.email||'—')+' · '+esc(String(x.created_at||'').slice(0,16).replace('T',' '))+'</p>'+(x.status==='waiting'?'<button class="btn secondary" data-promote-wait="'+esc(x.id)+'">⬆️ 遞補</button>':'')+'</article>').join(''):'<div class="empty">目前沒有候補資料。</div>';
+  box.querySelectorAll('[data-promote-wait]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('確定要遞補這位候補會員？'))return;
+    const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_promote_competition_waitlist',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_waitlist_id:b.dataset.promoteWait})});
+    const d=await r.json().catch(()=>({}));if(!r.ok){msg('competitionMsg','❌ 遞補失敗：'+(d.message||d.hint||('HTTP '+r.status)));return}
+    if(d.user_id){try{await createNotifications([{user_id:d.user_id,type:'比賽',title:'🎉 活動候補已遞補',content:'你已從活動候補名單遞補成功。'+(d.status==='pending'?'目前等待管理員審核。':'請到活動頁查看報名狀態。')}])}catch(e){console.error('候補通知失敗',e)}}
+    msg('competitionMsg','✅ 已完成候補遞補。');await loadCompetitionRegistrations($('competitionRegistrationPanel').dataset.competitionId);
+  });
+}
+
+async function showCompetitionQr(){
+  const id=$('competitionId')?.value;if(!id){msg('competitionMsg','請先儲存活動。');return}
+  const code=$('competitionCheckinCode')?.value.trim();if(!code){msg('competitionMsg','請先設定簽到碼。');return}
+  const url=new URL('competitions.html',location.href);url.searchParams.set('id',id);url.searchParams.set('checkin','1');url.searchParams.set('code',code);
+  const panel=$('competitionQrPanel'),img=$('competitionQrImage'),txt=$('competitionQrUrl');panel?.classList.remove('hidden');
+  if(img)img.innerHTML='<img style="width:280px;max-width:100%;border-radius:12px;border:1px solid #ddd;background:#fff;padding:10px" alt="活動簽到 QR Code" src="https://api.qrserver.com/v1/create-qr-code/?size=320x320&data='+encodeURIComponent(url.href)+'">';
+  if(txt)txt.textContent=url.href;
+}
+async function copyCompetitionQr(){
+  const id=$('competitionId')?.value;if(!id){msg('competitionMsg','請先儲存活動。');return} const code=$('competitionCheckinCode')?.value.trim();if(!code){msg('competitionMsg','請先設定簽到碼。');return}
+  const url=new URL('competitions.html',location.href);url.searchParams.set('id',id);url.searchParams.set('checkin','1');url.searchParams.set('code',code);
+  try{await navigator.clipboard.writeText(url.href);msg('competitionMsg','✅ 簽到連結已複製。')}catch(e){prompt('請複製這個簽到連結：',url.href)}
+}
+async function settleCompetition(){
+  const id=$('competitionId')?.value;if(!id){msg('competitionMsg','請先選擇活動。');return}
+  if(!confirm('活動結算後會自動把尚未簽到的已報名會員標記為「未到」，並發放活動完成積分。確定結算？'))return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_settle_competition',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_competition_id:id})});
+  const d=await r.json().catch(()=>({}));if(!r.ok){msg('competitionMsg','❌ 結算失敗：'+(d.message||d.hint||('HTTP '+r.status)));return}
+  msg('competitionMsg',d.already?'ℹ️ 此活動已結算。':'🏁 活動結算完成：完成 '+(d.completed||0)+' 人、未到 '+(d.no_show||0)+' 人、完成積分 '+(d.completion_points||0)+'。');await loadCompetitionAttendance(id); await loadActivityRewards(id);await competitions();
+}
+
 function registrationAdminStatus(x){return {active:'🟢 已報名',pending:'🟡 待審核',approved:'🟢 已通過',rejected:'🔴 未通過',cancelled:'⚪ 已取消'}[x]||x}
 function renderCompetitionRegistrations(){
   const box=$('competitionRegistrations');if(!box)return;const a=window.__competitionRegistrations||[];const q=($('registrationSearch')?.value||'').trim().toLowerCase();const st=$('registrationStatusFilter')?.value||'all';
@@ -304,9 +344,9 @@ function clearCompetition(){
   $('competitionDate').value='';
   $('competitionRegistrationDeadline').value='';
   $('competitionRegistrationCapacity').value='';
-  $('competitionRegistrationApproval').checked=false;
+  $('competitionRegistrationApproval').checked=false;if($('competitionWaitlistEnabled'))$('competitionWaitlistEnabled').checked=true;
   $('competitionRegistrationFields').value='';
-  $('competitionDescription').value='';
+  $('competitionDescription').value=''; if($('competitionCheckinEnabled'))$('competitionCheckinEnabled').checked=false; if($('competitionCheckinCode'))$('competitionCheckinCode').value=''; if($('competitionCheckinStart'))$('competitionCheckinStart').value=''; if($('competitionCheckinEnd'))$('competitionCheckinEnd').value=''; if($('competitionCheckinPoints'))$('competitionCheckinPoints').value=10;if($('competitionCompletionPoints'))$('competitionCompletionPoints').value=20;
   $('competitionResults').innerHTML='';
   $('competitionRegistrationPanel')?.classList.add('hidden');
   msg('competitionMsg','');
@@ -441,17 +481,17 @@ async function saveCompetition(){
   const description=$('competitionDescription').value.trim()||null;
   const registration_deadline=$('competitionRegistrationDeadline').value?new Date($('competitionRegistrationDeadline').value).toISOString():null;
   const cap=$('competitionRegistrationCapacity').value.trim(); const registration_capacity=cap?Number(cap):null;
-  const registration_approval=$('competitionRegistrationApproval').checked;
-  const registration_fields=$('competitionRegistrationFields').value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,20);
+  const registration_approval=$('competitionRegistrationApproval').checked; const waitlist_enabled=$('competitionWaitlistEnabled')?.checked!==false;
+  const registration_fields=$('competitionRegistrationFields').value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,20); const completion_points=Number($('competitionCompletionPoints')?.value||0); const checkin_enabled=$('competitionCheckinEnabled')?.checked||false; const checkin_code=$('competitionCheckinCode')?.value.trim()||null; const checkin_start_at=$('competitionCheckinStart')?.value?new Date($('competitionCheckinStart').value).toISOString():null; const checkin_end_at=$('competitionCheckinEnd')?.value?new Date($('competitionCheckinEnd').value).toISOString():null; const checkin_points=Number($('competitionCheckinPoints')?.value||0);
   const results=getCompetitionResults();
   if(!name){msg('competitionMsg','請輸入比賽名稱。');return false}
   if(registration_capacity!==null && (!Number.isInteger(registration_capacity)||registration_capacity<1)){msg('competitionMsg','報名人數上限必須是正整數。');return false}
-  if(registration_deadline && Number.isNaN(new Date(registration_deadline).getTime())){msg('competitionMsg','報名截止時間格式不正確。');return false}
+  if(registration_deadline && Number.isNaN(new Date(registration_deadline).getTime())){msg('competitionMsg','報名截止時間格式不正確。');return false} if(checkin_points<0||!Number.isInteger(checkin_points)){msg('competitionMsg','簽到積分必須是 0 以上整數。');return false} if(completion_points<0||!Number.isInteger(completion_points)){msg('competitionMsg','活動完成積分必須是 0 以上整數。');return false} if(checkin_start_at&&checkin_end_at&&new Date(checkin_start_at)>=new Date(checkin_end_at)){msg('competitionMsg','簽到開始時間必須早於結束時間。');return false}
   if(results.some(x=>!Number.isInteger(x.place)||x.place<1)){msg('competitionMsg','名次必須是正整數。');return false}
   if(results.some(x=>x.score!==null && !Number.isFinite(x.score))){msg('competitionMsg','分數必須是有效數字。');return false}
   const places=results.map(x=>x.place); if(new Set(places).size!==places.length){msg('competitionMsg','名次不可重複，請檢查參賽成績。');return false}
   try{
-    const payload={name,category,event_date,description,registration_deadline,registration_capacity,registration_approval,registration_fields};
+    const payload={name,category,event_date,description,registration_deadline,registration_capacity,registration_approval,registration_fields,waitlist_enabled,checkin_enabled,checkin_code,checkin_start_at,checkin_end_at,checkin_points,completion_points};
     const url=SUPABASE_URL+'/rest/v1/competitions'+(id?'?id=eq.'+encodeURIComponent(id):'');
     const r=await fetch(url,{method:id?'PATCH':'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify(payload)});
     const d=await r.json().catch(()=>[]);
@@ -475,7 +515,7 @@ async function replaceCompetitionResults(competitionId,results){
 async function loadCompetition(id){
   const r=await fetch(SUPABASE_URL+'/rest/v1/competitions?id=eq.'+encodeURIComponent(id)+'&select=*',{headers:auth()});
   const a=r.ok?await r.json():[];const c=a[0];if(!c)return;
-  $('competitionId').value=c.id;$('competitionName').value=c.name||'';$('competitionCategory').value=c.category||'Minecraft';$('competitionDate').value=c.event_date||'';$('competitionRegistrationDeadline').value=c.registration_deadline?new Date(c.registration_deadline).toISOString().slice(0,16):'';$('competitionRegistrationCapacity').value=c.registration_capacity??'';$('competitionRegistrationApproval').checked=!!c.registration_approval;$('competitionRegistrationFields').value=Array.isArray(c.registration_fields)?c.registration_fields.join('\n'):'';$('competitionDescription').value=c.description||'';
+  $('competitionId').value=c.id;$('competitionName').value=c.name||'';$('competitionCategory').value=c.category||'Minecraft';$('competitionDate').value=c.event_date||'';$('competitionRegistrationDeadline').value=c.registration_deadline?new Date(c.registration_deadline).toISOString().slice(0,16):'';$('competitionRegistrationCapacity').value=c.registration_capacity??'';$('competitionRegistrationApproval').checked=!!c.registration_approval;if($('competitionWaitlistEnabled'))$('competitionWaitlistEnabled').checked=c.waitlist_enabled!==false;$('competitionRegistrationFields').value=Array.isArray(c.registration_fields)?c.registration_fields.join('\n'):'';$('competitionDescription').value=c.description||''; if($('competitionCheckinEnabled'))$('competitionCheckinEnabled').checked=!!c.checkin_enabled; if($('competitionCheckinCode'))$('competitionCheckinCode').value=c.checkin_code||''; if($('competitionCheckinStart'))$('competitionCheckinStart').value=c.checkin_start_at?new Date(c.checkin_start_at).toISOString().slice(0,16):''; if($('competitionCheckinEnd'))$('competitionCheckinEnd').value=c.checkin_end_at?new Date(c.checkin_end_at).toISOString().slice(0,16):''; if($('competitionCheckinPoints'))$('competitionCheckinPoints').value=c.checkin_points??10;if($('competitionCompletionPoints'))$('competitionCompletionPoints').value=c.completion_points??20; await loadCompetitionAttendance(c.id); await loadActivityRewards(c.id); await loadActivityBadgesAdmin();
   const rr=await fetch(SUPABASE_URL+'/rest/v1/competition_results?competition_id=eq.'+encodeURIComponent(id)+'&select=*&order=place.asc',{headers:auth()});
   const results=rr.ok?await rr.json():[];$('competitionResults').innerHTML='';results.forEach(addCompetitionResult);if(!results.length)addCompetitionResult();
   msg('competitionMsg',c.published?'📢 目前已公布':'📝 目前為草稿');
@@ -514,6 +554,67 @@ async function setCompetitionPublished(id,published){
     await competitions();
   }catch(e){alert('更新公布狀態失敗：'+(e instanceof Error?e.message:String(e)))}
 }
+async function loadActivityAnalytics(){
+  const box=$('activityAnalytics'); if(!box)return;
+  box.innerHTML='<div class="loading">正在整理活動分析…</div>';
+  const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_activity_analytics',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:'{}'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){box.innerHTML='<div class="empty">❌ '+esc(d.message||d.hint||('HTTP '+r.status))+'</div>';return;}
+  box.innerHTML='<div class="competitionSummaryItem"><b>'+Number(d.competitions||0)+'</b><span>活動總數</span></div><div class="competitionSummaryItem"><b>'+Number(d.published||0)+'</b><span>已公布</span></div><div class="competitionSummaryItem"><b>'+Number(d.registrations||0)+'</b><span>有效報名</span></div><div class="competitionSummaryItem"><b>'+Number(d.attended||0)+'</b><span>已出席</span></div><div class="competitionSummaryItem"><b>'+Number(d.late||0)+'</b><span>遲到</span></div><div class="competitionSummaryItem"><b>'+Number(d.no_show||0)+'</b><span>未到</span></div><div class="competitionSummaryItem"><b>'+Number(d.attendance_points||0)+'</b><span>簽到積分</span></div><div class="competitionSummaryItem"><b>'+Number(d.completion_points||0)+'</b><span>完成積分</span></div><div class="competitionSummaryItem"><b>'+Number(d.badges||0)+'</b><span>徽章解鎖</span></div>';
+}
+async function loadActivityBadgesAdmin(){
+  const sel=$('activityRewardBadge'),box=$('activityBadgeAdmin'); if(!sel&&!box)return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_badges?select=id,code,title,description,icon,requirement_type,requirement_value,active&order=requirement_value.asc',{headers:auth()});
+  const rows=r.ok?await r.json():[];
+  if(sel)sel.innerHTML=rows.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.icon||'🏅')+' '+esc(x.title)+'</option>').join('')||'<option value="">尚無徽章</option>';
+  if(box)box.innerHTML=rows.map(x=>'<article class="notice"><div class="date">'+esc(x.icon||'🏅')+' '+esc(x.code)+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.description||'')+' · 條件 '+esc(x.requirement_value)+'</p></article>').join('');
+}
+async function loadActivityRewards(competitionId){
+  const box=$('activityRewardList'); if(!box||!competitionId)return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/competition_reward_rules?select=id,reward_type,reward_value,title,description,enabled,badge_id,activity_badges(title,icon)&competition_id=eq.'+encodeURIComponent(competitionId)+'&order=created_at.asc',{headers:auth()});
+  const rows=r.ok?await r.json():[];
+  box.innerHTML=rows.length?rows.map(x=>'<article class="notice"><div class="date">'+(x.reward_type==='points'?'💎 '+Number(x.reward_value||0)+' 點':'🏅 '+esc(x.activity_badges?.icon||'')+' '+esc(x.activity_badges?.title||'徽章'))+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.description||'')+'</p></article>').join(''):'<div class="empty">尚未設定活動獎勵規則。</div>';
+}
+async function addActivityReward(){
+  const id=$('competitionId')?.value; if(!id){show('activityRewardMsg','請先選擇已儲存的活動。');return}
+  const type=$('activityRewardType')?.value||'points', title=$('activityRewardTitle')?.value.trim(), desc=$('activityRewardDescription')?.value.trim()||null;
+  if(!title){show('activityRewardMsg','請輸入獎勵名稱。');return}
+  const body={p_competition_id:id,p_reward_type:type,p_title:title,p_description:desc,p_points:type==='points'?Number($('activityRewardPoints')?.value||0):null,p_badge_id:type==='badge'?($('activityRewardBadge')?.value||null):null};
+  const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_grant_competition_reward',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify(body)}); const d=await r.json().catch(()=>({}));
+  if(!r.ok){show('activityRewardMsg','❌ '+(d.message||d.hint||('HTTP '+r.status)));return}
+  show('activityRewardMsg','✅ 獎勵規則已加入。'); $('activityRewardTitle').value='';$('activityRewardDescription').value=''; await loadActivityRewards(id);
+}
+async function loadCompetitionAttendance(competitionId){
+  const panel=$('competitionAttendancePanel'),box=$('competitionAttendance'); if(!panel||!box||!competitionId)return;
+  panel.classList.remove('hidden'); panel.dataset.competitionId=competitionId;
+  try{
+    const [rr,ar,pr]=await Promise.all([
+      fetch(SUPABASE_URL+'/rest/v1/competition_registrations?select=id,user_id,member_no,nickname,email,status,created_at&competition_id=eq.'+encodeURIComponent(competitionId)+'&status=in.(active,approved)&order=created_at.asc',{headers:auth()}),
+      fetch(SUPABASE_URL+'/rest/v1/competition_attendance?select=*&competition_id=eq.'+encodeURIComponent(competitionId)+'&order=created_at.asc',{headers:auth()}),
+      fetch(SUPABASE_URL+'/rest/v1/profiles?select=id,member_no,nickname&role=eq.visitor',{headers:auth()})
+    ]);
+    const regs=rr.ok?await rr.json():[]; const atts=ar.ok?await ar.json():[]; const profiles=pr.ok?await pr.json():[];
+    const pm=new Map(profiles.map(x=>[x.id,x])); const am=new Map(atts.map(x=>[x.user_id,x]));
+    window.__competitionAttendance=regs.map(r=>({...r,profile:pm.get(r.user_id)||{},attendance:am.get(r.user_id)||null}));
+    if(!rr.ok||!ar.ok)msg('competitionMsg','⚠️ 簽到資料讀取失敗，請確認已執行 V2 SQL。');
+    renderCompetitionAttendance();
+  }catch(e){console.error(e);msg('competitionMsg','❌ 簽到資料載入失敗：'+e.message)}
+}
+function renderCompetitionAttendance(){
+  const box=$('competitionAttendance'); if(!box)return;
+  const a=window.__competitionAttendance||[]; const st=$('attendanceStatusFilter')?.value||'all';
+  const normalized=a.map(x=>({...x,attStatus:x.attendance?.status||'not_checked_in',att:x.attendance||{}}));
+  const rows=normalized.filter(x=>st==='all'||(st==='checked_in'&&x.attStatus==='checked_in')||(st==='late'&&x.attStatus==='late')||(st==='no_show'&&x.attStatus==='no_show')||(st==='cancelled'&&x.attStatus==='cancelled')||(st==='not_checked_in'&&x.attStatus==='not_checked_in'));
+  const counts={checked_in:0,late:0,no_show:0,cancelled:0,not_checked_in:0}; normalized.forEach(x=>counts[x.attStatus]=(counts[x.attStatus]||0)+1);
+  if($('competitionAttendanceSummary'))$('competitionAttendanceSummary').innerHTML='<div class="competitionSummaryItem"><b>'+a.length+'</b><span>已報名</span></div><div class="competitionSummaryItem"><b>'+counts.checked_in+'</b><span>已簽到</span></div><div class="competitionSummaryItem"><b>'+counts.late+'</b><span>遲到</span></div><div class="competitionSummaryItem"><b>'+counts.not_checked_in+'</b><span>未簽到</span></div><div class="competitionSummaryItem"><b>'+counts.no_show+'</b><span>未到</span></div>';
+  const statusText=x=>({checked_in:'🟢 已簽到',late:'🟡 遲到',no_show:'🔴 未到',cancelled:'⚪ 取消',not_checked_in:'⚪ 尚未簽到'}[x]||x);
+  box.innerHTML=rows.map(x=>{const p=x.profile||{};const member=x.member_no!=null?String(x.member_no).padStart(3,'0'):String(p.member_no??'—').padStart(3,'0');const name=x.nickname||p.nickname||x.email||'會員';const att=x.attendance;const checked=att&&['checked_in','late'].includes(att.status);return '<article class="notice"><div class="date">'+statusText(x.attStatus)+(att?.checked_in_at?' · '+esc(new Date(att.checked_in_at).toLocaleString('zh-TW')):'')+'</div><h3>會員 '+esc(member)+'｜'+esc(name)+'</h3><p>Email：'+esc(x.email||'—')+' · 簽到積分：'+esc(att?.points_awarded||0)+'</p><div class="competitionActions">'+(!checked?'<button class="btn secondary" data-att-member="'+esc(x.user_id)+'" data-att-status="checked_in">✅ 補簽到</button>':'' )+'<button class="btn secondary" data-att-member="'+esc(x.user_id)+'" data-att-status="late">🟡 遲到</button><button class="btn secondary" data-att-member="'+esc(x.user_id)+'" data-att-status="no_show">🔴 未到</button></div></article>'}).join('')||'<div class="empty">目前沒有符合條件的報名會員。</div>';
+  box.querySelectorAll('[data-att-member]').forEach(b=>b.onclick=async()=>{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_mark_competition_member_attendance',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_competition_id:$('competitionAttendancePanel').dataset.competitionId,p_user_id:b.dataset.attMember,p_status:b.dataset.attStatus,p_note:null})});
+    const d=await r.json().catch(()=>({})); if(!r.ok){msg('competitionMsg','❌ 更新簽到失敗：'+(d.message||d.hint||('HTTP '+r.status)));return} msg('competitionMsg','✅ 簽到狀態已更新。'); await loadCompetitionAttendance($('competitionAttendancePanel').dataset.competitionId);
+  });
+}
+
 async function competitions(){
   await competitionCategories();
   if(!$('adminCompetitions')||!configured()||!localStorage.getItem('access_token'))return;
@@ -734,6 +835,6 @@ function bind(){
   if($('productSearch'))$('productSearch').addEventListener('input',renderAdminProducts); if($('productStatusFilter'))$('productStatusFilter').addEventListener('change',renderAdminProducts);
   if($('couponSearch'))$('couponSearch').addEventListener('input',renderAdminCoupons);
   if($('supportSearch'))$('supportSearch').addEventListener('input',renderTickets); if($('supportStatusFilter'))$('supportStatusFilter').addEventListener('change',renderTickets);
-  if($('competitionSearch'))$('competitionSearch').addEventListener('input',renderAdminCompetitions); if($('competitionStatusFilter'))$('competitionStatusFilter').addEventListener('change',renderAdminCompetitions); if($('competitionCategoryFilter'))$('competitionCategoryFilter').addEventListener('change',renderAdminCompetitions); if($('registrationSearch'))$('registrationSearch').addEventListener('input',renderCompetitionRegistrations); if($('exportCompetitionRegistrations'))$('exportCompetitionRegistrations').onclick=exportCompetitionRegistrations; if($('registrationStatusFilter'))$('registrationStatusFilter').addEventListener('change',renderCompetitionRegistrations);
-  if($('loginButton'))$('loginButton').onclick=login;if($('refreshDashboard'))$('refreshDashboard').onclick=dashboard;if($('logoutButton'))$('logoutButton').onclick=logout;if($('saveContent'))$('saveContent').onclick=save;if($('publishButton'))$('publishButton').onclick=publish;if($('saveProduct'))$('saveProduct').onclick=saveProduct;if($('clearProduct'))$('clearProduct').onclick=clearProduct;if($('createVisitor'))$('createVisitor').onclick=createVisitor;if($('refreshGrowthAdmin'))$('refreshGrowthAdmin').onclick=growthAdmin;if($('refreshRewardsAdmin'))$('refreshRewardsAdmin').onclick=loadRewardManagers;if($('saveReward'))$('saveReward').onclick=saveGrowthReward;if($('clearReward'))$('clearReward').onclick=clearReward;if($('adjustGrowthPoints'))$('adjustGrowthPoints').onclick=adjustGrowthPoints;if($('saveGrowthTask'))$('saveGrowthTask').onclick=saveGrowthTask;if($('clearGrowthTask'))$('clearGrowthTask').onclick=clearGrowthTask;if($('saveGrowthAchievement'))$('saveGrowthAchievement').onclick=saveGrowthAchievement;if($('clearGrowthAchievement'))$('clearGrowthAchievement').onclick=clearGrowthAchievement;if($('growthMemberSearch'))$('growthMemberSearch').addEventListener('input',growthAdmin);if($('resetGrowthMember'))$('resetGrowthMember').onclick=resetGrowthMember;if($('growthResetMemberSelect'))$('growthResetMemberSelect').addEventListener('change',e=>loadGrowthResetHistory(e.target.value));if($('growthLogSearch'))$('growthLogSearch').addEventListener('input',renderGrowthLogs);if($('growthLogFilter'))$('growthLogFilter').addEventListener('change',renderGrowthLogs);if($('setSharedVisitorPassword'))$('setSharedVisitorPassword').onclick=setSharedVisitorPassword;if($('createCoupon'))$('createCoupon').onclick=createCoupon;if($('createNotification'))$('createNotification').onclick=createNotification;if($('generateAiAnnouncement'))$('generateAiAnnouncement').onclick=generateAiAnnouncement;if($('clearAiAnnouncement'))$('clearAiAnnouncement').onclick=clearAiAnnouncement;if($('applyAiAnnouncement'))$('applyAiAnnouncement').onclick=applyAiAnnouncement;if($('addCompetitionResult'))$('addCompetitionResult').onclick=()=>addCompetitionResult();if($('saveCompetition'))$('saveCompetition').onclick=saveCompetition;if($('publishCompetition'))$('publishCompetition').onclick=async()=>{const ok=await saveCompetition();const id=$('competitionId').value;if(ok&&id)await setCompetitionPublished(id,true)};if($('unpublishCompetition'))$('unpublishCompetition').onclick=async()=>{const id=$('competitionId').value;if(id)await setCompetitionPublished(id,false)};if($('clearCompetition'))$('clearCompetition').onclick=clearCompetition;if($('addCompetitionCategory'))$('addCompetitionCategory').onclick=addCompetitionCategory;if($('saveQuickLink'))$('saveQuickLink').onclick=saveQuickLink;if($('clearQuickLink'))$('clearQuickLink').onclick=clearQuickLink;if($('saveVideo'))$('saveVideo').onclick=saveVideo;if($('clearVideo'))$('clearVideo').onclick=clearVideo;if($('refreshVideosAdmin'))$('refreshVideosAdmin').onclick=loadVideosAdmin;if($('videoUrl'))$('videoUrl').addEventListener('input',previewVideo);if($('videoAdminSearch'))$('videoAdminSearch').addEventListener('input',renderAdminVideos);document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabPanel').forEach(x=>x.classList.add('hidden'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));$(b.dataset.tab).classList.remove('hidden');b.classList.add('active');if(b.dataset.tab==='dashboardTab')dashboard();if(b.dataset.tab==='newsTab')news();if(b.dataset.tab==='productTab')products();if(b.dataset.tab==='visitorTab')visitors();if(b.dataset.tab==='growthTab')growthAdmin();if(b.dataset.tab==='rewardTab')loadRewardManagers();if(b.dataset.tab==='couponTab')coupons();if(b.dataset.tab==='competitionTab'){competitionCategories();competitions();if(!$('competitionResults').children.length)addCompetitionResult()}if(b.dataset.tab==='quickLinkTab')quickLinks();if(b.dataset.tab==='videoTab')loadVideosAdmin();if(b.dataset.tab==='supportTab')tickets();if(b.dataset.tab==='notificationTab')notifications()})}
+  if($('competitionSearch'))$('competitionSearch').addEventListener('input',renderAdminCompetitions); if($('competitionStatusFilter'))$('competitionStatusFilter').addEventListener('change',renderAdminCompetitions); if($('competitionCategoryFilter'))$('competitionCategoryFilter').addEventListener('change',renderAdminCompetitions); if($('registrationSearch'))$('registrationSearch').addEventListener('input',renderCompetitionRegistrations); if($('exportCompetitionRegistrations'))$('exportCompetitionRegistrations').onclick=exportCompetitionRegistrations; if($('registrationStatusFilter'))$('registrationStatusFilter').addEventListener('change',renderCompetitionRegistrations);if($('attendanceStatusFilter'))$('attendanceStatusFilter').addEventListener('change',renderCompetitionAttendance); if($('loadActivityAnalytics'))$('loadActivityAnalytics').onclick=loadActivityAnalytics; if($('loadActivityBadges'))$('loadActivityBadges').onclick=loadActivityBadgesAdmin; if($('addActivityReward'))$('addActivityReward').onclick=addActivityReward;
+  if($('loginButton'))$('loginButton').onclick=login;if($('refreshDashboard'))$('refreshDashboard').onclick=dashboard;if($('logoutButton'))$('logoutButton').onclick=logout;if($('saveContent'))$('saveContent').onclick=save;if($('publishButton'))$('publishButton').onclick=publish;if($('saveProduct'))$('saveProduct').onclick=saveProduct;if($('clearProduct'))$('clearProduct').onclick=clearProduct;if($('createVisitor'))$('createVisitor').onclick=createVisitor;if($('refreshGrowthAdmin'))$('refreshGrowthAdmin').onclick=growthAdmin;if($('refreshRewardsAdmin'))$('refreshRewardsAdmin').onclick=loadRewardManagers;if($('saveReward'))$('saveReward').onclick=saveGrowthReward;if($('clearReward'))$('clearReward').onclick=clearReward;if($('adjustGrowthPoints'))$('adjustGrowthPoints').onclick=adjustGrowthPoints;if($('saveGrowthTask'))$('saveGrowthTask').onclick=saveGrowthTask;if($('clearGrowthTask'))$('clearGrowthTask').onclick=clearGrowthTask;if($('saveGrowthAchievement'))$('saveGrowthAchievement').onclick=saveGrowthAchievement;if($('clearGrowthAchievement'))$('clearGrowthAchievement').onclick=clearGrowthAchievement;if($('growthMemberSearch'))$('growthMemberSearch').addEventListener('input',growthAdmin);if($('resetGrowthMember'))$('resetGrowthMember').onclick=resetGrowthMember;if($('growthResetMemberSelect'))$('growthResetMemberSelect').addEventListener('change',e=>loadGrowthResetHistory(e.target.value));if($('growthLogSearch'))$('growthLogSearch').addEventListener('input',renderGrowthLogs);if($('growthLogFilter'))$('growthLogFilter').addEventListener('change',renderGrowthLogs);if($('attendanceStatusFilter'))$('attendanceStatusFilter').addEventListener('change',renderCompetitionAttendance);if($('registrationSearch'))$('registrationSearch').addEventListener('input',renderCompetitionRegistrations);if($('registrationStatusFilter'))$('registrationStatusFilter').addEventListener('change',renderCompetitionRegistrations);if($('setSharedVisitorPassword'))$('setSharedVisitorPassword').onclick=setSharedVisitorPassword;if($('createCoupon'))$('createCoupon').onclick=createCoupon;if($('createNotification'))$('createNotification').onclick=createNotification;if($('generateAiAnnouncement'))$('generateAiAnnouncement').onclick=generateAiAnnouncement;if($('clearAiAnnouncement'))$('clearAiAnnouncement').onclick=clearAiAnnouncement;if($('applyAiAnnouncement'))$('applyAiAnnouncement').onclick=applyAiAnnouncement;if($('addCompetitionResult'))$('addCompetitionResult').onclick=()=>addCompetitionResult();if($('saveCompetition'))$('saveCompetition').onclick=saveCompetition;if($('showCompetitionQr'))$('showCompetitionQr').onclick=showCompetitionQr;if($('copyCompetitionQr'))$('copyCompetitionQr').onclick=copyCompetitionQr;if($('settleCompetition'))$('settleCompetition').onclick=settleCompetition;if($('publishCompetition'))$('publishCompetition').onclick=async()=>{const ok=await saveCompetition();const id=$('competitionId').value;if(ok&&id)await setCompetitionPublished(id,true)};if($('unpublishCompetition'))$('unpublishCompetition').onclick=async()=>{const id=$('competitionId').value;if(id)await setCompetitionPublished(id,false)};if($('clearCompetition'))$('clearCompetition').onclick=clearCompetition;if($('addCompetitionCategory'))$('addCompetitionCategory').onclick=addCompetitionCategory;if($('saveQuickLink'))$('saveQuickLink').onclick=saveQuickLink;if($('clearQuickLink'))$('clearQuickLink').onclick=clearQuickLink;if($('saveVideo'))$('saveVideo').onclick=saveVideo;if($('clearVideo'))$('clearVideo').onclick=clearVideo;if($('refreshVideosAdmin'))$('refreshVideosAdmin').onclick=loadVideosAdmin;if($('videoUrl'))$('videoUrl').addEventListener('input',previewVideo);if($('videoAdminSearch'))$('videoAdminSearch').addEventListener('input',renderAdminVideos);document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabPanel').forEach(x=>x.classList.add('hidden'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));$(b.dataset.tab).classList.remove('hidden');b.classList.add('active');if(b.dataset.tab==='dashboardTab')dashboard();if(b.dataset.tab==='newsTab')news();if(b.dataset.tab==='productTab')products();if(b.dataset.tab==='visitorTab')visitors();if(b.dataset.tab==='growthTab')growthAdmin();if(b.dataset.tab==='rewardTab')loadRewardManagers();if(b.dataset.tab==='couponTab')coupons();if(b.dataset.tab==='competitionTab'){competitionCategories();competitions();if(!$('competitionResults').children.length)addCompetitionResult()}if(b.dataset.tab==='quickLinkTab')quickLinks();if(b.dataset.tab==='videoTab')loadVideosAdmin();if(b.dataset.tab==='supportTab')tickets();if(b.dataset.tab==='notificationTab')notifications()})}
 document.addEventListener('DOMContentLoaded',()=>{bindMobileAdminNav();bind();const session=recoverStoredSession();if(session.access){localStorage.setItem('access_token',session.access);if(session.refresh)localStorage.setItem('refresh_token',session.refresh);$('login').classList.add('hidden');$('dashboard').classList.remove('hidden');load()}else if(!configured())msg('loginError','請把你原本可用的 config.js 放回來。')});

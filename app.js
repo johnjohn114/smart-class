@@ -356,6 +356,26 @@ async function loadRegistrationProfile(){
   const p=(r.ok?(await r.json()):[])[0]||{};
   return {id:u.id,email:u.email||'',nickname:p.nickname||'',member_no:p.member_no};
 }
+async function checkinCompetition(competitionId, box){
+  const code=box?.querySelector('[data-checkin-code]')?.value.trim(); const msgEl=box?.querySelector('[data-checkin-msg]'); const btn=box?.querySelector('[data-checkin-submit]');
+  if(!code){if(msgEl)msgEl.textContent='請輸入活動提供的簽到碼。';return}
+  if(btn){btn.disabled=true;btn.textContent='簽到處理中…'}
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/checkin_competition',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_competition_id:competitionId,p_code:code})});
+    const d=await r.json().catch(()=>null);
+    if(!r.ok)throw new Error(d?.message||d?.hint||d?.details||('HTTP '+r.status));
+    if(msgEl)msgEl.textContent=d?.already?'✅ 你已經簽到過了。':'✅ 簽到成功！'+(Number(d?.points_awarded||0)>0?' 獲得 '+d.points_awarded+' 成長積分。':'');
+    if(!d?.already){try{const u=await getCurrentUser();if(u)await fetch(SUPABASE_URL+'/rest/v1/notifications',{method:'POST',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify([{user_id:u.id,type:'活動',title:'📍 活動簽到成功',content:'你已完成活動簽到。'+(Number(d?.points_awarded||0)>0?' 獲得 '+d.points_awarded+' 成長積分。':'')}])})}catch(e){console.error('簽到通知建立失敗',e)}}
+    if(typeof loadMyGrowth==='function')setTimeout(()=>loadMyGrowth(),300);
+    if(typeof loadMyCompetitions==='function')setTimeout(()=>loadMyCompetitions(),300);
+  }catch(e){if(msgEl)msgEl.textContent='❌ '+(e.message||'簽到失敗，請稍後再試。');console.error('checkinCompetition:',e)}
+  finally{if(btn){btn.disabled=false;btn.textContent='📍 立即簽到'}}
+}
+function checkinBox(c){
+  if(!c.checkin_enabled)return ''; const now=Date.now(); const start=c.checkin_start_at?new Date(c.checkin_start_at).getTime():0; const end=c.checkin_end_at?new Date(c.checkin_end_at).getTime():Infinity; const open=now>=start&&now<=end;
+  return '<div class="registrationBox checkinBox" data-checkin-competition="'+esc(c.id)+'"><div class="registrationStatus">📍 活動簽到 · '+(open?'🟢 開放中':'⚪ 尚未開放／已結束')+(Number(c.checkin_points||0)>0?' · 簽到可得 '+esc(c.checkin_points)+' 💎':'')+'</div><div class="registrationForm"><label>簽到碼<input data-checkin-code maxlength="40" placeholder="輸入活動現場提供的簽到碼" '+(open?'':'disabled')+'></label></div><div class="competitionActions"><button class="btn" type="button" data-checkin-submit '+(open?'':'disabled')+'>📍 立即簽到</button></div><small data-checkin-msg></small></div>';
+}
+function bindCheckinBox(c,box){const b=box?.querySelector('[data-checkin-submit]');if(b)b.onclick=()=>checkinCompetition(c.id,box)}
 function registrationStatusText(status){return {active:'已報名',pending:'待審核',approved:'已通過',rejected:'未通過',cancelled:'已取消'}[status]||'未報名'}
 function registrationStatusIcon(status){return {active:'🟢',pending:'🟡',approved:'🟢',rejected:'🔴',cancelled:'⚪'}[status]||'📝'}
 function registrationDeadlineText(c){if(!c.registration_deadline)return '';const d=new Date(c.registration_deadline);if(Number.isNaN(d.getTime()))return '';return ' · 報名截止：'+d.toLocaleString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
@@ -371,12 +391,34 @@ function registrationForm(c,reg,profile){
   else actions='<span class="sub">⛔ 報名已截止</span>';
   return '<div class="registrationBox" data-registration-box="'+esc(c.id)+'"><div class="registrationStatus">'+registrationStatusIcon(status)+' 報名狀態：<b>'+esc(registrationStatusText(status))+'</b>'+registrationDeadlineText(c)+(c.registration_capacity?' · 名額上限：'+esc(c.registration_capacity):'')+'</div>'+
     (active?'<p class="sub">已完成報名。如需更改資料，可按「修改報名」。':'<p class="sub">登入會員可直接報名，會員基本資料會自動帶入。'+(c.registration_approval?' 此活動需要管理員審核。':'')+'</p>')+
-    '<div class="registrationForm"><label>會員編號<input value="'+esc(profile?.member_no!=null?String(profile.member_no).padStart(3,'0'):'—')+'" readonly></label><label>暱稱<input data-reg-nickname value="'+esc(reg?.nickname||profile?.nickname||'')+'" maxlength="40" '+(active?'disabled':'')+'></label><label>Email<input value="'+esc(reg?.email||profile?.email||'')+'" readonly></label><label>備註／補充說明<textarea data-reg-note maxlength="1000" rows="3" '+(active?'disabled':'')+'>'+esc(reg?.note||'')+'</textarea></label>'+fieldHtml+'</div><div class="competitionActions">'+actions+'</div><small data-reg-msg></small></div>';
+    '<div class="registrationForm"><label>會員編號<input value="'+esc(profile?.member_no!=null?String(profile.member_no).padStart(3,'0'):'—')+'" readonly></label><label>暱稱<input data-reg-nickname value="'+esc(reg?.nickname||profile?.nickname||'')+'" maxlength="40" '+(active?'disabled':'')+'></label><label>Email<input value="'+esc(reg?.email||profile?.email||'')+'" readonly></label><label>備註／補充說明<textarea data-reg-note maxlength="1000" rows="3" '+(active?'disabled':'')+'>'+esc(reg?.note||'')+'</textarea></label>'+fieldHtml+'</div><div data-capacity-info class="sub"></div><div data-waitlist-box></div><div class="competitionActions">'+actions+'</div><small data-reg-msg></small></div>';
+}
+async function getMyWaitlist(competitionId){
+  if(!visitorToken())return null; const uid=(await getCurrentUser())?.id;if(!uid)return null;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/competition_waitlist?select=*&competition_id=eq.'+encodeURIComponent(competitionId)+'&user_id=eq.'+encodeURIComponent(uid)+'&limit=1',{headers:auth()});
+  if(!r.ok)return null; const a=await r.json(); return a[0]||null;
+}
+async function refreshRegistrationCapacity(c,box){
+  const info=box.querySelector('[data-capacity-info]'), wait=box.querySelector('[data-waitlist-box]'); if(!info||!wait||!c.registration_capacity)return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/competition_registrations?select=id&competition_id=eq.'+encodeURIComponent(c.id)+'&status=in.(active,approved,pending)',{headers:auth()});
+  const rows=r.ok?await r.json():[]; const remaining=Math.max(Number(c.registration_capacity)-rows.length,0); const wl=await getMyWaitlist(c.id);
+  info.textContent=remaining>0?'🟢 剩餘名額：'+remaining+' / '+c.registration_capacity:'🔴 名額已滿：'+c.registration_capacity+' 人';
+  if(remaining===0 && c.waitlist_enabled!==false && !['active','approved','pending'].includes((await getMyRegistration(c.id))?.status||'') ){
+    if(wl?.status==='waiting') wait.innerHTML='<div class="registrationStatus">🕐 你目前在候補第 '+esc(wl.position)+' 位</div>';
+    else if(wl?.status==='promoted') wait.innerHTML='<div class="registrationStatus">🟢 你已由候補遞補，請重新整理查看報名狀態。</div>';
+    else wait.innerHTML='<div class="competitionActions"><button class="btn secondary" type="button" data-join-waitlist>🕐 加入候補名單</button></div>';
+    wait.querySelector('[data-join-waitlist]')?.addEventListener('click',async()=>{
+      const b=wait.querySelector('[data-join-waitlist]');b.disabled=true;b.textContent='加入中…';
+      const rr=await fetch(SUPABASE_URL+'/rest/v1/rpc/join_competition_waitlist',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_competition_id:c.id,p_note:null})});
+      const d=await rr.json().catch(()=>({}));if(!rr.ok){box.querySelector('[data-reg-msg]').textContent='❌ '+(d.message||d.hint||'加入候補失敗');b.disabled=false;b.textContent='🕐 加入候補名單';return}
+      box.querySelector('[data-reg-msg]').textContent=d.already?'ℹ️ 你已在候補名單中。':'✅ 已加入候補，第 '+d.position+' 位。';await refreshRegistrationCapacity(c,box);
+    });
+  } else wait.innerHTML='';
 }
 async function prepareRegistrationBox(c,box){
   if(!box||!visitorToken())return;
   const profile=await loadRegistrationProfile(); const reg=await getMyRegistration(c.id);
-  box.innerHTML=registrationForm(c,reg,profile); bindRegistrationBox(c,box);
+  box.innerHTML=registrationForm(c,reg,profile); bindRegistrationBox(c,box); await refreshRegistrationCapacity(c,box);
 }
 function bindRegistrationBox(c,box){
   const submit=box.querySelector('[data-reg-submit]'); const edit=box.querySelector('[data-reg-edit]'); const cancel=box.querySelector('[data-reg-cancel]');
@@ -390,6 +432,11 @@ async function submitRegistration(c,box){
   const profile=await loadRegistrationProfile(); if(!profile){box.querySelector('[data-reg-msg]').textContent='請先登入。';return}
   const nickname=box.querySelector('[data-reg-nickname]')?.value.trim()||''; const note=box.querySelector('[data-reg-note]')?.value.trim()||null; if(!nickname){box.querySelector('[data-reg-msg]').textContent='請輸入暱稱。';return}
   const existing=await getMyRegistration(c.id); const custom_fields=collectCustomFields(box);
+  if(!existing && c.registration_capacity){
+    const capR=await fetch(SUPABASE_URL+'/rest/v1/competition_registrations?select=id&competition_id=eq.'+encodeURIComponent(c.id)+'&status=in.(active,approved,pending)',{headers:auth()});
+    const capRows=capR.ok?await capR.json():[];
+    if(capRows.length>=Number(c.registration_capacity)){box.querySelector('[data-reg-msg]').textContent='❌ 名額已滿，請加入候補名單。';await refreshRegistrationCapacity(c,box);return}
+  }
   const url=SUPABASE_URL+'/rest/v1/competition_registrations'+(existing?'?id=eq.'+encodeURIComponent(existing.id):'');
   const opts=existing?{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({member_no:profile.member_no,nickname,email:profile.email,note,custom_fields,status:'active',cancelled_at:null})}:{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({competition_id:c.id,user_id:profile.id,member_no:profile.member_no,nickname,email:profile.email,note,custom_fields,status:'active'})};
   const r=await fetch(url,opts); const d=await r.json().catch(()=>({})); const msgEl=box.querySelector('[data-reg-msg]');
@@ -435,10 +482,21 @@ async function loadCompetitionPage(){
     const rr=await fetch(SUPABASE_URL+'/rest/v1/competition_results?select=*&competition_id=eq.'+encodeURIComponent(c.id)+'&order=place.asc',{headers:h});
     const results=rr.ok?await rr.json():[];
     const regBox=(visitorToken()&&competitionStatus(c.event_date).key!=='ended')?'<div id="reg-'+esc(c.id)+'" class="registrationBox"><div class="loading">正在載入報名資訊…</div></div>':'';
-    all.push('<section class="competitionCard"><div class="competitionHeader"><div><div class="date">'+esc(c.category||'未分類')+' · '+esc(c.event_date||'未設定日期')+' '+competitionStatusBadge(c.event_date)+'</div><h2>'+esc(c.name)+'</h2></div></div>'+(c.description?'<p class="sub">'+esc(c.description).replace(/\n/g,'<br>')+'</p>':'')+regBox+'<div class="competitionResults">'+(results.length?results.map(competitionResultCard).join(''):'<div class="empty">這場比賽尚未輸入成績。</div>')+'</div></section>');
+    all.push('<section class="competitionCard"><div class="competitionHeader"><div><div class="date">'+esc(c.category||'未分類')+' · '+esc(c.event_date||'未設定日期')+' '+competitionStatusBadge(c.event_date)+'</div><h2>'+esc(c.name)+'</h2></div></div>'+(c.description?'<p class="sub">'+esc(c.description).replace(/\n/g,'<br>')+'</p>':'')+regBox+checkinBox(c)+'<div class="competitionResults">'+(results.length?results.map(competitionResultCard).join(''):'<div class="empty">這場比賽尚未輸入成績。</div>')+'</div></section>');
   }
   box.innerHTML=all.join('');
-  for(const c of comps){const rb=$('reg-'+c.id);if(rb)prepareRegistrationBox(c,rb);}
+  for(const c of comps){
+    const rb=$('reg-'+c.id);if(rb)await prepareRegistrationBox(c,rb);
+    const cb=box.querySelector('[data-checkin-competition="'+CSS.escape(String(c.id))+'"]');if(cb)bindCheckinBox(c,cb);
+  }
+  await autoCheckinFromUrl(comps);
+}
+async function autoCheckinFromUrl(comps){
+  const params=new URLSearchParams(location.search);if(params.get('checkin')!=='1')return;
+  const code=params.get('code')||'';if(!code)return;const id=params.get('id');const c=(comps||[]).find(x=>String(x.id)===String(id));if(!c)return;
+  const box=document.querySelector('[data-checkin-competition="'+CSS.escape(String(c.id))+'"]');if(!box)return;
+  const input=box.querySelector('[data-checkin-code]');if(input){input.value=code;}
+  const btn=box.querySelector('[data-checkin-submit]');if(btn&&!btn.disabled&&visitorToken())setTimeout(()=>checkinCompetition(c.id,box),250);
 }
 
 
@@ -604,15 +662,35 @@ async function changeMyPassword(){
   show('passwordMsg',r.ok?'✅ 密碼已更新。':'❌ 密碼更新失敗，請重新登入後再試。');
   if(r.ok){$('newPassword').value='';$('newPassword2').value='';}
 }
+async function loadMyActivityBadges(){
+  const box=$('myActivityBadges'); if(!box||!visitorToken())return; const uid=(await getCurrentUser())?.id;if(!uid)return;
+  const br=await fetch(SUPABASE_URL+'/rest/v1/activity_badges?select=id,code,title,description,icon,requirement_type,requirement_value,active&order=requirement_value.asc',{headers:auth()});
+  const ur=await fetch(SUPABASE_URL+'/rest/v1/user_activity_badges?select=badge_id,unlocked_at&user_id=eq.'+encodeURIComponent(uid),{headers:auth()});
+  const badges=br.ok?await br.json():[], unlocked=ur.ok?await ur.json():[], um=new Map(unlocked.map(x=>[x.badge_id,x]));
+  box.innerHTML=badges.map(b=>{const u=um.get(b.id);return '<article class="notice"><div class="date">'+esc(b.icon||'🏅')+' '+(u?'已解鎖':'未解鎖')+'</div><h3>'+esc(b.title)+'</h3><p>'+esc(b.description||'')+' · 條件 '+esc(b.requirement_value)+'</p>'+(u?'<small>解鎖：'+esc(new Date(u.unlocked_at).toLocaleString('zh-TW'))+'</small>':'')+'</article>'}).join('')||'<div class="empty">目前沒有活動徽章。</div>';
+}
+async function loadMyActivityHistory(){
+  const box=$('myActivityHistory'); if(!box||!visitorToken())return; const uid=(await getCurrentUser())?.id;if(!uid)return;
+  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?user_id=eq.'+encodeURIComponent(uid)+'&select=*',{headers:auth()}); const s=(r.ok?(await r.json()):[])[0];
+  const ar=await fetch(SUPABASE_URL+'/rest/v1/competition_attendance?select=status,checked_in_at,points_awarded,completion_points_awarded,competitions(name,category,event_date)&user_id=eq.'+encodeURIComponent(uid)+'&order=created_at.desc&limit=100',{headers:auth()}); const rows=ar.ok?await ar.json():[];
+  box.innerHTML='<article class="notice"><h3>📊 活動總覽</h3><p>參加 <b>'+Number(s?.attended_count||0)+'</b> 場 · 遲到 '+Number(s?.late_count||0)+' 次 · 未到 '+Number(s?.no_show_count||0)+' 次 · 活動積分 <b>'+Number(s?.activity_points||0)+'</b></p></article>'+(rows.length?rows.map(x=>'<article class="notice"><div class="date">'+esc(x.competitions?.event_date||'')+' · '+esc(x.status==='checked_in'?'🟢 準時':x.status==='late'?'🟡 遲到':x.status==='no_show'?'🔴 未到':'⚪ 取消')+'</div><h3>'+esc(x.competitions?.name||'活動')+'</h3><p>簽到 '+Number(x.points_awarded||0)+' 點 · 完成 '+Number(x.completion_points_awarded||0)+' 點</p></article>').join(''):'<div class="empty">尚無活動履歷。</div>');
+}
+async function loadActivityLeaderboard(){
+  const box=$('activityLeaderboardList'),summary=$('activityLeaderboardSummary'); if(!box||!configured())return; box.innerHTML='<div class="loading">正在整理活動達人榜…</div>';
+  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?select=user_id,nickname,attended_count,late_count,no_show_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY}}); const rows=r.ok?await r.json():[];
+  if(summary)summary.innerHTML='<div class="leaderboardStat"><b>'+rows.length+'</b><span>活動會員</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.attended_count||0),0)+'</b><span>累計出席</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.activity_points||0),0)+'</b><span>活動積分</span></div>';
+  box.innerHTML=rows.length?rows.slice(0,20).map((x,i)=>'<article class="leaderboardRow'+(i<3?' topRank':'')+'"><div class="leaderboardRank">'+(i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅')+' <b>#'+(i+1)+'</b></div><div class="leaderboardPlayer"><h3>'+esc(x.nickname||'會員')+'</h3><div class="leaderboardMeta">活動積分 <b>'+Number(x.activity_points||0)+'</b> · 出席 '+Number(x.attended_count||0)+' 場 · 遲到 '+Number(x.late_count||0)+' · 未到 '+Number(x.no_show_count||0)+'</div></div></article>').join(''):'<div class="empty">目前還沒有活動達人榜資料。</div>';
+}
 async function loadMyCompetitions(){
   const box=$('myCompetitions'); if(!box||!visitorToken())return;
   const uid=(await getCurrentUser())?.id;if(!uid)return;
   const r=await fetch(SUPABASE_URL+'/rest/v1/competition_registrations?select=*,competitions(id,name,category,event_date,description,published)&user_id=eq.'+encodeURIComponent(uid)+'&order=created_at.desc',{headers:auth()});
+  const ar=await fetch(SUPABASE_URL+'/rest/v1/competition_attendance?select=*,competitions(id,name,category,event_date)&user_id=eq.'+encodeURIComponent(uid)+'&order=created_at.desc',{headers:auth()}); const attendance=ar.ok?await ar.json():[]; if($('myActivitySummary'))$('myActivitySummary').innerHTML='<div class="competitionSummaryItem"><b>'+attendance.filter(x=>['checked_in','late'].includes(x.status)).length+'</b><span>已參加</span></div><div class="competitionSummaryItem"><b>'+attendance.reduce((n,x)=>n+Number(x.points_awarded||0),0)+'</b><span>簽到積分</span></div><div class="competitionSummaryItem"><b>'+attendance.length+'</b><span>簽到紀錄</span></div>'; if($('myAttendance'))$('myAttendance').innerHTML=attendance.length?attendance.slice(0,10).map(x=>'<article class="notice"><div class="date">'+esc(x.competitions?.event_date||'')+' · '+esc(x.status==='checked_in'?'🟢 已簽到':x.status==='late'?'🟡 遲到':x.status==='no_show'?'🔴 未到':'⚪ 取消')+'</div><h3>'+esc(x.competitions?.name||'活動')+'</h3><p>簽到積分：<b>'+esc(x.points_awarded||0)+'</b> · '+esc(x.checked_in_at?new Date(x.checked_in_at).toLocaleString('zh-TW'):'—')+'</p></article>').join(''):'<div class="empty">目前還沒有簽到紀錄。</div>';
   const regs=r.ok?await r.json():[];
   const rr=await fetch(SUPABASE_URL+'/rest/v1/competition_results?select=id,competition_id,place,score,prize,player_name&user_id=eq.'+encodeURIComponent(uid)+'&order=created_at.desc',{headers:auth()});
   const results=rr.ok?await rr.json():[];
   const resultByComp=new Map(results.map(x=>[x.competition_id,x]));
-  box.innerHTML=regs.length?regs.map(x=>{const res=resultByComp.get(x.competition_id);return '<article class="notice"><div class="date">'+esc(x.competitions?.category||'')+' · '+esc(x.competitions?.event_date||'未設定日期')+' '+competitionStatusBadge(x.competitions?.event_date)+'</div><h3>📝 '+esc(x.competitions?.name||'活動／比賽')+'</h3><p><b>報名狀態：</b>'+esc(registrationStatusText(x.status))+'　<b>報名暱稱：</b>'+esc(x.nickname||'')+(x.note?'　<b>備註：</b>'+esc(x.note):'')+'</p>'+(res?'<p>🏆 <b>成績：</b>第 '+esc(res.place)+' 名'+(res.score!=null?'　分數 '+esc(res.score):'')+(res.prize?'　獎項 '+esc(res.prize):'')+'</p>':'')+'</article>'}).join(''):'<div class="empty">目前還沒有報名或比賽紀錄。</div>';
+  box.innerHTML=regs.length?regs.map(x=>{const res=resultByComp.get(x.competition_id);return '<article class="notice"><div class="date">'+esc(x.competitions?.category||'')+' · '+esc(x.competitions?.event_date||'未設定日期')+' '+competitionStatusBadge(x.competitions?.event_date)+'</div><h3>📝 '+esc(x.competitions?.name||'活動／比賽')+'</h3><p><b>報名狀態：</b>'+esc(registrationStatusText(x.status))+'　<b>報名暱稱：</b>'+esc(x.nickname||'')+(x.note?'　<b>備註：</b>'+esc(x.note):'')+'</p>'+(res?'<p>🏆 <b>成績：</b>第 '+esc(res.place)+' 名'+(res.score!=null?'　分數 '+esc(res.score):'')+(res.prize?'　獎項 '+esc(res.prize):'')+'</p>':'')+'</article>'}).join(''):'<div class="empty">目前還沒有報名或比賽紀錄。</div>'; await loadMyActivityBadges(); await loadMyActivityHistory();
 }
 async function loadMyAwards(){
   const box=$('myAwards'); if(!box||!visitorToken())return;
@@ -709,5 +787,5 @@ function initSiteSearch(){
 
 function showMySection(id){document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));$(id)?.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();if(id==='myGrowthPanel')loadMyGrowth();if(id==='myRewardsPanel')loadMyRewards();}
 
-window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();if($('competitionList'))loadCompetitionPage();if($('myProfile')&&sessionOk){loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
+window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden')}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();if($('competitionList')){loadCompetitionPage();loadActivityLeaderboard();}if($('myProfile')&&sessionOk){loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
 window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id&&$(id))showMySection(id);});
