@@ -298,3 +298,101 @@ nav{display:flex;align-items:center;flex-wrap:nowrap;justify-content:flex-end}
 nav a,nav button{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;min-width:max-content}
 .nav .dropdownMenu a,.nav .myNavMenu a,.dropdownSubmenu a{white-space:nowrap}
 @media(max-width:1100px){.nav{gap:10px;overflow-x:auto}.nav a,.nav button{font-size:14px;padding:7px 9px}}
+.productBuyRow{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap}.productBuyRow .btn{width:100%;text-align:center}
+.checkoutPanel,.checkoutSuccess{max-width:820px;margin:20px auto;padding:28px;background:#fff;border:1px solid #eadff5;border-radius:24px;box-shadow:0 12px 35px rgba(83,62,120,.08)}
+.checkoutProduct{display:grid;grid-template-columns:180px 1fr;gap:22px;align-items:center;padding:18px;border:1px solid #eee5f5;border-radius:20px;background:#fcfaff}.checkoutProduct img{width:180px;height:180px;object-fit:cover;border-radius:18px}.checkoutProduct .productImage{width:180px;height:180px;display:flex;align-items:center;justify-content:center;border-radius:18px;background:#f1ebfa;font-size:60px}.checkoutProduct h2{margin:8px 0}.checkoutProduct strong{font-size:26px;color:#6849c7}.checkoutPayment{margin:20px 0;padding:18px;border:1px solid #e5daf5;border-radius:18px;background:#fbf8ff}.cashPayment strong{font-size:20px;color:#4d3a70}.cashPayment p{color:#756a84}.checkoutTotal{margin:20px 0;padding:18px;border-radius:18px;background:#f3edff;text-align:right;font-size:20px;color:#5d467c}.checkoutTotal strong{font-size:28px;color:#6849c7}.checkoutSuccess{text-align:center}.successIcon{font-size:56px}.checkoutSuccess h2{color:#4d3a70}.orderCard{margin-bottom:14px}.orderItems{display:flex;flex-direction:column;gap:8px;margin:14px 0}.orderItem{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:12px;background:#faf7ff}.orderItem b{color:#6849c7}@media(max-width:700px){.checkoutProduct{grid-template-columns:1fr}.checkoutProduct img,.checkoutProduct .productImage{width:100%;height:220px}.checkoutPanel,.checkoutSuccess{padding:18px;margin:12px}}
+
+/* 2026-09 手機操作優化 V1 */
+html,body{max-width:100%;overflow-x:hidden}
+button,a,input,select,textarea{touch-action:manipulation}
+@media(max-width:850px){
+  body{font-size:15px}
+  header{position:sticky;top:0}
+  .nav{padding:9px 12px;gap:8px}
+  .logo{font-size:20px;max-width:70vw;overflow:hidden;text-overflow:ellipsis}
+  header .nav>.mobileNavToggle{min-height:44px;padding:9px 13px;align-self:flex-end}
+  header nav a,header nav button{min-height:44px}
+  header nav.mobileOpen{padding:8px 0 10px;max-height:calc(100vh - 64px);overflow:auto}
+  .hero{min-height:360px;height:360px;margin:12px 10px 30px;border-radius:22px}
+  .hero img{height:360px}
+  .heroCard{left:20px;right:20px;max-width:none}
+  .heroCard h1{font-size:32px;line-height:1.2}
+  .heroCard p{font-size:16px;line-height:1.6;margin-bottom:18px}
+  section{padding:32px 14px;scroll-margin-top:72px}
+  section h2{font-size:29px}
+  .sub{line-height:1.6;margin-bottom:20px}
+  .btn,.dashboardAction,.tab,.filter,.mySubnav a,.competitionFilters a,.rewardFilter{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
+  .competitionActions{display:grid;grid-template-columns:1fr;gap:9px}
+  .competitionActions .btn,.competitionActions button{width:100%;margin:0}
+  .grid2,.features,.four,.myGrid,.growthGrid,.rewardGrid,.dashboardGrid{grid-template-columns:1fr}
+  .dashboardCards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .dashCard{padding:14px;min-width:0}
+  .dashIcon{font-size:27px}
+  .dashValue{font-size:23px}
+  .dashboardBox,.editor,.myPanel,.notice,.competitionCard,.rewardCard{border-radius:18px}
+  .dashboardBox,.editor,.myPanel{padding:16px}
+  .adminTabs{display:block;margin-bottom:22px}
+  .adminTabGroup{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px;border-radius:16px;margin-bottom:8px}
+  .adminTabGroup>span{grid-column:1/-1;padding:2px 3px}
+  .adminTabGroup .tab{width:100%;min-width:0;padding:10px 8px;line-height:1.35}
+  .adminListTools{display:grid;grid-template-columns:1fr;gap:8px}
+  .adminListTools input,.adminListTools select{width:100%;min-width:0;min-height:44px}
+  .editor input,.editor textarea,.editor select,.formField input,.formField textarea,.formField select{font-size:16px;min-height:44px}
+  .editor textarea,.formField textarea{min-height:100px}
+  .check{min-height:44px;padding:8px 0}
+  .productGrid{grid-template-columns:1fr;gap:14px}
+  .productCard{border-radius:18px}
+  .productCard img,.productImage{height:190px}
+  .productBody{padding:16px}
+  .productBody h3{font-size:21px;line-height:1.35}
+  .productBody strong{font-size:20px}
+  .productBuyRow{display:grid;grid-template-columns:1fr;gap:8px}
+  .productBuyRow .btn{width:100%;min-height:46px}
+  .filters,.competitionFilters,.mySubnav,.rewardFilters{justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap;padding:2px 1px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .filters::-webkit-scrollbar,.competitionFilters::-webkit-scrollbar,.mySubnav::-webkit-scrollbar,.rewardFilters::-webkit-scrollbar{display:none}
+  .filters .filter,.competitionFilters a,.mySubnav a,.rewardFilter{flex:0 0 auto;white-space:nowrap}
+  .mySubnav{margin-bottom:18px}
+  .mySubnav a{font-size:14px}
+  .quickLinksPanel{margin:10px 12px;border-radius:16px}
+  .quickLinksList{grid-template-columns:1fr 1fr;gap:7px}
+  .quickLinkItem{min-height:44px;padding:9px 10px}
+  .notificationToolbar{padding:10px;border-radius:14px}
+  .notificationActions{display:grid;grid-template-columns:1fr;gap:8px;width:100%}
+  .notificationActions .btn{width:100%;min-width:0}
+  .checkoutPanel,.checkoutSuccess{margin:8px 10px;padding:16px;border-radius:18px}
+  .checkoutProduct{padding:12px;gap:14px}
+  .checkoutProduct img,.checkoutProduct .productImage{height:190px;border-radius:14px}
+  .checkoutProduct h2{font-size:23px;line-height:1.35}
+  .checkoutProduct strong{font-size:23px}
+  .checkoutPayment{padding:14px;margin:14px 0}
+  .checkoutTotal{text-align:center;padding:15px;font-size:18px}
+  .checkoutTotal strong{font-size:25px}
+  #createCashOrder{min-height:50px;font-size:16px}
+  .orderItem{align-items:flex-start;flex-direction:column;gap:4px}
+  .orderItem b{font-size:17px}
+  .competitionSummary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .competitionSummaryItem{min-width:0;padding:10px}
+  .resultRow{grid-template-columns:1fr!important;gap:8px;padding:12px}
+  .registrationForm,.registrationAdvancedGrid,.registrationFieldGrid{grid-template-columns:1fr}
+  .registrationBox,.registrationAdminPanel{padding:14px}
+  .leaderboardSection{padding:14px}
+  .leaderboardHeader{display:block}
+  .leaderboardSummary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .leaderboardStat{min-width:0;padding:10px 12px}
+  .growthDashGrid,.growthStats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .growthLevelCard,.rewardBalanceCard{padding:16px;gap:12px}
+  .growthBigIcon,.rewardBalanceIcon{font-size:42px}
+  .memberOverviewGrid{grid-template-columns:1fr}
+  .overviewQuick{display:grid;grid-template-columns:1fr;gap:8px}
+  .overviewQuick button{width:100%;text-align:left;min-height:44px}
+  .siteSearchForm{grid-template-columns:1fr!important;gap:8px!important}
+  .siteSearchForm button{width:100%;min-height:46px}
+}
+@media(max-width:420px){
+  .dashboardCards{grid-template-columns:1fr}
+  .growthDashGrid,.growthStats,.leaderboardSummary{grid-template-columns:1fr}
+  .adminTabGroup{grid-template-columns:1fr}
+  .adminTabGroup>span{grid-column:auto}
+  .heroCard h1{font-size:29px}
+  section h2{font-size:27px}
+}
