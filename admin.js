@@ -3,6 +3,22 @@ const $=id=>document.getElementById(id); const esc=s=>String(s??'').replace(/[&<
 function configured(){return typeof SUPABASE_URL!=='undefined'&&typeof SUPABASE_ANON_KEY!=='undefined'&&SUPABASE_URL&&SUPABASE_ANON_KEY&&!String(SUPABASE_URL).includes('你的')&&!String(SUPABASE_URL).includes('請填入')&&!String(SUPABASE_ANON_KEY).includes('你的')}
 function auth(){const t=recoverStoredSession().access||localStorage.getItem('access_token')||sessionStorage.getItem('access_token');return {'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(t||SUPABASE_ANON_KEY)}}
 function msg(id,t){if($(id))$(id).textContent=t}
+
+// 活動中心時間一律以台灣時間（Asia/Taipei，UTC+8）顯示與儲存，避免 datetime-local 被瀏覽器轉成 UTC 後少 8 小時。
+function taipeiDateTimeLocal(value){
+  if(!value) return '';
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return '';
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,hourCycle:'h23'}).formatToParts(d);
+  const get=k=>parts.find(x=>x.type===k)?.value||'';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}
+function taipeiDateTimeToISO(value){
+  if(!value) return null;
+  const m=String(value).match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/);
+  if(!m) return null;
+  return new Date(m[1]+':00+08:00').toISOString();
+}
 async function login(){if(!configured()){msg('loginError','請把可用的 config.js 放回來。');return}const email=$('email').value.trim(),password=$('password').value;if(!email||!password){msg('loginError','請輸入 Email 與密碼。');return}msg('loginError','登入中…');try{const r=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY},body:JSON.stringify({email,password})});const d=await r.json().catch(()=>({}));if(!r.ok||!d.access_token){msg('loginError',d.error_description||d.msg||'登入失敗。');return}localStorage.setItem('access_token',d.access_token);if(d.refresh_token)localStorage.setItem('refresh_token',d.refresh_token);const pr=await fetch(SUPABASE_URL+'/rest/v1/profiles?select=role&id=eq.'+encodeURIComponent(d.user?.id||'') ,{headers:{...auth(),'Authorization':'Bearer '+d.access_token}});const pa=pr.ok?await pr.json():[];if(pa[0]?.role!=='admin'){localStorage.removeItem('access_token');localStorage.removeItem('refresh_token');msg('loginError','此帳號不是管理員帳號。');return} $('login').classList.add('hidden');$('dashboard').classList.remove('hidden');await load() }catch(e){console.error(e);msg('loginError','無法連線到 Supabase。')}}
 
 async function countTable(table, filter=''){
@@ -479,10 +495,10 @@ async function saveCompetition(){
   const category=$('competitionCategory').value;
   const event_date=$('competitionDate').value||null;
   const description=$('competitionDescription').value.trim()||null;
-  const registration_deadline=$('competitionRegistrationDeadline').value?new Date($('competitionRegistrationDeadline').value).toISOString():null;
+  const registration_deadline=taipeiDateTimeToISO($('competitionRegistrationDeadline').value);
   const cap=$('competitionRegistrationCapacity').value.trim(); const registration_capacity=cap?Number(cap):null;
   const registration_approval=$('competitionRegistrationApproval').checked; const waitlist_enabled=$('competitionWaitlistEnabled')?.checked!==false;
-  const registration_fields=$('competitionRegistrationFields').value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,20); const completion_points=Number($('competitionCompletionPoints')?.value||0); const checkin_enabled=$('competitionCheckinEnabled')?.checked||false; const checkin_code=$('competitionCheckinCode')?.value.trim()||null; const checkin_start_at=$('competitionCheckinStart')?.value?new Date($('competitionCheckinStart').value).toISOString():null; const checkin_end_at=$('competitionCheckinEnd')?.value?new Date($('competitionCheckinEnd').value).toISOString():null; const checkin_points=Number($('competitionCheckinPoints')?.value||0);
+  const registration_fields=$('competitionRegistrationFields').value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,20); const completion_points=Number($('competitionCompletionPoints')?.value||0); const checkin_enabled=$('competitionCheckinEnabled')?.checked||false; const checkin_code=$('competitionCheckinCode')?.value.trim()||null; const checkin_start_at=taipeiDateTimeToISO($('competitionCheckinStart')?.value); const checkin_end_at=taipeiDateTimeToISO($('competitionCheckinEnd')?.value); const checkin_points=Number($('competitionCheckinPoints')?.value||0);
   const results=getCompetitionResults();
   if(!name){msg('competitionMsg','請輸入比賽名稱。');return false}
   if(registration_capacity!==null && (!Number.isInteger(registration_capacity)||registration_capacity<1)){msg('competitionMsg','報名人數上限必須是正整數。');return false}
@@ -515,7 +531,7 @@ async function replaceCompetitionResults(competitionId,results){
 async function loadCompetition(id){
   const r=await fetch(SUPABASE_URL+'/rest/v1/competitions?id=eq.'+encodeURIComponent(id)+'&select=*',{headers:auth()});
   const a=r.ok?await r.json():[];const c=a[0];if(!c)return;
-  $('competitionId').value=c.id;$('competitionName').value=c.name||'';$('competitionCategory').value=c.category||'Minecraft';$('competitionDate').value=c.event_date||'';$('competitionRegistrationDeadline').value=c.registration_deadline?new Date(c.registration_deadline).toISOString().slice(0,16):'';$('competitionRegistrationCapacity').value=c.registration_capacity??'';$('competitionRegistrationApproval').checked=!!c.registration_approval;if($('competitionWaitlistEnabled'))$('competitionWaitlistEnabled').checked=c.waitlist_enabled!==false;$('competitionRegistrationFields').value=Array.isArray(c.registration_fields)?c.registration_fields.join('\n'):'';$('competitionDescription').value=c.description||''; if($('competitionCheckinEnabled'))$('competitionCheckinEnabled').checked=!!c.checkin_enabled; if($('competitionCheckinCode'))$('competitionCheckinCode').value=c.checkin_code||''; if($('competitionCheckinStart'))$('competitionCheckinStart').value=c.checkin_start_at?new Date(c.checkin_start_at).toISOString().slice(0,16):''; if($('competitionCheckinEnd'))$('competitionCheckinEnd').value=c.checkin_end_at?new Date(c.checkin_end_at).toISOString().slice(0,16):''; if($('competitionCheckinPoints'))$('competitionCheckinPoints').value=c.checkin_points??10;if($('competitionCompletionPoints'))$('competitionCompletionPoints').value=c.completion_points??20; await loadCompetitionAttendance(c.id); await loadActivityRewards(c.id); await loadActivityBadgesAdmin();
+  $('competitionId').value=c.id;$('competitionName').value=c.name||'';$('competitionCategory').value=c.category||'Minecraft';$('competitionDate').value=c.event_date||'';$('competitionRegistrationDeadline').value=taipeiDateTimeLocal(c.registration_deadline);$('competitionRegistrationCapacity').value=c.registration_capacity??'';$('competitionRegistrationApproval').checked=!!c.registration_approval;if($('competitionWaitlistEnabled'))$('competitionWaitlistEnabled').checked=c.waitlist_enabled!==false;$('competitionRegistrationFields').value=Array.isArray(c.registration_fields)?c.registration_fields.join('\n'):'';$('competitionDescription').value=c.description||''; if($('competitionCheckinEnabled'))$('competitionCheckinEnabled').checked=!!c.checkin_enabled; if($('competitionCheckinCode'))$('competitionCheckinCode').value=c.checkin_code||''; if($('competitionCheckinStart'))$('competitionCheckinStart').value=taipeiDateTimeLocal(c.checkin_start_at); if($('competitionCheckinEnd'))$('competitionCheckinEnd').value=taipeiDateTimeLocal(c.checkin_end_at); if($('competitionCheckinPoints'))$('competitionCheckinPoints').value=c.checkin_points??10;if($('competitionCompletionPoints'))$('competitionCompletionPoints').value=c.completion_points??20; await loadCompetitionAttendance(c.id); await loadActivityRewards(c.id); await loadActivityBadgesAdmin();
   const rr=await fetch(SUPABASE_URL+'/rest/v1/competition_results?competition_id=eq.'+encodeURIComponent(id)+'&select=*&order=place.asc',{headers:auth()});
   const results=rr.ok?await rr.json():[];$('competitionResults').innerHTML='';results.forEach(addCompetitionResult);if(!results.length)addCompetitionResult();
   msg('competitionMsg',c.published?'📢 目前已公布':'📝 目前為草稿');
