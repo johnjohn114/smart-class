@@ -396,3 +396,4 @@ button,a,input,select,textarea{touch-action:manipulation}
   .heroCard h1{font-size:29px}
   section h2{font-size:27px}
 }
+.progressTrack{height:12px;background:rgba(127,127,127,.16);border-radius:999px;overflow:hidden;margin:12px 0}.progressTrack i{display:block;height:100%;background:currentColor;border-radius:999px;transition:width .2s ease}.hidden{display:none!important}
