@@ -753,7 +753,54 @@ async function saveGithubDownload(){
 async function uploadDownloadFile(){const title=$('downloadTitle').value.trim(),desc=$('downloadDescription').value.trim(),version=$('downloadVersion')?.value.trim()||'',f=$('downloadFileInput').files[0];if(!title||!f){msg('downloadMsg','請輸入檔案名稱並選擇檔案。');return}if(f.size>5*1024*1024*1024){msg('downloadMsg','❌ 單檔目前上限為 5 GiB。');return}let uploadCtx=null;const wrap=$('downloadProgressWrap'),bar=$('downloadProgressBar');try{$('uploadDownloadFile').disabled=true;wrap?.classList.remove('hidden');if(bar)bar.style.width='0%';$('downloadFileInfo').textContent='檔案：'+f.name+' · '+formatFileSize(f.size);msg('downloadMsg','⏳ 正在準備大型檔案上傳…');uploadCtx=await r2Call({action:'create-upload',file_name:f.name,file_size:f.size,content_type:f.type||'application/octet-stream'});const parts=uploadCtx.parts||[];const results=new Array(parts.length);let completed=0;const concurrency=3;let cursor=0;async function worker(){while(true){const idx=cursor++;if(idx>=parts.length)return;const part=parts[idx];const start=idx*uploadCtx.partSize;const end=Math.min(f.size,start+uploadCtx.partSize);const blob=f.slice(start,end);const etag=await new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open('PUT',part.url,true);xhr.setRequestHeader('Content-Type',f.type||'application/octet-stream');xhr.upload.onprogress=e=>{if(e.lengthComputable){const overall=((completed+(e.loaded/e.total))*100/parts.length);if(bar)bar.style.width=Math.min(100,overall).toFixed(1)+'%';}};xhr.onload=()=>{if(xhr.status>=200&&xhr.status<300){resolve((xhr.getResponseHeader('ETag')||'').replace(/^"|"$/g,''))}else reject(new Error('第 '+part.partNumber+' 段上傳失敗：HTTP '+xhr.status))};xhr.onerror=()=>reject(new Error('第 '+part.partNumber+' 段上傳失敗，請檢查網路。'));xhr.send(blob)});results[idx]={partNumber:part.partNumber,etag};completed++;if(bar)bar.style.width=Math.min(100,completed*100/parts.length).toFixed(1)+'%';msg('downloadMsg','⏳ 上傳中 '+completed+'/'+parts.length+' 段…')}}await Promise.all(Array.from({length:Math.min(concurrency,parts.length)},worker));msg('downloadMsg','⏳ 正在完成檔案…');const done=await r2Call({action:'complete-upload',key:uploadCtx.key,upload_id:uploadCtx.uploadId,parts:results,title,description:desc,version,file_name:f.name,file_size:f.size,content_type:f.type||'application/octet-stream',published:$('downloadPublished').checked});msg('downloadMsg','✅ 大型檔案已上傳'+($('downloadPublished').checked?'並發布到前台':'。'));if(bar)bar.style.width='100%';$('downloadTitle').value='';$('downloadDescription').value='';if($('downloadVersion'))$('downloadVersion').value='';$('downloadFileInput').value='';await loadDownloadFilesAdmin()}catch(e){if(uploadCtx?.key&&uploadCtx?.uploadId){await r2Call({action:'abort-upload',key:uploadCtx.key,upload_id:uploadCtx.uploadId}).catch(()=>{})}msg('downloadMsg','❌ '+e.message)}finally{$('uploadDownloadFile').disabled=false}}
 async function downloadAdminPreview(id){try{const d=await r2Call({action:'download-url',id});if(d.url)window.open(d.url,'_blank','noopener')}catch(e){msg('downloadMsg','❌ '+e.message)}}
 async function toggleDownloadPublish(id,pub){try{const r=await fetch(SUPABASE_URL+'/rest/v1/download_files?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({published:pub,updated_at:new Date().toISOString()})});if(!r.ok)throw new Error('HTTP '+r.status);await loadDownloadFilesAdmin()}catch(e){msg('downloadMsg','❌ '+e.message)}}
-async function deleteDownloadFile(id){if(!confirm('確定要刪除這個檔案嗎？前台也會無法下載。'))return;try{await r2Call({action:'delete',id});msg('downloadMsg','✅ 檔案已刪除');await loadDownloadFilesAdmin()}catch(e){msg('downloadMsg','❌ '+e.message)}}
+async function deleteDownloadFile(id){
+  if(!confirm('確定要刪除這個檔案嗎？前台也會無法下載。'))return;
+  try{
+    const row=downloadFiles.find(x=>String(x.id)===String(id));
+    if(!row)throw new Error('找不到檔案資料，請先按「重新整理」。');
+
+    // GitHub：只需要刪除資料庫紀錄，GitHub Release 的實體檔案不會被網站刪除。
+    // R2：交給 Edge Function 同時刪除 R2 物件與資料庫紀錄。
+    if(row.storage_provider==='r2'){
+      await r2Call({action:'delete',id});
+    }else{
+      // 舊版 Supabase Storage 檔案：先嘗試刪除 Storage 實體檔案，再刪除 download_files 紀錄。
+      if(row.storage_provider==='supabase' && row.file_url){
+        try{
+          const marker='/storage/v1/object/public/downloads/';
+          const marker2='/storage/v1/object/downloads/';
+          let objectPath='';
+          if(row.file_url.includes(marker)) objectPath=decodeURIComponent(row.file_url.split(marker)[1]);
+          else if(row.file_url.includes(marker2)) objectPath=decodeURIComponent(row.file_url.split(marker2)[1].split('?')[0]);
+          if(objectPath){
+            const sr=await fetch(SUPABASE_URL+'/storage/v1/object/downloads/'+objectPath,{method:'DELETE',headers:auth()});
+            // 舊檔案如果已不存在，仍繼續刪除資料庫紀錄。
+            if(!sr.ok && sr.status!==404){
+              const sd=await sr.json().catch(()=>({}));
+              throw new Error(sd?.message||('Storage HTTP '+sr.status));
+            }
+          }
+        }catch(storageErr){
+          throw new Error('刪除實體檔案失敗：'+storageErr.message);
+        }
+      }
+
+      const r=await fetch(SUPABASE_URL+'/rest/v1/download_files?id=eq.'+encodeURIComponent(id),{
+        method:'DELETE',headers:{...auth(),Prefer:'return=minimal'}
+      });
+      if(!r.ok){
+        const d=await r.json().catch(()=>({}));
+        throw new Error(d?.message||d?.hint||('HTTP '+r.status));
+      }
+    }
+
+    msg('downloadMsg','✅ 檔案已刪除');
+    await loadDownloadFilesAdmin();
+  }catch(e){
+    console.error('刪除下載檔案失敗：',e);
+    msg('downloadMsg','❌ '+e.message);
+  }
+}
 
 function editGrowthReward(id){const x=growthRewards.find(v=>v.id===id);if(!x)return;$('rewardId').value=x.id;$('rewardCode').value=x.code;$('rewardTitle').value=x.title;$('rewardDescription').value=x.description||'';$('rewardIcon').value=x.icon||'🎁';$('rewardCategory').value=x.category||'other';$('rewardPointCost').value=x.point_cost;$('rewardMinLevel').value=x.min_level||'newbie';$('rewardAchievement').value=x.required_achievement_id||'';$('rewardUserLimit').value=x.user_limit??'';$('rewardTotalLimit').value=x.total_limit??'';$('rewardCouponTitle').value=x.coupon_title||'';$('rewardCouponDescription').value=x.coupon_description||'';$('rewardCouponDiscount').value=x.coupon_discount||'';$('rewardCouponExpiresDays').value=x.coupon_expires_days??'';$('rewardAvailableFrom').value=x.available_from?new Date(x.available_from).toISOString().slice(0,16):'';$('rewardAvailableUntil').value=x.available_until?new Date(x.available_until).toISOString().slice(0,16):'';$('rewardSortOrder').value=x.sort_order??0;$('rewardEnabled').checked=!!x.enabled;window.scrollTo({top:$('rewardTab').offsetTop-20,behavior:'smooth'})}
 function clearReward(){$('rewardId').value='';['rewardCode','rewardTitle','rewardDescription','rewardCouponTitle','rewardCouponDescription','rewardCouponDiscount','rewardUserLimit','rewardTotalLimit','rewardCouponExpiresDays','rewardAvailableFrom','rewardAvailableUntil'].forEach(id=>$(id).value='');$('rewardIcon').value='🎁';$('rewardCategory').value='cash';$('rewardPointCost').value=50;$('rewardMinLevel').value='newbie';$('rewardAchievement').value='';$('rewardSortOrder').value=0;$('rewardEnabled').checked=true}
