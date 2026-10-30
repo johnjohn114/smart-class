@@ -9,4 +9,18 @@ function render(){const q=($('videoSearch').value||'').toLowerCase(),c=$('videoC
 function watch(id){const v=videos.find(x=>x.id===id);if(!v)return;const modal=document.createElement('div');modal.style='position:fixed;inset:0;background:#000b;z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px';modal.innerHTML=`<div style="background:var(--card,#fff);width:min(1000px,100%);padding:16px;border-radius:16px"><button class="btn secondary" style="float:right" onclick="this.closest('[style*=fixed]').remove()">✕ 關閉</button><h2>${esc(v.title)}</h2><div style="aspect-ratio:16/9"><iframe src="https://www.youtube.com/embed/${encodeURIComponent(v.youtube_id)}?autoplay=1" title="${esc(v.title)}" style="width:100%;height:100%;border:0;border-radius:12px" allow="autoplay; encrypted-media; picture-in-picture; web-share" allowfullscreen></iframe></div><p>${esc(v.description||'')}</p><a class="btn" href="${esc(v.youtube_url)}" target="_blank" rel="noopener">▶️ 在 YouTube 開啟</a></div>`;document.body.appendChild(modal)}
 async function load(){if(typeof SUPABASE_URL==='undefined'||!SUPABASE_URL)return;const r=await fetch(SUPABASE_URL+'/rest/v1/videos?select=*&published=eq.true&order=sort_order.asc,published_at.desc',{headers:{apikey:SUPABASE_ANON_KEY}});videos=r.ok?await r.json():[];const cs=[...new Set(videos.map(v=>v.category))];$('videoCategory').innerHTML='<option value="all">全部分類</option>'+cs.map(c=>`<option>${esc(c)}</option>`).join('');render()}
 $('videoSearch').oninput=render;$('videoCategory').onchange=render;load();
+const mobileToggle=document.querySelector('.mobileNavToggle');
+const mobileNav=document.querySelector('header nav');
+if(mobileToggle&&mobileNav){
+  mobileToggle.addEventListener('click',()=>{
+    const isOpen=mobileNav.classList.toggle('mobileOpen');
+    mobileToggle.setAttribute('aria-expanded',String(isOpen));
+    mobileToggle.textContent=isOpen?'✕ 關閉選單':'☰ 選單';
+  });
+  mobileNav.querySelectorAll('a').forEach(link=>link.addEventListener('click',()=>{
+    mobileNav.classList.remove('mobileOpen');
+    mobileToggle.setAttribute('aria-expanded','false');
+    mobileToggle.textContent='☰ 選單';
+  }));
+}
 </script></body></html>
