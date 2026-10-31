@@ -118,9 +118,8 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             message: {
               token: device.token,
-              notification: { title: announcement.title, body: body || "有一則新公告" },
-              data: { announcement_id: String(announcement.id), title: announcement.title },
-              android: { priority: "HIGH", notification: { channel_id: "announcement_updates" } },
+              data: { announcement_id: String(announcement.id), title: announcement.title, body: body || "有一則新公告" },
+              android: { priority: "HIGH" },
             },
           }),
         },
