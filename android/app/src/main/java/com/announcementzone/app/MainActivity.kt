@@ -15,15 +15,50 @@ import android.widget.Toast
 import android.view.View
 import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val homeUrl = "https://johnjohn114.github.io/smart-class/"
     private val fileRequest = 1001
+    private val notificationRequest = 2001
     private inner class AppInfoBridge {
         @JavascriptInterface fun getVersionCode(): Int = BuildConfig.VERSION_CODE
         @JavascriptInterface fun getVersionName(): String = BuildConfig.VERSION_NAME
+        @JavascriptInterface fun requestPushToken() {
+            runOnUiThread {
+                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), notificationRequest)
+                    return@runOnUiThread
+                }
+                fetchPushToken()
+            }
+        }
+    }
+
+    private fun fetchPushToken() {
+        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+            val safe = org.json.JSONObject.quote(token)
+            runOnUiThread { webView.evaluateJavascript("window.onNativePushToken && window.onNativePushToken($safe)", null) }
+        }.addOnFailureListener {
+            Toast.makeText(this, "暫時無法取得推播識別碼，請稍後重試", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == notificationRequest && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) fetchPushToken()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("announcement_url")?.let { webView.loadUrl(it) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,7 +126,9 @@ class MainActivity : Activity() {
                 startActivity(intent)
             } catch (_: Exception) { Toast.makeText(this, "無法開啟下載連結", Toast.LENGTH_SHORT).show() }
         })
-        if (savedInstanceState == null) webView.loadUrl(homeUrl) else webView.restoreState(savedInstanceState)
+        if (savedInstanceState == null) {
+            webView.loadUrl(intent.getStringExtra("announcement_url") ?: homeUrl)
+        } else webView.restoreState(savedInstanceState)
     }
 
     @Deprecated("Deprecated in Android API")

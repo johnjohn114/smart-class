@@ -69,7 +69,26 @@ async function dashboard(){
 async function load(){await dashboard();await content();await news();await products();await visitors();await coupons();await competitions();await quickLinks();await tickets()}
 async function content(){if(!configured()||!localStorage.getItem('access_token'))return;const r=await fetch(SUPABASE_URL+'/rest/v1/site_settings?select=*&id=eq.1',{headers:auth()});if(r.status===401){logout();return}if(!r.ok)return;const a=await r.json();if(a[0])F.forEach(k=>{if($(k))$(k).value=a[0][k]??''})}
 async function save(){const body={};F.forEach(k=>body[k]=$(k)?.value||'');const r=await fetch(SUPABASE_URL+'/rest/v1/site_settings?id=eq.1',{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify(body)});msg('contentMsg',r.ok?'✅ 已儲存':'❌ 儲存失敗：請檢查 RLS 權限。')}
-async function publish(){const id=$('announcementId')?.value||'';const body={title:$('title').value.trim(),category:$('category').value,published_at:taipeiDateTimeToISO($('published_at').value)||new Date().toISOString(),pinned:$('pinned').checked,content:$('content').value,link_url:$('linkUrl').value.trim()||null,link_label:$('linkLabel').value.trim()||null,published:true,popup_enabled:$('popupEnabled')?.checked||false,popup_mode:$('popupMode')?.value||'once',popup_start_at:$('popupStartAt')?.value?(taipeiDateTimeToISO($('popupStartAt').value)||new Date().toISOString()):(taipeiDateTimeToISO($('published_at').value)||new Date().toISOString()),popup_end_at:$('popupEndAt')?.value?(taipeiDateTimeToISO($('popupEndAt').value)||null):null};if(!body.title||!body.content){msg('publishMsg','請填寫標題與內容。');return}const url=SUPABASE_URL+'/rest/v1/announcements'+(id?'?id=eq.'+encodeURIComponent(id):'');const r=await fetch(url,{method:id?'PATCH':'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify(body)});msg('publishMsg',r.ok?'✅ 已儲存公告':'❌ 儲存失敗：請檢查 announcements RLS。');if(r.ok){clearAnnouncement();await news()}}
+async function publish(){
+  const id=$('announcementId')?.value||'';
+  const pushEnabled=!!$('pushEnabled')?.checked;
+  const body={title:$('title').value.trim(),category:$('category').value,published_at:taipeiDateTimeToISO($('published_at').value)||new Date().toISOString(),pinned:$('pinned').checked,content:$('content').value,link_url:$('linkUrl').value.trim()||null,link_label:$('linkLabel').value.trim()||null,published:true,push_enabled:pushEnabled,popup_enabled:$('popupEnabled')?.checked||false,popup_mode:$('popupMode')?.value||'once',popup_start_at:$('popupStartAt')?.value?(taipeiDateTimeToISO($('popupStartAt').value)||new Date().toISOString()):(taipeiDateTimeToISO($('published_at').value)||new Date().toISOString()),popup_end_at:$('popupEndAt')?.value?(taipeiDateTimeToISO($('popupEndAt').value)||null):null};
+  if(!body.title||!body.content){msg('publishMsg','請填寫標題與內容。');return}
+  const url=SUPABASE_URL+'/rest/v1/announcements'+(id?'?id=eq.'+encodeURIComponent(id):'');
+  const r=await fetch(url,{method:id?'PATCH':'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify(body)});
+  if(!r.ok){msg('publishMsg','❌ 儲存失敗：請檢查 announcements RLS。');return}
+  const rows=await r.json().catch(()=>[]);
+  const saved=Array.isArray(rows)?rows[0]:rows;
+  if(!id&&pushEnabled&&saved?.id){
+    msg('publishMsg','✅ 公告已發布，正在發送推播…');
+    try{
+      const pr=await fetch(SUPABASE_URL+'/functions/v1/send-announcement-push',{method:'POST',headers:auth(),body:JSON.stringify({announcement_id:saved.id})});
+      const result=await pr.json().catch(()=>({}));
+      msg('publishMsg',pr.ok?'✅ 公告已發布並完成推播（成功 '+Number(result.sent||0)+' 台裝置）。':'⚠️ 公告已發布，但推播未完成：'+(result.error||'請檢查 Edge Function 設定。'));
+    }catch(e){msg('publishMsg','⚠️ 公告已發布，但推播連線失敗。')}
+  }else msg('publishMsg','✅ 已儲存公告');
+  clearAnnouncement();await news();
+}
 function clearAnnouncement(){$('title').value='';$('content').value='';$('category').value='最新消息';$('published_at').value='';$('pinned').checked=false;if($('linkUrl'))$('linkUrl').value='';if($('linkLabel'))$('linkLabel').value='';if($('popupEnabled'))$('popupEnabled').checked=false;if($('popupMode'))$('popupMode').value='once';if($('popupStartAt'))$('popupStartAt').value='';if($('popupEndAt'))$('popupEndAt').value='';if($('announcementId'))$('announcementId').value=''}
 async function news(){
   if(!$('adminList')||!configured()||!localStorage.getItem('access_token'))return;

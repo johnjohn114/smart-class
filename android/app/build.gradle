@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'com.google.gms.google-services'
 }
 
 android {
@@ -9,14 +10,20 @@ android {
     buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'com.announcementzone.app'
-        minSdk 23
+        minSdk 24
         targetSdk 35
-        versionCode 11
-        versionName '26.11.1.7'
+        versionCode 12
+        versionName '26.11.2'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:35.1.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    implementation 'androidx.core:core:1.15.0'
 }
