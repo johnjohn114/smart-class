@@ -17,6 +17,10 @@ drop policy if exists "Users can register their own Android push tokens" on publ
 create policy "Users can register their own Android push tokens"
   on public.device_push_tokens for insert to authenticated
   with check (user_id = auth.uid());
+drop policy if exists "Users can view their own Android push tokens" on public.device_push_tokens;
+create policy "Users can view their own Android push tokens"
+  on public.device_push_tokens for select to authenticated
+  using (user_id = auth.uid());
 drop policy if exists "Users can refresh their own Android push tokens" on public.device_push_tokens;
 create policy "Users can refresh their own Android push tokens"
   on public.device_push_tokens for update to authenticated
