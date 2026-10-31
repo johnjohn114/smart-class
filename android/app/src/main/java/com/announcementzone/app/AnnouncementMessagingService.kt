@@ -32,7 +32,7 @@ class AnnouncementMessagingService : FirebaseMessagingService() {
         }
         val pending = PendingIntent.getActivity(this, id.hashCode(), target, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.announcement_launcher)
             .setContentTitle(title).setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true).setContentIntent(pending).build()
