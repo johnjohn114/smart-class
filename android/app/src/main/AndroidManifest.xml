@@ -2,6 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="事項公告區" android:icon="@drawable/announcement_launcher" android:roundIcon="@drawable/announcement_launcher" android:usesCleartextTraffic="false">
+        <service android:name=".AnnouncementMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>
         <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
