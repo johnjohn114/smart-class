@@ -27,6 +27,6 @@ async function save(){
 }
 async function toggle(id,published){const r=await fetch(SUPABASE_URL+'/rest/v1/app_releases?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:headers(),body:JSON.stringify({published:!published,published_at:!published?new Date().toISOString():null})});if(!r.ok){msg('發布狀態更新失敗。');return}await load()}
 async function removeRelease(id){if(!confirm('確定刪除此版本紀錄？'))return;const r=await fetch(SUPABASE_URL+'/rest/v1/app_releases?id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:headers()});if(!r.ok){msg('刪除失敗，請確認管理員權限。');return}await load()}
-function init(){if(!$('appReleaseAdminList'))return;$('saveAppRelease').onclick=save;$('clearAppRelease').onclick=clear;$('refreshAppReleases').onclick=load;load()}
+function init(){if(!$('appReleaseAdminList'))return;$('saveAppRelease').onclick=save;$('clearAppRelease').onclick=clear;$('refreshAppReleases').onclick=load;document.querySelector('[data-tab=appReleaseTab]')?.addEventListener('click',load);load()}
 document.addEventListener('DOMContentLoaded',init);
 })();
