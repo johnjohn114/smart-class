@@ -1,0 +1,28 @@
+{
+  "project_info": {
+    "project_number": "916524464020",
+    "project_id": "announcement-zone",
+    "storage_bucket": "announcement-zone.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:916524464020:android:852ead1f58e7d268f08181",
+        "android_client_info": {
+          "package_name": "com.announcementzone.app"
+        }
+      },
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpHoLinEa_Xqynmgl72TWiZv6FC3mgO1g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
