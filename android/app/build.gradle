@@ -6,21 +6,17 @@ plugins {
 android {
     namespace 'com.announcementzone.app'
     compileSdk 35
-    buildFeatures {
-        buildConfig true
-    }
+    buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'com.announcementzone.app'
         minSdk 23
         targetSdk 35
-        versionCode 7
-        versionName '26.11.1.3'
+        versionCode 8
+        versionName '26.11.1.4'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = '17'
-    }
+    kotlinOptions { jvmTarget = '17' }
 }
