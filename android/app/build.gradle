@@ -13,8 +13,8 @@ android {
         applicationId 'com.announcementzone.app'
         minSdk 23
         targetSdk 35
-        versionCode 4
-        versionName '26.11.1'
+        versionCode 5
+        versionName '26.11.1.1'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
