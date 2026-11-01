@@ -119,7 +119,7 @@ function card(x){
   const content=String(x.content||'');
   const canExpand=content.length>140 || content.split('\n').length>4;
   const more=canExpand?'<button type="button" class="noticeMore" onclick="toggleNotice(this)" aria-expanded="false">查看更多</button>':'';
-  return '<article class="notice" data-announcement-id="'+esc(x.id||'')+'"><div class="date">'+(x.pinned?'📌 ':'')+esc(x.date||String(x.published_at||'').slice(0,10))+' · '+esc(x.category||'最新消息')+'</div><h3>'+esc(x.title)+'</h3><p class="noticeContent'+(canExpand?' isCollapsed':'')+'">'+esc(content).replace(/\n/g,'<br>')+'</p>'+more+link+'</article>';
+  return '<article class="notice" id="announcement-'+esc(x.id||'')+'" data-announcement-id="'+esc(x.id||'')+'"><div class="date">'+(x.pinned?'📌 ':'')+esc(x.date||String(x.published_at||'').slice(0,10))+' · '+esc(x.category||'最新消息')+'</div><h3>'+esc(x.title)+'</h3><p class="noticeContent'+(canExpand?' isCollapsed':'')+'">'+esc(content).replace(/\n/g,'<br>')+'</p>'+more+link+'</article>';
 }
 function toggleNotice(button){
   const content=button.previousElementSibling;
