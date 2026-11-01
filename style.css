@@ -417,3 +417,7 @@ html[data-theme="dark"] input,html[data-theme="dark"] textarea,html[data-theme="
 .settingsChoice{display:flex;align-items:center;gap:12px;padding:14px;margin:10px 0;border:1px solid #e8def2;border-radius:14px;cursor:pointer}
 .settingsChoice input{width:18px;height:18px}
 html[data-theme="dark"] .settingsChoice{background:#2b2540;border-color:#514765}
+
+/* 26.11.4.1：讓 WebView／觸控裝置可點擊展開導覽下拉選單 */
+.navDropdown.open>.dropdownMenu{display:block}
+.navDropdown>button{cursor:pointer}

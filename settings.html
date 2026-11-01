@@ -1,1 +1,26 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⚙️ 設定｜事項公告區</title><link rel="stylesheet" href="style.css?v=26.11.4"></head><body><header><div class="nav"><div class="logo">⚙️ 設定</div><button class="mobileNavToggle" type="button" aria-expanded="false">☰ 選單</button><nav><a href="index.html">首頁</a><a href="news.html">最新消息</a><div class="navDropdown"><button type="button">📚 更多 ▾</button><div class="dropdownMenu"><a href="downloads.html">📁 檔案下載</a><a href="calendar.html">📅 行事曆</a><a href="app-updates.html">⬇️ 下載 App</a><a href="settings.html">⚙️ 設定</a></div></div></nav></div></header><main><section><h1 class="pageTitle">⚙️ App 設定</h1><p class="sub">管理事項公告區的外觀與 App 偏好。</p><div class="settingsCard"><h2>🎨 外觀模式</h2><p>選擇你偏好的顯示方式，設定會自動儲存在這台裝置。</p><label class="settingsChoice"><input type="radio" name="theme" value="light"> ☀️ 淺色模式</label><label class="settingsChoice"><input type="radio" name="theme" value="dark"> 🌙 深色模式</label><label class="settingsChoice"><input type="radio" name="theme" value="system"> 📱 跟隨系統</label><p id="status" role="status">設定會自動儲存。</p></div><div class="settingsCard"><h2>📱 App 資訊</h2><p>版本：<strong>26.11.4</strong></p><p>推播通知權限可至 Android 手機的系統設定中管理。</p></div></section></main><script src="config.js"></script><script src="settings.js?v=26.11.4"></script></body></html>
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>📱 App 設定｜事項公告區</title>
+<link rel="stylesheet" href="style.css?v=26.11.4.1">
+</head>
+<body>
+<header><div class="nav"><div class="logo">📱 App 設定</div><button class="mobileNavToggle" type="button" aria-expanded="false">☰ 選單</button><nav>
+<a href="index.html">首頁</a><a href="news.html">最新消息</a>
+<div class="navDropdown"><button type="button" aria-expanded="false">📚 更多 ▾</button><div class="dropdownMenu">
+<a href="downloads.html">📁 檔案下載</a><a href="calendar.html">📅 行事曆</a><a href="app-updates.html">⬇️ 下載 App</a><a href="settings.html">📱 App 設定</a>
+</div></div></nav></div></header>
+<main><section>
+<h1 class="pageTitle">📱 App 設定</h1><p class="sub">管理事項公告區的外觀、裝置偏好與 App 資訊。</p>
+<div class="settingsCard"><h2>🎨 外觀模式</h2><p>選擇你偏好的顯示方式，設定會自動儲存在這台裝置。</p>
+<label class="settingsChoice"><input type="radio" name="theme" value="light"> ☀️ 淺色模式</label>
+<label class="settingsChoice"><input type="radio" name="theme" value="dark"> 🌙 深色模式</label>
+<label class="settingsChoice"><input type="radio" name="theme" value="system"> 📱 跟隨系統</label><p id="status" role="status">設定會自動儲存。</p></div>
+<div class="settingsCard"><h2>🔔 推播通知</h2><p>查看這台裝置的推播註冊狀態；若尚未註冊，可重新檢查。</p><p id="pushStatus" role="status" aria-live="polite">尚未確認推播裝置註冊狀態。</p><button class="btn secondary" type="button" id="retryPushRegistration">🔄 重新檢查／註冊推播</button><p class="sub">通知權限也可以在 Android 系統設定中管理。</p></div>
+<div class="settingsCard"><h2>📦 版本資訊與更新</h2><p>目前版本：<strong id="installedVersion">讀取中…</strong></p><p>版本發布紀錄與新版下載請至更新頁查看。</p><a class="btn" href="app-updates.html">查看更新紀錄／下載 App</a></div>
+<div class="settingsCard"><h2>📱 裝置偏好</h2><p>外觀設定只會儲存在目前裝置，不會影響其他裝置。</p><p>若選擇「跟隨系統」，App 會依 Android 的深色／淺色模式自動切換。</p></div>
+<div class="settingsCard"><h2>ℹ️ 關於事項公告區</h2><p>事項公告區提供公告消息、活動資訊、行事曆與會員服務。</p><p>本 App 以 Android 應用程式方式提供網站服務。</p></div>
+</section></main>
+<script src="config.js"></script><script src="settings.js?v=26.11.4.1"></script>
+</body></html>
