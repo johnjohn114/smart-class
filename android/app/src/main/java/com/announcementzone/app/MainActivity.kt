@@ -133,12 +133,15 @@ class MainActivity : Activity() {
                       .then(function(r){return r.ok?r.json():[]}).then(function(rows){
                         var x=rows&&rows[0];
                         if(!x || Number(x.version_code)<=current || document.getElementById('appUpdateNotice'))return;
+                        var dismissed=localStorage.getItem('app_update_dismissed_version');
+                        if(dismissed===String(x.version_code))return;
+                        if(!x.apk_url || !/^https:\/\//i.test(x.apk_url))return;
                         var box=document.createElement('div');box.id='appUpdateNotice';
                         box.style.cssText='position:fixed;z-index:2147483647;left:12px;right:12px;bottom:14px;padding:16px;border-radius:18px;background:#252d75;color:white;box-shadow:0 8px 30px #0005;font:14px sans-serif;';
                         var title=document.createElement('b');title.textContent='📱 事項公告區有新版 '+x.version_name;
                         var note=document.createElement('p');note.textContent=x.release_notes||'新版已推出，建議更新。';note.style.cssText='margin:8px 0;white-space:pre-wrap';
                         var link=document.createElement('a');link.href=x.apk_url;link.textContent='前往下載新版 APK';link.style.cssText='display:inline-block;background:white;color:#252d75;padding:9px 14px;border-radius:10px;text-decoration:none;font-weight:bold';
-                        var close=document.createElement('button');close.textContent='稍後';close.style.cssText='float:right;background:transparent;color:white;border:1px solid #ffffff88;border-radius:10px;padding:8px 12px';close.onclick=function(){box.remove()};
+                        var close=document.createElement('button');close.textContent='稍後';close.style.cssText='float:right;background:transparent;color:white;border:1px solid #ffffff88;border-radius:10px;padding:8px 12px';close.onclick=function(){try{localStorage.setItem('app_update_dismissed_version',String(x.version_code))}catch(e){}box.remove()};
                         box.append(title,close,note,link);document.body.appendChild(box);
                       }).catch(function(){});
                     })();
