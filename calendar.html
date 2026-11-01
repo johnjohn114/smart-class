@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>📅 行事曆｜事項公告區</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.calendarWrap{max-width:980px;margin:24px auto;background:#fff;border:1px solid #eadff5;border-radius:24px;padding:22px;box-shadow:0 10px 28px rgba(83,62,120,.07)}
+.calendarTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.calendarTop h2{margin:0;text-align:left;font-size:25px}
+.calendarTop button,.calendarToday{border:0;border-radius:12px;padding:9px 13px;background:#eee5ff;color:#6749cc;font:inherit;font-weight:800;cursor:pointer}
+.calendarGrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.calendarWeekday{text-align:center;color:#8b7e9f;font-weight:900;padding:7px 0}
+.calendarDay{min-height:82px;border:1px solid #eee7f6;border-radius:13px;padding:7px;background:#fff;text-align:left;font:inherit;color:#4d3a70;cursor:pointer}
+.calendarDay.muted{opacity:.38}.calendarDay.today{border-color:#8c70d8;background:#f8f4ff}.calendarDay.selected{outline:2px solid #6749cc;background:#f0eaff}
+.calendarDay b{display:block}.calendarDots{display:flex;gap:3px;flex-wrap:wrap;margin-top:7px}.calendarDot{width:7px;height:7px;border-radius:50%;background:#8b6bd8}
+.calendarAgenda{max-width:980px;margin:20px auto}.calendarAgenda h3{color:#4d3a70}.calendarEvent{background:#fff;border:1px solid #eadff5;border-radius:17px;padding:15px 18px;margin:10px 0}.calendarEvent a{color:#6749cc;font-weight:900;text-decoration:none}.calendarEvent small{color:#8b7e9f}
+@media(max-width:600px){.calendarWrap{margin:14px 10px;padding:12px}.calendarDay{min-height:58px;padding:5px;font-size:13px}.calendarTop h2{font-size:20px}.calendarGrid{gap:3px}}
+</style>
+</head>
+<body>
+<header><div class="nav"><div class="logo">📅 行事曆</div><button class="mobileNavToggle" type="button" aria-expanded="false">☰ 選單</button><nav><a href="index.html">首頁</a><a href="news.html">最新消息</a><a href="calendar.html">📅 行事曆</a><a href="search.html">🔍 搜尋</a></nav></div></header>
+<main><section><h1 class="pageTitle">📅 事項公告區行事曆</h1><p class="sub">查看管理員確認過的活動日期與重要期限。</p>
+<div class="calendarWrap"><div class="calendarTop"><button id="calendarPrev" type="button" aria-label="上個月">← 上個月</button><h2 id="calendarMonth">載入中…</h2><button id="calendarNext" type="button" aria-label="下個月">下個月 →</button></div><div class="calendarGrid" id="calendarGrid"></div><div style="text-align:center;margin-top:14px"><button class="calendarToday" id="calendarToday" type="button">回到今天</button></div></div>
+<div class="calendarAgenda"><h3 id="calendarSelectedTitle">當日事項</h3><div id="calendarEvents" class="newsList"><div class="loading">正在載入行事曆…</div></div></div>
+</section></main>
+<script src="config.js"></script><script src="calendar.js?v=26.11.3"></script>
+<script>document.querySelector('.mobileNavToggle')?.addEventListener('click',function(){const n=this.nextElementSibling,o=n.classList.toggle('mobileOpen');this.setAttribute('aria-expanded',o?'true':'false');this.textContent=o?'✕ 關閉選單':'☰ 選單'});</script>
+</body></html>
