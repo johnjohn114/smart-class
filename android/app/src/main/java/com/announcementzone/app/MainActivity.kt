@@ -19,6 +19,7 @@ import android.os.Build
 import android.content.pm.PackageManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : Activity() {
@@ -36,6 +37,10 @@ class MainActivity : Activity() {
                     ActivityCompat.requestPermissions(this@MainActivity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), notificationRequest)
                     return@runOnUiThread
                 }
+                if (!NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()) {
+                    notifyWebPushError("Android 系統目前已關閉此 App 的通知，請至系統設定開啟。")
+                    return@runOnUiThread
+                }
                 fetchPushToken()
             }
         }
@@ -47,12 +52,21 @@ class MainActivity : Activity() {
             runOnUiThread { webView.evaluateJavascript("window.onNativePushToken && window.onNativePushToken($safe)", null) }
         }.addOnFailureListener {
             Toast.makeText(this, "暫時無法取得推播識別碼，請稍後重試", Toast.LENGTH_SHORT).show()
+            notifyWebPushError("❌ Firebase 暫時無法提供推播識別碼，請稍後重試。")
         }
+    }
+
+    private fun notifyWebPushError(message: String) {
+        val safe = org.json.JSONObject.quote(message)
+        runOnUiThread { webView.evaluateJavascript("window.onNativePushTokenError && window.onNativePushTokenError($safe)", null) }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == notificationRequest && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) fetchPushToken()
+        if (requestCode == notificationRequest) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) fetchPushToken()
+            else notifyWebPushError("通知權限未開啟，因此無法完成推播註冊。")
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
