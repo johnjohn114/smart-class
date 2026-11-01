@@ -398,3 +398,8 @@ button,a,input,select,textarea{touch-action:manipulation}
   section h2{font-size:27px}
 }
 .progressTrack{height:12px;background:rgba(127,127,127,.16);border-radius:999px;overflow:hidden;margin:12px 0}.progressTrack i{display:block;height:100%;background:currentColor;border-radius:999px;transition:width .2s ease}.hidden{display:none!important}
+
+/* 26.11.3 calendar date editor */
+.calendarDateEditor{margin:18px 0;padding:18px;border:1px solid #ded2f2;border-radius:18px;background:#faf7ff}
+.calendarDateEditor h3{margin:0 0 6px;color:#5c4594}
+.calendarDateEditor small{display:block;margin:8px 0;color:#6749cc;font-weight:800}
