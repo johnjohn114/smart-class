@@ -12,6 +12,9 @@ import android.webkit.WebViewClient
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import android.widget.FrameLayout
+import android.animation.ValueAnimator
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.View
 import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
@@ -24,6 +27,8 @@ import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
+    private lateinit var rootLayout: FrameLayout
+    private var splashView: SplashScreenView? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val homeUrl = "https://johnjohn114.github.io/smart-class/"
     private val fileRequest = 1001
@@ -87,8 +92,14 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.rgb(35, 42, 105)
         window.navigationBarColor = android.graphics.Color.rgb(20, 24, 65)
+        rootLayout = FrameLayout(this)
         webView = WebView(this)
-        setContentView(webView)
+        rootLayout.addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        if (savedInstanceState == null) {
+            splashView = SplashScreenView(this)
+            rootLayout.addView(splashView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        setContentView(rootLayout)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -104,6 +115,13 @@ class MainActivity : Activity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
+                splashView?.let { overlay ->
+                    overlay.animate().alpha(0f).setDuration(420L).withEndAction {
+                        rootLayout.removeView(overlay)
+                        overlay.stopAnimation()
+                        splashView = null
+                    }.start()
+                }
                 val script = """
                     (function(){
                       if(window.__appReleaseCheckInstalled)return;
@@ -164,5 +182,5 @@ class MainActivity : Activity() {
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); webView.saveState(outState) }
     @Deprecated("Deprecated in Android API")
     override fun onBackPressed() { if (webView.canGoBack()) webView.goBack() else super.onBackPressed() }
-    override fun onDestroy() { fileCallback?.onReceiveValue(null); webView.destroy(); super.onDestroy() }
+    override fun onDestroy() { splashView?.stopAnimation(); fileCallback?.onReceiveValue(null); webView.destroy(); super.onDestroy() }
 }
