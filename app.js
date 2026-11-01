@@ -24,19 +24,34 @@ async function ensureVisitorSession(){
   return !!(await getCurrentUser());
 }
 async function visitorLogin(){if(!configured()){show('visitorLoginError','尚未設定 Supabase。');return}const email=$('visitorEmail').value.trim(),password=$('visitorPassword').value;if(!email||!password){show('visitorLoginError','請輸入 Email 與密碼。');return}show('visitorLoginError','登入中…');$('visitorLoginButton')?.setAttribute('disabled','disabled');try{const r=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY},body:JSON.stringify({email,password})});const d=await r.json().catch(()=>({}));if(!r.ok||!d.access_token){show('visitorLoginError',d.error_description||d.msg||'登入失敗，請確認帳號密碼。');return}localStorage.setItem('visitor_access_token',d.access_token);if(d.refresh_token)localStorage.setItem('visitor_refresh_token',d.refresh_token);requestNativePushToken();$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden');await loadSite();await loadMyTickets()}catch(e){console.error(e);show('visitorLoginError','無法連線到 Supabase。')}finally{$('visitorLoginButton')?.removeAttribute('disabled')}}
+function setPushRegistrationStatus(message, state) {
+  const el = $('myPushRegistrationStatus');
+  if (el) { el.textContent = message; el.dataset.state = state || 'info'; }
+  try { localStorage.setItem('push_registration_status', JSON.stringify({message, state: state || 'info', at: Date.now()})); } catch (_) {}
+}
 window.onNativePushToken = async function(token) {
-  if (!token || !visitorToken() || !configured()) return;
+  if (!token) { setPushRegistrationStatus('尚未取得推播識別碼，請稍後重試。', 'error'); return; }
+  if (!visitorToken() || !configured()) { setPushRegistrationStatus('已取得識別碼，但目前登入狀態或伺服器設定不足，尚未完成註冊。', 'error'); return; }
+  setPushRegistrationStatus('已取得識別碼，正在登記裝置…', 'pending');
   try {
     const r = await fetch(SUPABASE_URL + '/rest/v1/device_push_tokens?on_conflict=token', {
       method: 'POST',
       headers: { ...auth(), Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({ token, platform: 'android', updated_at: new Date().toISOString() })
     });
-    if (!r.ok) console.warn('推播裝置註冊失敗', await r.text());
-  } catch (e) { console.warn('推播裝置註冊失敗', e); }
+    if (r.ok) setPushRegistrationStatus('✅ 推播裝置註冊成功。', 'success');
+    else { const detail = await r.text(); console.warn('推播裝置註冊失敗', detail); setPushRegistrationStatus('❌ Supabase 註冊失敗（HTTP ' + r.status + '），請稍後重試。', 'error'); }
+  } catch (e) { console.warn('推播裝置註冊失敗', e); setPushRegistrationStatus('❌ 無法連線至 Supabase，推播裝置尚未註冊。', 'error'); }
+};
+window.onNativePushTokenError = function(message) {
+  setPushRegistrationStatus(message || '❌ 無法取得推播識別碼，請稍後重試。', 'error');
 };
 function requestNativePushToken() {
-  try { if (window.AndroidApp && typeof AndroidApp.requestPushToken === 'function') AndroidApp.requestPushToken(); } catch (e) { console.warn(e); }
+  setPushRegistrationStatus('正在向 Android 取得推播識別碼…', 'pending');
+  try {
+    if (window.AndroidApp && typeof AndroidApp.requestPushToken === 'function') AndroidApp.requestPushToken();
+    else setPushRegistrationStatus('目前不是 Android App 環境，無法取得推播識別碼。', 'error');
+  } catch (e) { console.warn(e); setPushRegistrationStatus('❌ 無法啟動推播註冊流程。', 'error'); }
 }
 function visitorLogout(){localStorage.removeItem('visitor_access_token');localStorage.removeItem('visitor_refresh_token');location.href='index.html';}
 function bindMobileNav(){
@@ -833,6 +848,14 @@ function initMyAppSettings(){
   nav.classList.remove('hidden');
   const version=$('myAppInstalledVersion');
   if(version){try{version.textContent='目前安裝版本：'+AndroidApp.getVersionName()}catch(_){version.textContent='無法讀取版本資訊'}}
+  const status=$('myPushRegistrationStatus');
+  if(status){
+    try { const saved=JSON.parse(localStorage.getItem('push_registration_status')||'null'); if(saved?.message) { status.textContent=saved.message; status.dataset.state=saved.state||'info'; } }
+    catch(_){}
+    if(!status.textContent.trim()) setPushRegistrationStatus('尚未確認推播裝置註冊狀態。', 'info');
+  }
+  const retry=$('retryPushRegistration');
+  if(retry && !retry.dataset.bound){retry.dataset.bound='1';retry.addEventListener('click',()=>requestNativePushToken());}
 }
 function showMySection(id){const target=$(id);if(!target||!target.classList.contains('myPanel'))return;document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));target.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();if(id==='myOrdersPanel')loadMyOrders();if(id==='myGrowthPanel')loadMyGrowth();if(id==='myRewardsPanel')loadMyRewards();if(id==='myAppSettingsPanel')initMyAppSettings();}
 
