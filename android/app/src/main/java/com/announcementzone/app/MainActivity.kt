@@ -31,6 +31,14 @@ class MainActivity : Activity() {
     private inner class AppInfoBridge {
         @JavascriptInterface fun getVersionCode(): Int = BuildConfig.VERSION_CODE
         @JavascriptInterface fun getVersionName(): String = BuildConfig.VERSION_NAME
+        @JavascriptInterface fun getPushPermissionStatus(): String {
+            val permissionGranted = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this@MainActivity, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            return when {
+                !permissionGranted -> "permission_required"
+                !NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled() -> "notifications_disabled"
+                else -> "permission_granted"
+            }
+        }
         @JavascriptInterface fun requestPushToken() {
             runOnUiThread {
                 if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
