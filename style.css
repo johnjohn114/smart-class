@@ -403,3 +403,17 @@ button,a,input,select,textarea{touch-action:manipulation}
 .calendarDateEditor{margin:18px 0;padding:18px;border:1px solid #ded2f2;border-radius:18px;background:#faf7ff}
 .calendarDateEditor h3{margin:0 0 6px;color:#5c4594}
 .calendarDateEditor small{display:block;margin:8px 0;color:#6749cc;font-weight:800}
+
+/* 26.11.4 settings and dark theme */
+html[data-theme="dark"]{color-scheme:dark}
+html[data-theme="dark"] body{background:#171522!important;color:#eee8f8!important}
+html[data-theme="dark"] header{background:rgba(30,27,43,.96)!important;border-color:#403751!important}
+html[data-theme="dark"] .logo,html[data-theme="dark"] h1,html[data-theme="dark"] h2,html[data-theme="dark"] h3,html[data-theme="dark"] .pageTitle{color:#e8ddff}
+html[data-theme="dark"] nav a,html[data-theme="dark"] nav button{color:#e2d8f2}
+html[data-theme="dark"] .dropdownMenu,html[data-theme="dark"] .notice,html[data-theme="dark"] article,html[data-theme="dark"] .calendarWrap,html[data-theme="dark"] .calendarDay,html[data-theme="dark"] .calendarEvent,html[data-theme="dark"] .settingsCard{background:#252136!important;color:#eee8f8!important;border-color:#443a56!important}
+html[data-theme="dark"] p,html[data-theme="dark"] small,html[data-theme="dark"] .sub{color:#c5bad5}
+html[data-theme="dark"] input,html[data-theme="dark"] textarea,html[data-theme="dark"] select{background:#302a40!important;color:#f4efff!important;border-color:#514765!important}
+.settingsCard{max-width:720px;margin:24px auto;padding:24px;border:1px solid #eadff5;border-radius:22px;background:#fff;box-shadow:0 8px 24px rgba(50,30,80,.07)}
+.settingsChoice{display:flex;align-items:center;gap:12px;padding:14px;margin:10px 0;border:1px solid #e8def2;border-radius:14px;cursor:pointer}
+.settingsChoice input{width:18px;height:18px}
+html[data-theme="dark"] .settingsChoice{background:#2b2540;border-color:#514765}
