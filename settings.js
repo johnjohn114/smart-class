@@ -13,8 +13,53 @@
  const version=document.getElementById('installedVersion');
  if(window.AndroidApp&&typeof AndroidApp.getVersionName==='function'){try{version.textContent=AndroidApp.getVersionName()}catch(_){version.textContent='無法讀取'}}else version.textContent='網站版';
  const push=document.getElementById('pushStatus');
- try{const saved=JSON.parse(localStorage.getItem('push_registration_status')||'null');if(saved?.message)push.textContent=saved.message}catch(_){}
- window.onNativePushToken=function(token){if(!token){push.textContent='尚未取得推播識別碼，請稍後重試。';return}push.textContent='已取得推播識別碼，正在登記裝置…';try{const r=fetch(SUPABASE_URL+'/rest/v1/device_push_tokens?on_conflict=token',{method:'POST',headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(localStorage.getItem('visitor_access_token')||SUPABASE_ANON_KEY),'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({token,platform:'android',updated_at:new Date().toISOString()})});r.then(x=>{push.textContent=x.ok?'✅ 推播裝置註冊成功。':'❌ 推播裝置註冊失敗（HTTP '+x.status+'）。'}).catch(()=>{push.textContent='❌ 無法連線，請稍後重試。'})}catch(_){push.textContent='❌ 推播裝置註冊失敗。'}};
- window.onNativePushTokenError=message=>{push.textContent=message||'無法取得推播識別碼。'};
- document.getElementById('retryPushRegistration')?.addEventListener('click',()=>{if(window.AndroidApp&&typeof AndroidApp.requestPushToken==='function'){push.textContent='正在向 Android 取得推播識別碼…';AndroidApp.requestPushToken()}else push.textContent='目前不是 Android App 環境。'});
+ const environment=document.getElementById('pushEnvironment');
+ const permission=document.getElementById('pushPermission');
+ const tokenStatus=document.getElementById('pushTokenStatus');
+ const registration=document.getElementById('pushRegistrationStatus');
+ const isAndroid=!!(window.AndroidApp&&typeof AndroidApp.requestPushToken==='function');
+ environment.textContent=isAndroid?'Android App':'網站／非 Android 環境';
+ function saveState(message,registered){
+   push.textContent=message;
+   try{localStorage.setItem('push_registration_status',JSON.stringify({message,registered,checkedAt:new Date().toISOString()}))}catch(_){}
+ }
+ function refreshPermission(){
+   if(!isAndroid){permission.textContent='無法從網站讀取 Android 權限';return}
+   try{
+     const state=AndroidApp.getPushPermissionStatus();
+     permission.textContent=state==='permission_granted'?'✅ 已允許':state==='permission_required'?'⚠️ 尚未允許':'❌ 系統通知已關閉';
+   }catch(_){permission.textContent='無法讀取權限狀態'}
+ }
+ try{
+   const saved=JSON.parse(localStorage.getItem('push_registration_status')||'null');
+   if(saved){push.textContent=saved.message||'尚未執行推播診斷';registration.textContent=saved.registered?'✅ 已登記':saved.registered===false?'❌ 未登記':'尚未確認'}
+ }catch(_){}
+ refreshPermission();
+ window.onNativePushToken=function(token){
+   refreshPermission();
+   if(!token){tokenStatus.textContent='❌ 未取得';registration.textContent='未完成';saveState('❌ 尚未取得 Firebase 推播識別碼，請稍後重試。',false);return}
+   tokenStatus.textContent='✅ 已取得（識別碼不予顯示）';
+   registration.textContent='登記中…';
+   if(typeof SUPABASE_URL==='undefined'||typeof SUPABASE_ANON_KEY==='undefined'){
+     registration.textContent='❌ Supabase 設定缺失';saveState('❌ 無法登記：Supabase 設定尚未載入。',false);return;
+   }
+   fetch(SUPABASE_URL+'/rest/v1/device_push_tokens?on_conflict=token',{
+     method:'POST',
+     headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(localStorage.getItem('visitor_access_token')||SUPABASE_ANON_KEY),'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
+     body:JSON.stringify({token:token,platform:'android',updated_at:new Date().toISOString()})
+   }).then(response=>{
+     if(response.ok){registration.textContent='✅ 已成功登記';saveState('✅ 推播診斷完成：已取得識別碼，且裝置已成功登記。',true)}
+     else{registration.textContent='❌ 登記失敗（HTTP '+response.status+'）';saveState('❌ 已取得識別碼，但 Supabase 登記失敗（HTTP '+response.status+'）。',false)}
+   }).catch(()=>{registration.textContent='❌ 網路連線失敗';saveState('❌ 已取得識別碼，但無法連線至 Supabase 完成登記。',false)});
+ };
+ window.onNativePushTokenError=function(message){
+   refreshPermission();tokenStatus.textContent='❌ 未取得';registration.textContent='未完成';
+   saveState(message||'❌ 無法取得 Firebase 推播識別碼。',false);
+ };
+ document.getElementById('retryPushRegistration')?.addEventListener('click',()=>{
+   if(!isAndroid){saveState('目前不是 Android App 環境，無法檢查原生推播註冊。',null);return}
+   refreshPermission();tokenStatus.textContent='檢查中…';registration.textContent='等待 Firebase 回應…';
+   saveState('正在重新檢查推播權限並向 Firebase 取得識別碼…',null);
+   try{AndroidApp.requestPushToken()}catch(_){saveState('❌ 無法呼叫 Android 推播服務。',false)}
+ });
 })();
