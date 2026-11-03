@@ -27,7 +27,7 @@ jobs:
       - name: Build signed release APK
         working-directory: android
         env:
-          ANDROID_KEYSTORE_PATH: app/release-keystore.jks
+          ANDROID_KEYSTORE_PATH: release-keystore.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
