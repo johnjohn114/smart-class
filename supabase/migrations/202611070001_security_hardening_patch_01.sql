@@ -351,6 +351,10 @@ revoke all on table
  public.user_activity_badges,public.visitor_accounts,public.visitor_profiles
 from anon;
 
+-- visitor_profiles has RLS enabled but intentionally no browser policies and is unused by the current frontend.
+-- Remove its authenticated table grants as defense in depth; trusted backend/service operations remain separate.
+revoke all on table public.visitor_profiles from authenticated;
+
 -- Published download catalog is intentionally visible before login.
 -- Expose only the fields used by the public catalog; never expose storage internals or counters.
 grant select (id,title,description,file_url,published,created_at,storage_provider,file_size,version)
