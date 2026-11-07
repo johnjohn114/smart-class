@@ -1,7 +1,7 @@
 -- Smart Class v26.11.7 - consolidated security hardening review draft
 -- Branch-only. NOT approved for production. No table rows are deleted/truncated.
--- The public activity leaderboard view is intentionally not changed in this patch;
--- its current UI depends on it, and a privacy-safe replacement needs a separate design.
+-- The member-only activity stats view is switched to security_invoker;
+-- public leaderboard output is moved to a column-restricted aggregate table without user IDs/no-show data.
 
 begin;
 
@@ -194,6 +194,148 @@ begin
 end;
 $$;
 
+-- 3A. Split private member statistics from the public leaderboard.
+alter view public.activity_member_stats set (security_invoker = true);
+revoke select on public.activity_member_stats from anon;
+grant select on public.activity_member_stats to authenticated;
+
+-- Public leaderboard data is stored separately. The internal user_id is never
+-- granted to browser roles; no-show counts are deliberately excluded.
+create table if not exists public.activity_public_leaderboard (
+  user_id uuid primary key,
+  nickname text not null default '會員',
+  attended_count integer not null default 0,
+  late_count integer not null default 0,
+  activity_points integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+alter table public.activity_public_leaderboard enable row level security;
+revoke all on table public.activity_public_leaderboard from public, anon, authenticated;
+grant select (nickname, attended_count, late_count, activity_points)
+  on table public.activity_public_leaderboard to anon, authenticated;
+
+do $
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname='public' and tablename='activity_public_leaderboard'
+      and policyname='activity_public_leaderboard_read'
+  ) then
+    create policy activity_public_leaderboard_read
+      on public.activity_public_leaderboard
+      for select to anon, authenticated using (true);
+  end if;
+end;
+$;
+
+create or replace function public.sync_activity_public_leaderboard_user(p_user_id uuid)
+returns void language plpgsql security definer
+set search_path = public, pg_temp
+as $function$
+begin
+  if p_user_id is null then return; end if;
+  if exists (select 1 from public.competition_attendance where user_id=p_user_id) then
+    insert into public.activity_public_leaderboard(
+      user_id,nickname,attended_count,late_count,activity_points,updated_at
+    )
+    select a.user_id,coalesce(nullif(max(btrim(p.nickname)),''),'會員'),
+      count(*) filter (where a.status in ('checked_in','late'))::integer,
+      count(*) filter (where a.status='late')::integer,
+      (coalesce(sum(a.points_awarded),0)+coalesce(sum(a.completion_points_awarded),0))::integer,
+      now()
+    from public.competition_attendance a
+    left join public.profiles p on p.id=a.user_id
+    where a.user_id=p_user_id
+    group by a.user_id
+    on conflict (user_id) do update set
+      nickname=excluded.nickname,attended_count=excluded.attended_count,
+      late_count=excluded.late_count,activity_points=excluded.activity_points,
+      updated_at=excluded.updated_at;
+  else
+    update public.activity_public_leaderboard
+    set nickname=coalesce(nullif(btrim((select p.nickname from public.profiles p where p.id=p_user_id)),''),'會員'),
+      attended_count=0,late_count=0,activity_points=0,updated_at=now()
+    where user_id=p_user_id;
+  end if;
+end;
+$function$;
+
+create or replace function public.sync_activity_public_leaderboard_from_attendance()
+returns trigger language plpgsql security definer
+set search_path = public, pg_temp
+as $function$
+begin
+  if tg_op='DELETE' then
+    perform public.sync_activity_public_leaderboard_user(old.user_id);
+    return old;
+  elsif tg_op='UPDATE' then
+    if old.user_id is distinct from new.user_id then
+      perform public.sync_activity_public_leaderboard_user(old.user_id);
+    end if;
+    perform public.sync_activity_public_leaderboard_user(new.user_id);
+    return new;
+  else
+    perform public.sync_activity_public_leaderboard_user(new.user_id);
+    return new;
+  end if;
+end;
+$function$;
+
+create or replace function public.sync_activity_public_leaderboard_from_profile()
+returns trigger language plpgsql security definer
+set search_path = public, pg_temp
+as $function$
+begin
+  if new.nickname is distinct from old.nickname then
+    update public.activity_public_leaderboard
+    set nickname=coalesce(nullif(btrim(new.nickname),''),'會員'),updated_at=now()
+    where user_id=new.id;
+  end if;
+  return new;
+end;
+$function$;
+
+do $
+begin
+  if not exists (
+    select 1 from pg_trigger where tgname='trg_activity_public_leaderboard_attendance'
+      and tgrelid='public.competition_attendance'::regclass and not tgisinternal
+  ) then
+    create trigger trg_activity_public_leaderboard_attendance
+      after insert or update or delete on public.competition_attendance
+      for each row execute function public.sync_activity_public_leaderboard_from_attendance();
+  end if;
+  if not exists (
+    select 1 from pg_trigger where tgname='trg_activity_public_leaderboard_profile'
+      and tgrelid='public.profiles'::regclass and not tgisinternal
+  ) then
+    create trigger trg_activity_public_leaderboard_profile
+      after update of nickname on public.profiles
+      for each row execute function public.sync_activity_public_leaderboard_from_profile();
+  end if;
+end;
+$;
+
+insert into public.activity_public_leaderboard(
+  user_id,nickname,attended_count,late_count,activity_points,updated_at
+)
+select a.user_id,coalesce(nullif(max(btrim(p.nickname)),''),'會員'),
+  count(*) filter (where a.status in ('checked_in','late'))::integer,
+  count(*) filter (where a.status='late')::integer,
+  (coalesce(sum(a.points_awarded),0)+coalesce(sum(a.completion_points_awarded),0))::integer,
+  now()
+from public.competition_attendance a
+left join public.profiles p on p.id=a.user_id
+group by a.user_id
+on conflict (user_id) do update set
+  nickname=excluded.nickname,attended_count=excluded.attended_count,
+  late_count=excluded.late_count,activity_points=excluded.activity_points,
+  updated_at=excluded.updated_at;
+
+revoke execute on function public.sync_activity_public_leaderboard_user(uuid) from public, anon, authenticated;
+revoke execute on function public.sync_activity_public_leaderboard_from_attendance() from public, anon, authenticated;
+revoke execute on function public.sync_activity_public_leaderboard_from_profile() from public, anon, authenticated;
+
 -- 4. Authenticated members must not read unpublished announcements.
 alter policy announcement_authenticated_read on public.announcements
 using (published=true and published_at<=now());
@@ -242,6 +384,8 @@ revoke execute on function public.ensure_visitor_profile() from public,anon,auth
 revoke execute on function public.growth_registration_reward() from public,anon,authenticated;
 revoke execute on function public.growth_result_reward() from public,anon,authenticated;
 revoke execute on function public.assign_member_no_and_nickname() from public,anon,authenticated;
+-- Download count is a signed-in feature in the current UI, not an anonymous RPC.
+revoke execute on function public.increment_download_count(uuid) from public, anon;
 
 -- 8. Harden SECURITY DEFINER search paths; pg_temp is last.
 do $$
