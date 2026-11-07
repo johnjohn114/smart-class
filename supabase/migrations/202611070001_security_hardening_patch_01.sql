@@ -214,7 +214,7 @@ revoke all on table public.activity_public_leaderboard from public, anon, authen
 grant select (nickname, attended_count, late_count, activity_points)
   on table public.activity_public_leaderboard to anon, authenticated;
 
-do $
+do $$
 begin
   if not exists (
     select 1 from pg_policies
@@ -226,7 +226,7 @@ begin
       for select to anon, authenticated using (true);
   end if;
 end;
-$;
+$$;
 
 create or replace function public.sync_activity_public_leaderboard_user(p_user_id uuid)
 returns void language plpgsql security definer
@@ -295,7 +295,7 @@ begin
 end;
 $function$;
 
-do $
+do $$
 begin
   if not exists (
     select 1 from pg_trigger where tgname='trg_activity_public_leaderboard_attendance'
@@ -314,7 +314,7 @@ begin
       for each row execute function public.sync_activity_public_leaderboard_from_profile();
   end if;
 end;
-$;
+$$;
 
 insert into public.activity_public_leaderboard(
   user_id,nickname,attended_count,late_count,activity_points,updated_at
