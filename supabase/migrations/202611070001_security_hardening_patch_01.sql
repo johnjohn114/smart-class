@@ -351,6 +351,24 @@ revoke all on table
  public.user_activity_badges,public.visitor_accounts,public.visitor_profiles
 from anon;
 
+-- Published download catalog is intentionally visible before login.
+-- Expose only the fields used by the public catalog; never expose storage internals or counters.
+grant select (id,title,description,file_url,published,created_at,storage_provider,file_size,version)
+  on table public.download_files to anon;
+do $
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname='public' and tablename='download_files'
+      and policyname='download_files_published_anon_read'
+  ) then
+    create policy download_files_published_anon_read
+      on public.download_files for select to anon
+      using (published=true);
+  end if;
+end;
+$;
+
 -- 6. Remove anonymous execution from all admin RPCs.
 do $$
 declare r record;
