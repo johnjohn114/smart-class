@@ -479,7 +479,7 @@ async function submitRegistration(c,box){
     if(capRows.length>=Number(c.registration_capacity)){box.querySelector('[data-reg-msg]').textContent='❌ 名額已滿，請加入候補名單。';await refreshRegistrationCapacity(c,box);return}
   }
   const url=SUPABASE_URL+'/rest/v1/competition_registrations'+(existing?'?id=eq.'+encodeURIComponent(existing.id):'');
-  const opts=existing?{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({member_no:profile.member_no,nickname,email:profile.email,note,custom_fields,status:'active',cancelled_at:null})}:{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({competition_id:c.id,user_id:profile.id,member_no:profile.member_no,nickname,email:profile.email,note,custom_fields,status:'active'})};
+  const opts=existing?{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({member_no:profile.member_no,nickname,email:profile.email,note,custom_fields,...(existing.status==='cancelled'?{status:'active'}:{})})}:{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({competition_id:c.id,user_id:profile.id,member_no:profile.member_no,nickname,email:profile.email,note,custom_fields,status:'active'})};
   const r=await fetch(url,opts); const d=await r.json().catch(()=>({})); const msgEl=box.querySelector('[data-reg-msg]');
   if(!r.ok){msgEl.textContent='❌ '+(d.message||d.hint||'報名失敗，請稍後再試。');return}
   const resultStatus=(d?.[0]?.status)||null; msgEl.textContent=resultStatus==='pending'?'✅ 已送出報名，等待管理員審核。':'✅ '+(existing?'已重新報名！':'報名成功！'); await createMemberNotification('📝 '+c.name+' 報名結果',resultStatus==='pending'?'報名已送出，等待管理員審核。':'報名已成功。'); await prepareRegistrationBox(c,box); loadMyCompetitions();
