@@ -355,7 +355,7 @@ from anon;
 -- Expose only the fields used by the public catalog; never expose storage internals or counters.
 grant select (id,title,description,file_url,published,created_at,storage_provider,file_size,version)
   on table public.download_files to anon;
-do $
+do $$
 begin
   if not exists (
     select 1 from pg_policies
@@ -367,7 +367,7 @@ begin
       using (published=true);
   end if;
 end;
-$;
+$$;
 
 -- 6. Remove anonymous execution from all admin RPCs.
 do $$
