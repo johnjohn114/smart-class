@@ -355,6 +355,24 @@ from anon;
 -- Expose only the fields used by the public catalog; never expose storage internals or counters.
 grant select (id,title,description,file_url,published,created_at,storage_provider,file_size,version)
   on table public.download_files to anon;
+-- Clear legacy column-level privileges first; table-level REVOKE does not remove them.
+do $$
+declare c record;
+begin
+  for c in
+    select column_name from information_schema.columns
+    where table_schema='public' and table_name='download_files'
+  loop
+    execute format(
+      'revoke all privileges (%I) on table public.download_files from anon',
+      c.column_name
+    );
+  end loop;
+end;
+$$;
+-- Reapply only the public catalog SELECT columns after clearing legacy grants.
+grant select (id,title,description,file_url,published,created_at,storage_provider,file_size,version)
+  on table public.download_files to anon;
 do $$
 begin
   if not exists (
