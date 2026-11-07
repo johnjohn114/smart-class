@@ -734,9 +734,9 @@ async function loadMyActivityHistory(){
 }
 async function loadActivityLeaderboard(){
   const box=$('activityLeaderboardList'),summary=$('activityLeaderboardSummary'); if(!box||!configured())return; box.innerHTML='<div class="loading">正在整理活動達人榜…</div>';
-  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?select=user_id,nickname,attended_count,late_count,no_show_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY}}); const rows=r.ok?await r.json():[];
+  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_public_leaderboard?select=nickname,attended_count,late_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY}}); const rows=r.ok?await r.json():[];
   if(summary)summary.innerHTML='<div class="leaderboardStat"><b>'+rows.length+'</b><span>活動會員</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.attended_count||0),0)+'</b><span>累計出席</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.activity_points||0),0)+'</b><span>活動積分</span></div>';
-  box.innerHTML=rows.length?rows.slice(0,20).map((x,i)=>'<article class="leaderboardRow'+(i<3?' topRank':'')+'"><div class="leaderboardRank">'+(i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅')+' <b>#'+(i+1)+'</b></div><div class="leaderboardPlayer"><h3>'+esc(x.nickname||'會員')+'</h3><div class="leaderboardMeta">活動積分 <b>'+Number(x.activity_points||0)+'</b> · 出席 '+Number(x.attended_count||0)+' 場 · 遲到 '+Number(x.late_count||0)+' · 未到 '+Number(x.no_show_count||0)+'</div></div></article>').join(''):'<div class="empty">目前還沒有活動達人榜資料。</div>';
+  box.innerHTML=rows.length?rows.slice(0,20).map((x,i)=>'<article class="leaderboardRow'+(i<3?' topRank':'')+'"><div class="leaderboardRank">'+(i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅')+' <b>#'+(i+1)+'</b></div><div class="leaderboardPlayer"><h3>'+esc(x.nickname||'會員')+'</h3><div class="leaderboardMeta">活動積分 <b>'+Number(x.activity_points||0)+'</b> · 出席 '+Number(x.attended_count||0)+' 場 · 遲到 '+Number(x.late_count||0)+'</div></div></article>').join(''):'<div class="empty">目前還沒有活動達人榜資料。</div>';
 }
 async function loadMyCompetitions(){
   const box=$('myCompetitions'); if(!box||!visitorToken())return;
