@@ -252,10 +252,8 @@ begin
       late_count=excluded.late_count,activity_points=excluded.activity_points,
       updated_at=excluded.updated_at;
   else
-    update public.activity_public_leaderboard
-    set nickname=coalesce(nullif(btrim((select p.nickname from public.profiles p where p.id=p_user_id)),''),'會員'),
-      attended_count=0,late_count=0,activity_points=0,updated_at=now()
-    where user_id=p_user_id;
+    -- Remove only the derived leaderboard row when its final source attendance row is gone.
+    delete from public.activity_public_leaderboard where user_id=p_user_id;
   end if;
 end;
 $function$;
