@@ -8,7 +8,7 @@
 
 ```bash
 python scripts/verify_maintenance_sql_draft.py
-python -m unittest tests.test_verify_maintenance_sql_draft -v
+python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py' -v
 ```
 
 ## 檢查內容
