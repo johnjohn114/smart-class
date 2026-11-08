@@ -21,7 +21,7 @@ begin
   'badges',(select count(*) from public.user_activity_badges)
  ) into v;
  return v;
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_adjust_growth_points(p_user_id uuid, p_amount integer, p_reason text)
@@ -34,7 +34,7 @@ begin
  if not public.is_admin() then raise exception '沒有管理員權限'; end if;
  if p_reason is null or trim(p_reason)='' then raise exception '請填寫調整原因'; end if;
  return public.award_growth_points(p_user_id,p_amount,p_reason,'admin',null,null,auth.uid());
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_apply_competition_rewards(p_competition_id uuid)
@@ -68,7 +68,7 @@ begin
     update public.profiles p set growth_level=coalesce((select gl.code from public.growth_levels gl where gl.min_points<=p.growth_points order by gl.min_points desc limit 1),p.growth_level,'newbie') where p.id=v_att.user_id;
   end loop;
   return jsonb_build_object('success',true,'grants',v_granted,'points',v_points,'badges',v_badges);
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_cancel_order(p_order_id uuid)
@@ -90,7 +90,7 @@ begin
   exception when others then null;
   end;
   return jsonb_build_object('success',true,'order_no',v_order.order_no,'status',v_order.status);
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_complete_order(p_order_id uuid)
@@ -112,7 +112,7 @@ begin
   exception when others then null;
   end;
   return jsonb_build_object('success',true,'order_no',v_order.order_no,'status',v_order.status);
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_delete_growth_reward(p_reward_id uuid)
@@ -151,7 +151,7 @@ begin
   end if;
   return jsonb_build_object('success', true, 'action', 'deleted', 'redemptions', 0);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_delete_video(p_video_id uuid)
@@ -165,7 +165,7 @@ begin
   delete from public.videos where id=p_video_id;
   return found;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_grant_competition_reward(p_competition_id uuid, p_reward_type text, p_title text, p_description text DEFAULT NULL::text, p_points integer DEFAULT NULL::integer, p_badge_id uuid DEFAULT NULL::uuid)
@@ -184,7 +184,7 @@ begin
   values(p_competition_id,p_reward_type,case when p_reward_type='points' then greatest(coalesce(p_points,0),0) else null end,p_badge_id,p_title,p_description)
   returning * into v_rule;
   return jsonb_build_object('success',true,'rule_id',v_rule.id);
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_mark_competition_attendance(p_attendance_id uuid, p_status text, p_note text DEFAULT NULL::text)
@@ -205,7 +205,7 @@ begin
   if not found then raise exception '找不到簽到紀錄'; end if;
   return jsonb_build_object('success',true,'attendance_id',v_row.id,'status',v_row.status);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_mark_competition_member_attendance(p_competition_id uuid, p_user_id uuid, p_status text, p_note text DEFAULT NULL::text)
@@ -252,7 +252,7 @@ begin
   end if;
   return jsonb_build_object('success',true,'attendance_id',v_att.id,'status',v_att.status,'points_awarded',v_att.points_awarded);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_mark_order_paid(p_order_id uuid)
@@ -277,7 +277,7 @@ begin
   exception when others then null;
   end;
   return jsonb_build_object('success',true,'order_no',v_order.order_no,'status',v_order.status);
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_promote_competition_waitlist(p_waitlist_id uuid)
@@ -311,7 +311,7 @@ begin
 exception when unique_violation then
   raise exception '此會員已經有報名紀錄';
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_reset_growth_member(p_user_id uuid, p_reason text DEFAULT '管理員手動重置'::text)
@@ -418,7 +418,7 @@ begin
     'before_achievements',before_achievements
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_settle_competition(p_competition_id uuid)
@@ -453,7 +453,7 @@ begin
  update public.competitions set settled_at=now() where id=p_competition_id;
  v_reward:=public.admin_apply_competition_rewards(p_competition_id);
  return jsonb_build_object('success',true,'already',false,'completed',v_completed,'no_show',v_no_show,'completion_points',v_points,'rewards',v_reward,'settled_at',now());
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_upsert_growth_reward(p_reward_id uuid, p_code text, p_title text, p_description text, p_icon text, p_category text, p_point_cost integer, p_min_level text, p_required_achievement_id uuid, p_user_limit integer, p_total_limit integer, p_coupon_title text, p_coupon_description text, p_coupon_discount text, p_coupon_expires_days integer, p_available_from timestamp with time zone, p_available_until timestamp with time zone, p_sort_order integer, p_enabled boolean)
@@ -487,7 +487,7 @@ begin
   end if;
   return jsonb_build_object('success',true,'id',row_data.id,'action',case when p_reward_id is null then 'created' else 'updated' end);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_upsert_video(p_video jsonb)
@@ -513,7 +513,7 @@ begin
   end if;
   return r;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.assign_member_no_and_nickname()
@@ -541,7 +541,7 @@ begin
   end if;
   return NEW;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.award_growth_points(p_user_id uuid, p_amount integer, p_reason text, p_source_type text DEFAULT 'manual'::text, p_source_id text DEFAULT NULL::text, p_source_key text DEFAULT NULL::text, p_admin_user_id uuid DEFAULT NULL::uuid)
@@ -587,7 +587,7 @@ begin
     values(p_user_id,'🎉 會員等級升級！','恭喜你從「'||coalesce((select name from public.growth_levels where code=old_level),'新手')||'」升級為「'||coalesce(level_name,new_level)||'」！','成長');
   end if;
   return new_points;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.check_activity_badges(p_user_id uuid DEFAULT auth.uid())
@@ -615,7 +615,7 @@ begin
     end if;
   end loop;
   return jsonb_build_object('success',true,'new_badges',v_unlocked,'activity_count',v_count,'activity_points',v_points);
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.check_competition_registration_rules()
@@ -646,7 +646,7 @@ begin
   if tg_op='INSERT' then new.status := next_status; end if;
   if tg_op='UPDATE' and new.status='active' then new.status := next_status; end if;
   return new;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.check_growth_achievements(p_user_id uuid DEFAULT auth.uid())
@@ -698,7 +698,7 @@ begin
    end if;
  end loop;
  return unlocked;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.checkin_competition(p_competition_id uuid, p_code text)
@@ -765,7 +765,7 @@ begin
 
   return jsonb_build_object('success',true,'already',false,'attendance_id',v_att.id,'status',v_att.status,'points_awarded',v_points);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.close_my_support_ticket(p_ticket_id uuid)
@@ -782,7 +782,7 @@ begin
      and status <> 'closed';
   return found;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.complete_growth_task(p_task_code text)
@@ -814,7 +814,7 @@ begin
    return true;
  end if;
  return false;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.create_cash_order(p_product_id uuid, p_quantity integer DEFAULT 1, p_note text DEFAULT NULL::text)
@@ -851,7 +851,7 @@ begin
   end;
 
   return jsonb_build_object('success',true,'order_id',v_order.id,'order_no',v_order.order_no,'total_amount',v_total,'payment_method','cash');
-end $function$
+end $function$;
 
 
 CREATE OR REPLACE FUNCTION public.ensure_visitor_profile()
@@ -866,7 +866,7 @@ begin
   on conflict(id) do update set role='visitor';
   return NEW;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.growth_registration_reward()
@@ -880,7 +880,7 @@ begin
    perform public.award_growth_points(new.user_id,5,'完成活動／比賽報名','registration',new.id::text,'registration:'||new.id::text,null);
  end if;
  return new;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.growth_result_reward()
@@ -898,7 +898,7 @@ begin
    perform public.award_growth_points(new.user_id,pts,'比賽成績：第 '||new.place||' 名','result',new.id::text,'result:'||new.id::text,null);
  end if;
  return new;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.increment_download_count(p_file_id uuid)
@@ -915,7 +915,7 @@ BEGIN
   WHERE id = p_file_id
     AND published = true;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.is_admin_user()
@@ -925,7 +925,7 @@ CREATE OR REPLACE FUNCTION public.is_admin_user()
  SET search_path TO 'public'
 AS $function$
   select exists(select 1 from public.profiles where id = auth.uid() and role = 'admin');
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -933,7 +933,7 @@ CREATE OR REPLACE FUNCTION public.is_admin()
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO ''
-AS $function$ select exists(select 1 from public.profiles where id=auth.uid() and role='admin'); $function$
+AS $function$ select exists(select 1 from public.profiles where id=auth.uid() and role='admin'); $function$;
 
 
 CREATE OR REPLACE FUNCTION public.join_competition_waitlist(p_competition_id uuid, p_note text DEFAULT NULL::text)
@@ -983,7 +983,7 @@ begin
   end if;
   return jsonb_build_object('success',true,'already',false,'waitlist_id',v_row.id,'position',v_row.position,'status',v_row.status);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.protect_profile_fields()
@@ -1010,7 +1010,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.record_growth_activity()
@@ -1027,7 +1027,7 @@ begin
  cur:=d; while exists(select 1 from public.growth_activity_days where user_id=uid and activity_date=cur) loop streak:=streak+1; cur:=cur-1; end loop;
  new_achievements:=public.check_growth_achievements(uid);
  return jsonb_build_object('active_days',days,'login_streak',streak,'new_achievements',new_achievements);
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.redeem_growth_reward(p_reward_id uuid)
@@ -1138,7 +1138,7 @@ begin
     'category',r.category
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
@@ -1153,7 +1153,7 @@ begin
  if lvl.code is null then lvl.code:='newbie'; end if;
  update public.profiles set growth_level=lvl.code where id=p_user_id;
  return lvl.code;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.set_competition_publish_time()
@@ -1169,7 +1169,7 @@ begin
   end if;
   return NEW;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.use_growth_coupon(p_coupon_id uuid)
@@ -1195,6 +1195,6 @@ begin
   values(v_user_id,'🎟️ 優惠券已使用','你已使用優惠券：'||coalesce(v_coupon.title,v_coupon.code),'優惠券');
   return jsonb_build_object('success',true,'coupon_id',v_coupon.id,'code',v_coupon.code,'used_at',now());
 end;
-$function$
+$function$;
 
 
