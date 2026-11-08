@@ -193,3 +193,32 @@
 - 沒有部署。
 - 沒有建立付費資源。
 - 沒有完成真實 JWT/RLS 整合測試。
+
+
+## 10. 已建立的程式檔案（2026-11-08）
+
+已在本分支建立：
+- `supabase/functions/_shared/maintenance.ts`：共用 CORS、來源白名單、Auth token 驗證、JSON 驗證、輸入解析、RPC 呼叫與錯誤映射。
+- `supabase/functions/maintenance-status/index.ts`
+- `supabase/functions/maintenance-admin-list/index.ts`
+- `supabase/functions/maintenance-event-create/index.ts`
+- `supabase/functions/maintenance-event-update/index.ts`
+- `supabase/functions/maintenance-event-action/index.ts`
+- `supabase/config.toml)：status 關閉 gateway JWT 強制驗證，其他四支保持 JWT 驗證。
+- `supabase/tests/functions/maintenance-validation.test.ts)：請求解析單元測試。
+- `docs/maintenance-rpc-sql-contract-v0.1.md)：明確定義呼叫端使用 `p_request jsonb`。
+
+### 尚未完成及阻擋項目
+
+1. GitHub repo 目前讀取不到 `supabase/config.toml`、既有 Edge Functions 及 README；本次建立的是新設定檔，需在合併前確認不會覆蓋其他分支/本機設定。
+2. 尚未取得原始 SQL migration 檔。先前上傳的 `啟動第一步檢查.txt` 是審查摘要，並非 SQL 原始碼；四張表實際欄位、constraint、trigger、RLS 與 grants 尚無法逐項核對。
+3. 五個 RPC 尚未建立；Edge Functions 預期其 signature 為單一 `p_request jsonb`。需依實際 schema 編寫並審查 SQL。
+4. 尚未執行 Deno type check 或 Deno tests；目前只有測試程式已提交，不能標示測試通過。
+5. 尚未完成 anon/general-user/admin JWT、RLS、PostgREST、併發、transaction、idempotency 整合測試。
+6. 沒有部署，也沒有修改正式 Supabase。
+
+### 設定注意
+
+- `MAINTENANCE_ALLOWED_ORIGINS` 可用逗號分隔正式網站 origin；目前預設只允許 `https://johnjohn114.github.io`。如網站正式 origin 不同，需在部署前明確設定。
+- 需要既有 Supabase 環境變數 `SUPABASE_URL` 與 publishable key（優先 `SUPABASE_PUBLISHABLE_KEY`，相容 `SUPABASE_ANON_KEY` 或 `SUPABASE_PUBLISHABLE_KEYS` JSON）。
+- 未使用 service_role，不新增付費服務或 secret。
