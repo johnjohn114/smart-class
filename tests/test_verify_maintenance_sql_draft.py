@@ -1,0 +1,60 @@
+import unittest
+
+from scripts.verify_maintenance_sql_draft import inspect_sql
+
+
+GOOD = """
+CREATE TABLE private.maintenance_scopes (code text);
+CREATE TABLE private.maintenance_events (id uuid);
+CREATE TABLE private.maintenance_event_scopes (event_id uuid);
+CREATE TABLE private.maintenance_audit_logs (id uuid);
+CREATE TABLE private.maintenance_idempotency (actor_id uuid);
+""" + "\n".join(
+    f"ALTER TABLE private.{name} ENABLE ROW LEVEL SECURITY;"
+    for name in (
+        "maintenance_scopes", "maintenance_events", "maintenance_event_scopes",
+        "maintenance_audit_logs", "maintenance_idempotency",
+    )
+) + "\n".join(
+    f"CREATE FUNCTION public.{name}(p_request jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$ BEGIN RETURN '{}'::jsonb; END; $$;"
+    for name in (
+        "maintenance_status_public", "maintenance_admin_list",
+        "maintenance_event_create", "maintenance_event_update",
+        "maintenance_event_action",
+    )
+) + """
+CREATE TRIGGER audit_no_mutation BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs
+FOR EACH ROW EXECUTE FUNCTION private.block_audit();
+CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON private.maintenance_audit_logs
+FOR EACH STATEMENT EXECUTE FUNCTION private.block_audit();
+PRIMARY KEY(actor_id, idempotency_key);
+SELECT pg_advisory_xact_lock(20261108,1);
+"""
+
+
+class MaintenanceSqlDraftStaticTests(unittest.TestCase):
+    def test_complete_draft_passes_guardrails(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(all(result.values()), result)
+
+    def test_missing_rls_is_detected(self):
+        result = inspect_sql(GOOD.replace(
+            "ALTER TABLE private.maintenance_events ENABLE ROW LEVEL SECURITY;", ""
+        ))
+        self.assertFalse(result["rls:maintenance_events"])
+
+    def test_security_definer_is_rejected(self):
+        result = inspect_sql(GOOD + "\n-- SECURITY DEFINER")
+        self.assertFalse(result["no_security_definer"])
+
+    def test_service_role_grant_is_rejected(self):
+        result = inspect_sql(GOOD + "\nGRANT SELECT ON private.maintenance_events TO service_role;")
+        self.assertFalse(result["no_service_role_grants"])
+
+    def test_events_delete_grant_is_rejected(self):
+        result = inspect_sql(GOOD + "\nGRANT SELECT, DELETE ON private.maintenance_events TO authenticated;")
+        self.assertFalse(result["no_events_delete_grant"])
+
+
+if __name__ == "__main__":
+    unittest.main()
