@@ -62,7 +62,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         "pg_catalog.jsonb_typeof(p_request->'status') IS DISTINCT FROM 'string'" in sql
         and "pg_catalog.jsonb_typeof(p_request->'limit') IS DISTINCT FROM 'number'" in sql
     )
-    checks["cursor_shape_validation"] = "pg_catalog.position('|' IN v_cursor_text)" in sql
+    checks["cursor_shape_validation"] = "pg_catalog.strpos(v_cursor_text,'|')" in sql
     checks["rpc_cast_errors_normalized"] = (
         len(re.findall(r"WHEN invalid_text_representation OR invalid_datetime_format", sql, re.I)) >= 4
     )
