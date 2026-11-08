@@ -272,9 +272,11 @@ BEGIN
       'message', v_event.message,
       'starts_at', v_event.starts_at,
       'ends_at', v_event.ends_at,
-      'server_time', pg_catalog.now(),
-      'admin_bypass', v_is_admin
-    )
+      'server_time', pg_catalog.now()
+    ) || CASE
+      WHEN v_is_admin THEN pg_catalog.jsonb_build_object('admin_bypass', true)
+      ELSE '{}'::jsonb
+    END
   );
 END;
 $$;
