@@ -1,0 +1,17 @@
+# Maintenance Edge Functions configuration.
+# Public status is intentionally gateway-public; the function validates an optional
+# user token itself and never treats an invalid token as an admin session.
+[functions.maintenance-status]
+verify_jwt = false
+
+[functions.maintenance-admin-list]
+verify_jwt = true
+
+[functions.maintenance-event-create]
+verify_jwt = true
+
+[functions.maintenance-event-update]
+verify_jwt = true
+
+[functions.maintenance-event-action]
+verify_jwt = true
