@@ -35,7 +35,7 @@ IF p_request ? 'limit' THEN
   IF pg_catalog.jsonb_typeof(p_request->'limit') IS DISTINCT FROM 'number' THEN NULL; END IF;
 END IF;
 IF pg_catalog.jsonb_typeof(p_request->'status') IS DISTINCT FROM 'string' THEN NULL; END IF;
-IF pg_catalog.position('|' IN v_cursor_text) < 1 THEN NULL; END IF;
+IF pg_catalog.strpos(v_cursor_text,'|') < 1 THEN NULL; END IF;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
