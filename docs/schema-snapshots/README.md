@@ -18,7 +18,7 @@
 | 20261108-public-views.sql | public view definitions | view options（例如 security_invoker）、owner、grants 需另核 |
 | 20261108-public-functions.sql | public functions/procedures definitions | owner、ACL、comment、依賴順序與 extension-owned routines 需另核 |
 | 20261108-public-triggers.sql | public triggers definitions | trigger function 需先存在；觸發器啟用狀態與依賴需再核 |
-| 20261108-public-types-sequences.sql | enum types 與 sequence inventory | sequence current values、owner、ownership dependencies、完整參數需 pg_dump |
+| 20261108-public-types-sequences.sql | enum types 與 sequence inventory（目前檔案列出 2 筆 public sequences） | sequence current values、owner、ownership dependencies、完整參數需 pg_dump；數量仍須以最新唯讀 catalog 查詢核對 |
 | 20261108-public-acl-inventory.json | schema、function、relation owner 與 ACL inventory | 是 metadata 記錄，不是可直接執行的 GRANT 腳本 |
 
 ## Snapshot 統計基線
