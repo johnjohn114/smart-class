@@ -402,7 +402,7 @@ begin
    execute format('grant execute on function %s to authenticated',r.sig);
  end loop;
 end;
-$;
+$$;
 
 -- 7. Keep member-facing RPCs authenticated; remove anon/PUBLIC execution.
 revoke execute on function public.check_growth_achievements(uuid) from public,anon;
