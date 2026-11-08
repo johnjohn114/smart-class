@@ -361,8 +361,11 @@ function mapRpcError(status: number, raw: unknown): HttpError {
   const message = String(value.message ?? "");
   const detail = `${code} ${message}`;
 
-  if (code === "42501" || status === 401 || status === 403) {
+  if (code === "42501" || status === 403) {
     return new HttpError(403, "FORBIDDEN", "無權執行此操作");
+  }
+  if (status === 401) {
+    return new HttpError(401, "UNAUTHENTICATED", "登入狀態已失效，請重新登入");
   }
   if (code === "P0002" || status === 404) {
     return new HttpError(404, "NOT_FOUND", "找不到指定事件");
