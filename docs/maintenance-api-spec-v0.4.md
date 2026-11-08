@@ -21,7 +21,7 @@
 - `maintenance_event_update`
 - `maintenance_event_action`
 
-目前五支 Edge Functions、五個 RPC、private schema 與維護資料表均未建立。本文件只定義契約，不代表 API 已存在。
+五支 Edge Function 原始碼已提交至 `feature/maintenance-system`，但尚未執行測試或部署；五個 RPC、private schema 與維護資料表尚未建立。本文件只定義契約，不代表 API 已可用。
 
 ## 2. 已確認的產品規則
 
