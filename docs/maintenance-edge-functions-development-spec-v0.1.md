@@ -2,7 +2,7 @@
 
 > 日期：2026-11-08  
 > 分支：`feature/maintenance-system`  
-> 狀態：開發前規格；尚未建立 Edge Functions/RPC，尚未執行 SQL，未部署。  
+> 狀態：開發規格；五支 Edge Function 原始碼已提交，尚未完成測試或部署；五個 RPC 與 private schema 僅有未驗證 SQL 草案，未執行 SQL。  
 > 本文件依據 API 規格 v0.5、連線架構 v0.4、權限審查 v0.2 彙整。若有衝突，以最新 API 規格及安全決議為準；未決事項不得自行猜測。
 
 ## 1. 開發範圍
@@ -187,7 +187,8 @@
 
 ## 9. 本文件未代表的事項
 
-- 沒有建立 Edge Functions 或 RPC。
+- 五支 Edge Function 原始碼已提交至 `feature/maintenance-system`；尚未完成測試或部署。
+- 五個 RPC 與 private schema 尚未建立；目前只有 `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql` 未驗證草案。
 - 沒有執行 DDL/DML 或 migration。
 - 沒有修改正式 Supabase。
 - 沒有部署。
