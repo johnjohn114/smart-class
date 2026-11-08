@@ -322,7 +322,7 @@ Request：
 ## 11. 實作前狀態與禁止事項
 
 目前：
-- 五個 Edge Functions：未建立。
+- 五個 Edge Functions：原始碼已提交至 `feature/maintenance-system`；尚未完成測試或部署。
 - 五個 RPC：未建立。
 - private schema/tables：未建立。
 - Migration：未執行。
