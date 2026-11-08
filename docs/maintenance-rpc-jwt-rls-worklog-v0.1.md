@@ -20,7 +20,7 @@
 
 ## 2. 已做的靜態檢查
 
-對 SQL 草案做了結構性檢查，以下 9 項符合預期：
+早期結構性檢查涵蓋下列項目（實際列出 10 項）：
 
 - 五張 private tables 均存在。
 - 五個 public RPC 均存在。
@@ -33,7 +33,7 @@
 - transaction advisory lock 存在。
 - 未授予 maintenance_events DELETE。
 
-另以靜態 checker 的測試案例驗證 5 種 guardrail 情境，5/5 通過。這是 checker 邏輯測試，不等同於已在 repository 環境執行整套 Python 測試。
+注意：上述是先前的人工結構檢視紀錄，不代表最新 SQL 版本已通過 parser 或資料庫執行。靜態 checker 與測試 fixture 已更新以檢查管理員列表的型別、限制數量、游標格式與 cast 錯誤處理；最新版本的 Python 測試尚未執行。
 
 ## 3. 尚未執行／不能宣稱通過
 
@@ -59,9 +59,18 @@
 - SQL 草案不是 migration，不可對正式 Supabase 執行。
 - 五表 schema 的 scope seed、保留期限與產品欄位仍需最後審查。
 
-## 5. 下一步
+## 5. 2026-11-08 後續修正
 
-1. 對 SQL 草案進行 PostgreSQL parser 檢查，修正所有語法錯誤。
-2. 執行 Python 靜態 checker 與其 unit tests。
-3. 執行既有 Deno Edge validation tests，修正 API/SQL 欄位契約差異。
-4. 在不連接正式 Supabase 的前提下，準備 anon / non-admin / admin JWT 的隔離測試方案；若沒有現成免費隔離環境，明確保留為 NOT RUN，不建立付費資源。
+- 管理員列表 RPC 的 limit 改為安全預設值，先驗證 JSON 型別與 1–100 範圍，再進行轉換。
+- 管理員列表的 status、scope、is_global、from、to、cursor 加入型別／空值檢查；游標檢查分隔符形狀。
+- status RPC 拒絕 null、非字串或空白 scope。
+- create/update/action/list RPC 對常見格式轉換錯誤統一回傳 VALIDATION_ERROR，避免把無效輸入當成未處理資料庫錯誤。
+- SQL 靜態 checker 與 fixture tests 已同步增加這些 guardrails。
+
+以上仍屬程式碼層級修正，尚未執行 PostgreSQL parser、Python tests 或資料庫測試。
+
+## 6. 下一步
+
+1. 使用單一本機驗證流程執行 Python tests、靜態 checker、可用時的 pglast parser，以及 Deno validation tests。
+2. 若 parser 或測試失敗，先修正分支中的程式碼，再重跑。
+3. 在不連接正式 Supabase 的前提下，準備 anon / non-admin / admin JWT 的隔離測試方案；若沒有現成免費隔離環境，明確保留為 NOT RUN，不建立付費資源。
