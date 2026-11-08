@@ -9,17 +9,20 @@ BEGIN
   IF pg_catalog.to_regprocedure('public.is_admin()') IS NULL THEN
     RAISE EXCEPTION 'PRECONDITION_FAILED: public.is_admin() is required';
   END IF;
-  IF pg_catalog.to_regclass('private.maintenance_scopes') IS NOT NULL
-     OR pg_catalog.to_regclass('private.maintenance_events') IS NOT NULL
-     OR pg_catalog.to_regclass('private.maintenance_event_scopes') IS NOT NULL
-     OR pg_catalog.to_regclass('private.maintenance_audit_logs') IS NOT NULL
-     OR pg_catalog.to_regclass('private.maintenance_idempotency') IS NOT NULL THEN
-    RAISE EXCEPTION 'PRECONDITION_FAILED: maintenance objects already exist; reconcile before applying';
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = 'private') THEN
+    RAISE EXCEPTION 'PRECONDITION_FAILED: private schema already exists; inspect it before applying this draft';
+  END IF;
+  IF pg_catalog.to_regprocedure('public.maintenance_status_public(jsonb)') IS NOT NULL
+     OR pg_catalog.to_regprocedure('public.maintenance_admin_list(jsonb)') IS NOT NULL
+     OR pg_catalog.to_regprocedure('public.maintenance_event_create(jsonb)') IS NOT NULL
+     OR pg_catalog.to_regprocedure('public.maintenance_event_update(jsonb)') IS NOT NULL
+     OR pg_catalog.to_regprocedure('public.maintenance_event_action(jsonb)') IS NOT NULL THEN
+    RAISE EXCEPTION 'PRECONDITION_FAILED: maintenance RPC name already exists; reconcile before applying';
   END IF;
 END
 $preflight$;
 
-CREATE SCHEMA IF NOT EXISTS private;
+CREATE SCHEMA private;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 GRANT USAGE ON SCHEMA private TO anon, authenticated;
 
