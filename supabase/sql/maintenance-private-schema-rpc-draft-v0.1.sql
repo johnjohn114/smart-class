@@ -233,6 +233,12 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
 
+  IF p_request ? 'scope' AND (
+       pg_catalog.jsonb_typeof(p_request->'scope') IS DISTINCT FROM 'string'
+       OR pg_catalog.btrim(p_request->>'scope') = ''
+     ) THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+  END IF;
   v_scope := p_request->>'scope';
   IF v_scope IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM private.maintenance_scopes s WHERE s.code = v_scope AND s.enabled
@@ -791,9 +797,9 @@ COMMENT ON TABLE private.maintenance_audit_logs IS 'Append-only audit trail; row
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
     END IF;
     v_cursor_text := pg_catalog.convert_from(pg_catalog.decode(p_request->>'cursor','base64'),'UTF8');
-    IF pg_catalog.position('|' IN v_cursor_text) < 1
-       OR pg_catalog.position('|' IN pg_catalog.substr(v_cursor_text,
-            pg_catalog.position('|' IN v_cursor_text)+1)) > 0 THEN
+    IF pg_catalog.strpos(v_cursor_text,'|') < 1
+       OR pg_catalog.strpos(pg_catalog.substr(v_cursor_text,
+            pg_catalog.strpos(v_cursor_text,'|')+1),'|') > 0 THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
     END IF;
     v_cursor_created := pg_catalog.split_part(v_cursor_text,'|',1)::timestamptz;
