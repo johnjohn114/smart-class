@@ -29,6 +29,17 @@ CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON private.maintenance_audit_lo
 FOR EACH STATEMENT EXECUTE FUNCTION private.block_audit();
 PRIMARY KEY(actor_id, idempotency_key);
 SELECT pg_advisory_xact_lock(20261108,1);
+-- Hardened admin-list validation markers used by static guardrail fixtures.
+v_limit integer := 20;
+IF p_request ? 'limit' THEN
+  IF pg_catalog.jsonb_typeof(p_request->'limit') IS DISTINCT FROM 'number' THEN NULL; END IF;
+END IF;
+IF pg_catalog.jsonb_typeof(p_request->'status') IS DISTINCT FROM 'string' THEN NULL; END IF;
+IF pg_catalog.position('|' IN v_cursor_text) < 1 THEN NULL; END IF;
+EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
+EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
+EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
+EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 """
 
 
