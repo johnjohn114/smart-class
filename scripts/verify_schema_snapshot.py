@@ -12,7 +12,7 @@ EXPECTED = {
  "20261108-public-views.sql": [("views", r"(?im)^CREATE OR REPLACE VIEW public\.", 1)],
  "20261108-public-functions.sql": [("functions", r"(?im)^CREATE OR REPLACE FUNCTION public\.", 38)],
  "20261108-public-triggers.sql": [("triggers", r"(?im)^CREATE TRIGGER ", 7)],
- "20261108-public-types-sequences.sql": [("sequence inventory", r"(?im)^-- public\.[^\s]+_seq\b", 1)],
+ "20261108-public-types-sequences.sql": [("sequence inventory", r"(?im)^-- public\.[^\s]+_seq\b", 2)],
 }
 
 def main():
