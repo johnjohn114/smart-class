@@ -1,9 +1,9 @@
-# Maintenance System API 規格 v0.4
+# Maintenance System API 規格 v0.5
 
 > 日期：2026-11-08  
 > 分支：`feature/maintenance-system`  
 > 狀態：整合規格草案；尚未實作、尚未部署，未核准正式 Migration。  
-> 本版整合 v0.1～v0.3、資料庫連線模型 v0.4 與權限/RPC 安全審查 v0.1。舊版保留作為歷史紀錄，實作以本版為準；若本版標示待決，不得自行猜測。
+> 本版整合 v0.1～v0.4、資料庫連線模型 v0.4 與權限/RPC 安全審查 v0.2。v0.4 保留作為歷史紀錄，實作以本版為準；若本版標示待決，不得自行猜測。
 
 ## 1. 目標與範圍
 
@@ -65,7 +65,7 @@
 - private schema 不加入 Data API Exposed schemas。
 - RPC 使用 `SECURITY INVOKER`、固定 `search_path = ''`，所有 schema/table/function 名稱完整限定。
 - 新 RPC 先撤銷 `PUBLIC` EXECUTE，再明確授權。
-- 管理 RPC 僅授予 `authenticated`；公開 status RPC 的 anon 權限方案尚有架構待決事項，見第 9 節。
+- 管理 RPC 僅授予 `authenticated`；公開 status RPC 採 SECURITY INVOKER，明確授予 `anon`、`authenticated` EXECUTE，並依第 9.1 節授予 anon 最小 private schema USAGE/SELECT 與嚴格 RLS。
 - SECURITY INVOKER 執行 private table 操作時，authenticated 必須取得實際所需的最小 schema/table privileges，並由 RLS 限制。不得宣稱完全沒有 table grants 卻仍期待 invoker RPC 操作資料表。
 - 不使用 service_role bypass RLS，不新增 DB URL 或資料庫密碼 secret。
 - private tables 全部啟用 RLS。RLS policy 必須限制 admin；必要時同時檢查 `auth.uid() IS NOT NULL`。
@@ -110,7 +110,7 @@ Request：
 - idempotency keys/data
 - 內部管理欄位
 
-**待決：** 匿名使用者可否呼叫 SECURITY INVOKER public RPC 並讀取 private schema 中的公開狀態資料，見第 9 節。在決議前不得實作此 RPC 權限。
+**權限決議：** 公開 status RPC 維持 SECURITY INVOKER。匿名角色僅取得 private schema USAGE 與讀取公開狀態所需的最小 SELECT，並由 RLS 限制只可見目前允許公開的狀態資料。private schema 不加入 Data API Exposed schemas；匿名使用者不得取得任何寫入權限。此設計仍須以 anon JWT 做隔離權限測試後才可核准 migration。
 
 ### 4.2 `maintenance-admin-list` — 管理員事件清單
 
@@ -262,27 +262,34 @@ Request：
 
 錯誤回應不得包含 SQL、stack trace、secret、DB schema 名稱或敏感授權細節。
 
-## 9. 必須先解決的架構待決事項
+## 9. 已決議的架構事項與仍待定稿事項
 
-### 9.1 匿名 status 與 private schema / SECURITY INVOKER 相容性
+### 9.1 匿名 status 與 private schema / SECURITY INVOKER 權限決議
 
-目前架構決策同時要求：
-- `maintenance-status` 可匿名呼叫；
-- RPC 為 SECURITY INVOKER；
-- private schema 不暴露 Data API；
-- private schema USAGE 主要授予 authenticated。
+**採用方案 A：status RPC 維持 SECURITY INVOKER，不採用 public SECURITY DEFINER。**
 
-匿名呼叫者若透過 SECURITY INVOKER RPC 讀取 private tables，仍需要相應的 private schema USAGE、table SELECT 與 RLS 可見資料列權限。現有文件尚未完整定義這組 grant/RLS，因此目前不能直接實作並宣稱相容。
+理由：避免在 exposed `public` schema 增加以高權限 owner 執行的公開函式，降低繞過 RLS 的風險。
 
-可供下一輪審查的兩種方案：
-A. 保持 status RPC 為 SECURITY INVOKER：明確評估是否授予 anon private schema USAGE + 最小 SELECT + 嚴格公開資料 RLS；private schema 仍不得加入 Data API Exposed schemas。  
-B. status RPC 單獨採用極窄 SECURITY DEFINER：固定空 search_path、完整限定名稱、只讀公開欄位白名單、不接受任意查詢、不回傳內部資料，並獨立審查 owner/ACL。
+必要 grants/RLS：
+- `anon`、`authenticated` 可 EXECUTE `public.maintenance_status_public`；先撤銷 `PUBLIC` 預設 EXECUTE，再明確授權。
+- `anon` 僅在此功能確實需要時取得 private schema `USAGE` 與公開狀態資料所需的最小 `SELECT`；不得取得 INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER 等寫入或管理權限。
+- `authenticated` 取得 status 查詢所需權限；管理 RPC 所需權限另依 admin RLS policy 授予。
+- status 相關 RLS policy 必須明確限制可公開資料列，並以公開欄位白名單控制 RPC 回傳；不得依賴前端過濾敏感欄位。
+- private schema 不加入 Data API Exposed schemas。這只阻止 PostgREST 將 private tables 作為一般 REST endpoints 暴露，不會取代 PostgreSQL grants/RLS。
+- 若未來發現這組 grants/RLS 無法安全滿足公開讀取需求，停止實作並重新審查；不得自行改為 SECURITY DEFINER。
 
-不得在未審查前自行選擇或執行任一方案。管理寫入 RPC 仍維持 SECURITY INVOKER。
+此方案仍屬設計決議，尚未經 anon JWT / PostgREST / RLS 實際測試，不能宣稱已驗證。管理寫入 RPC 維持 SECURITY INVOKER。
 
-### 9.2 Audit log 寫入邊界
+### 9.2 Audit log 寫入邊界決議
 
-SECURITY INVOKER 寫入 audit 時，authenticated 需要最小 INSERT 權限與 RLS policy。因 private schema 不暴露 Data API，前端不會經 PostgREST 直接呼叫 table endpoint；但若日後變更 exposed schema 或 grants，需重新審查。若要求資料庫權限層也禁止 authenticated 直接 INSERT audit，須另行審查極窄 SECURITY DEFINER audit writer。
+第一版維持 SECURITY INVOKER，不新增 SECURITY DEFINER audit writer。
+
+- audit 寫入所需 INSERT 與 RPC 內讀取/關聯所需的其他最小權限，只授予 `authenticated`，並由 RLS policy 限制為 `auth.uid() IS NOT NULL AND public.is_admin()`。
+- actor 一律取自 `auth.uid()`；不可接受 client 傳入 actor/user ID。
+- audit table 不授予 anon 任何權限；不授予 UPDATE/DELETE 給 authenticated。
+- private schema 不加入 Data API Exposed schemas；前端只呼叫受控 RPC。
+- 重要限制：PostgreSQL grants/RLS 不會辨識 SQL 是由 RPC 內部或其他資料庫路徑發出。因此此設計不能宣稱在資料庫權限層絕對禁止 authenticated 直接 INSERT；安全邊界依賴 private schema 不暴露、RLS、RPC 授權與應用程式入口限制。
+- 若產品要求更強的資料庫層防竄改，需另行提出方案、審查 SECURITY DEFINER 的 owner/ACL/search_path/RLS 影響，並在隔離環境測試後才可採用。
 
 ### 9.3 仍需在實作前定稿
 
@@ -296,7 +303,7 @@ SECURITY INVOKER 寫入 audit 時，authenticated 需要最小 INSERT 權限與 
 
 ## 10. 驗收條件
 
-- anon 不能呼叫任何管理 list/create/update/action RPC。
+- anon 不能呼叫任何管理 list/create/update/action RPC；anon 只能呼叫公開 status RPC，且不能寫入任何 private table。
 - 一般 authenticated user 不能列出或變更維護事件。
 - admin 可以透過原始使用者 JWT 呼叫管理 RPC。
 - 前端傳入假 role/actor_id 不會改變授權結果或 audit actor。
@@ -317,4 +324,4 @@ SECURITY INVOKER 寫入 audit 時，authenticated 需要最小 INSERT 權限與 
 - 完整 PostgreSQL 還原測試：依使用者決定跳過，文件必須如實標示未測。
 - 正式 Supabase：未修改。
 
-本規格更新不會執行 DDL/DML、不會建立資料庫物件、不會部署、不會建立付費資源。
+本規格更新不會執行 DDL/DML、不會建立資料庫物件、不會部署、不會建立付費資源。第 9.1、9.2 節為設計決議，尚未經真實 JWT/RLS 測試；不得視為已通過安全驗收。
