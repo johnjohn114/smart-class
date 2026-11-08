@@ -196,7 +196,22 @@ $$;
 
 -- 3A. Split private member statistics from the public leaderboard.
 alter view public.activity_member_stats set (security_invoker = true);
-revoke select on public.activity_member_stats from anon;
+-- Clear both table-level and legacy column-level anonymous grants on the view.
+revoke all privileges on public.activity_member_stats from anon;
+do $
+declare c record;
+begin
+  for c in
+    select column_name from information_schema.columns
+    where table_schema='public' and table_name='activity_member_stats'
+  loop
+    execute format(
+      'revoke all privileges (%I) on table public.activity_member_stats from anon',
+      c.column_name
+    );
+  end loop;
+end;
+$;
 grant select on public.activity_member_stats to authenticated;
 
 -- Public leaderboard data is stored separately. The internal user_id is never
