@@ -368,7 +368,7 @@ from anon;
 
 -- Table-level REVOKE does not remove legacy column-level grants. Clear those too
 -- for every restricted table, including profiles which has no anon-facing policy.
-do $
+do $do$
 declare c record;
 begin
   for c in
@@ -392,12 +392,12 @@ begin
     );
   end loop;
 end;
-$;
+$do$;
 
 -- visitor_profiles has RLS enabled but intentionally no browser policies and is unused by the current frontend.
 -- Remove both table-level and legacy column-level authenticated grants.
 revoke all on table public.visitor_profiles from authenticated;
-do $
+do $do$
 declare c record;
 begin
   for c in
@@ -410,7 +410,7 @@ begin
     );
   end loop;
 end;
-$;
+$do$;
 
 -- Published download catalog is intentionally visible before login.
 -- Expose only the fields used by the public catalog; never expose storage internals or counters.
