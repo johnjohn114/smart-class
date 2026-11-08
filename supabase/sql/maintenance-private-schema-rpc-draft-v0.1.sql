@@ -154,6 +154,9 @@ CREATE POLICY maintenance_idempotency_admin_insert
   WITH CHECK (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
 
 -- Column-level grants keep anon from reading private notes and actor/audit data.
+-- IMPORTANT: authenticated needs SELECT on the event table for the SECURITY INVOKER admin-list RPC.
+-- RLS is row-based and cannot hide internal_note by column for non-admin authenticated users.
+-- Therefore private MUST remain excluded from Data API Exposed schemas; the public RPCs are the only app entry points.
 GRANT SELECT (code,label,enabled,sort_order) ON private.maintenance_scopes TO anon, authenticated;
 GRANT SELECT (id,title,message,is_global,status,starts_at,ends_at)
   ON private.maintenance_events TO anon;
