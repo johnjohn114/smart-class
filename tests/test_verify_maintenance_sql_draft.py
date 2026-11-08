@@ -66,6 +66,17 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         result = inspect_sql(GOOD + "\nGRANT SELECT, DELETE ON private.maintenance_events TO authenticated;")
         self.assertFalse(result["no_events_delete_grant"])
 
+    def test_unclosed_dollar_quote_is_detected(self):
+        broken = GOOD.replace("$;", "$;", 1)
+        result = inspect_sql(broken)
+        self.assertFalse(result["dollar_quote_balance"])
+        self.assertFalse(result["no_bare_dollar_closer"])
+
+    def test_duplicate_public_rpc_is_detected(self):
+        duplicate = GOOD + "\nCREATE FUNCTION public.maintenance_event_create(p_request jsonb) RETURNS jsonb;"
+        result = inspect_sql(duplicate)
+        self.assertFalse(result["public_rpc_definitions_unique"])
+
 
 if __name__ == "__main__":
     unittest.main()
