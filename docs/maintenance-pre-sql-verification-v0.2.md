@@ -14,7 +14,7 @@
 | RLS | 44/44 public tables 啟用 RLS；98 policies；0 tables FORCE RLS | 需保留在風險清單 |
 | RPC admin helper | public.is_admin() 是 SECURITY DEFINER、search_path=''、authenticated 可執行、anon 不可執行 | 可作為候選管理員 helper；仍需真實 JWT 測試 |
 | Legacy helper | public.is_admin_user() 是 SECURITY DEFINER、search_path=public、anon 可執行 | 維護系統不得採用 |
-| Snapshot 靜態計數 | 44 CREATE TABLE、98 CREATE POLICY、49 CREATE INDEX、38 functions、1 view、7 triggers | 計數吻合本輪 catalog |
+| Snapshot 靜態計數 | 44 CREATE TABLE、98 CREATE POLICY、49 CREATE INDEX、38 functions、1 view、7 triggers；sequence 清單列出 2 筆 | 文字盤點吻合；sequence 數量與先前報告有差異，待重新核對 catalog |
 | Edge Functions | 遠端存在 6 個函式；未見 maintenance-* 函式 | 維護 Edge Functions 尚未部署 |
 | 完整 CLI DDL | 本執行環境未執行 Supabase CLI db pull / pg_dump | 未完成 |
 
@@ -72,7 +72,7 @@
 - functions SQL：38 functions。
 - triggers SQL：7 triggers。
 - enum types：無。
-- sequences inventory：1 個 public sequence。
+- sequences inventory：快照檔案列出 2 個 public sequences；先前報告記載 1 個，兩者不一致，需重新執行唯讀 catalog 查詢確認實際數量。
 
 已將 snapshot README 的 trigger 數由 9 修正為 7。
 
