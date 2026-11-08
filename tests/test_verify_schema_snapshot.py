@@ -10,7 +10,7 @@ class CheckerTests(unittest.TestCase):
   (root/"20261108-public-views.sql").write_text("CREATE OR REPLACE VIEW public.v AS SELECT 1;")
   (root/"20261108-public-functions.sql").write_text("".join(f"CREATE OR REPLACE FUNCTION public.f{i}() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;\n" for i in range(38)))
   (root/"20261108-public-triggers.sql").write_text("".join(f"CREATE TRIGGER t{i} BEFORE INSERT ON t EXECUTE FUNCTION f();\n" for i in range(7)))
-  (root/"20261108-public-types-sequences.sql").write_text("-- public.demo_seq type=bigint")
+  (root/"20261108-public-types-sequences.sql").write_text("-- public.demo_seq type=bigint\n-- public.demo2_seq type=bigint")
  def runcheck(self, root): return subprocess.run([sys.executable,str(SCRIPT),str(root)],capture_output=True,text=True)
  def test_valid_fixture(self):
   with tempfile.TemporaryDirectory() as d:
