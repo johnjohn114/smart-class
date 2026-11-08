@@ -4,7 +4,7 @@ import {
   parseCreateRequest,
   parseStatusRequest,
   parseUpdateRequest,
-} from "../functions/_shared/maintenance.ts";
+} from "../../functions/_shared/maintenance.ts";
 
 const uuid = "9f4c7a2e-1d63-4a80-9b21-7c6e5d4f3a20";
 
