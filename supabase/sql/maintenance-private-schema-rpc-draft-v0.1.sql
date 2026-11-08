@@ -289,7 +289,7 @@ SECURITY INVOKER
 SET search_path = ''
 AS $$
 DECLARE
-  v_limit integer := COALESCE((p_request->>'limit')::integer, 20);
+  v_limit integer := 20;
   v_cursor_text text;
   v_cursor_created timestamptz;
   v_cursor_id uuid;
@@ -305,18 +305,497 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'FORBIDDEN';
   END IF;
   IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request) <> 'object'
-     OR (p_request - ARRAY['status','scope','is_global','from','to','limit','cursor']) <> '{}'::jsonb
-     OR v_limit < 1 OR v_limit > 100 THEN
+     OR (p_request - ARRAY['status','scope','is_global','from','to','limit','cursor']) <> '{}'::jsonb THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
-  IF p_request ? 'status' AND p_request->>'status' NOT IN ('draft','scheduled','cancelled','completed') THEN
+
+  -- Validate JSON types and nulls before any cast. RPCs are directly callable,
+  -- so Edge Function validation is not a security boundary.
+  IF p_request ? 'limit' THEN
+    IF pg_catalog.jsonb_typeof(p_request->'limit') IS DISTINCT FROM 'number'
+       OR (p_request->>'limit') !~ '^[0-9]+
+
+  FOR v_row IN
+    SELECT e.id,e.title,e.message,e.internal_note,e.is_global,e.status,e.starts_at,e.ends_at,
+           e.version,e.created_at,e.updated_at,
+           COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
+                     FROM private.maintenance_event_scopes es WHERE es.event_id=e.id),'[]'::jsonb) AS scopes
+      FROM private.maintenance_events e
+     WHERE (NOT (p_request ? 'status') OR e.status=p_request->>'status')
+       AND (NOT (p_request ? 'is_global') OR e.is_global=(p_request->>'is_global')::boolean)
+       AND (NOT (p_request ? 'from') OR e.starts_at >= (p_request->>'from')::timestamptz)
+       AND (NOT (p_request ? 'to') OR e.starts_at < (p_request->>'to')::timestamptz)
+       AND (NOT (p_request ? 'scope') OR EXISTS (
+         SELECT 1 FROM private.maintenance_event_scopes f
+          WHERE f.event_id=e.id AND f.scope_code=p_request->>'scope'
+       ))
+       AND (v_cursor_created IS NULL OR (e.created_at,e.id) < (v_cursor_created,v_cursor_id))
+     ORDER BY e.created_at DESC,e.id DESC
+     LIMIT v_limit + 1
+  LOOP
+    v_count := v_count + 1;
+    IF v_count > v_limit THEN
+      v_has_more := true;
+      EXIT;
+    END IF;
+    v_events := v_events || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+      'id',v_row.id,'title',v_row.title,'message',v_row.message,
+      'internal_note',v_row.internal_note,'is_global',v_row.is_global,
+      'status',v_row.status,'starts_at',v_row.starts_at,'ends_at',v_row.ends_at,
+      'version',v_row.version,'created_at',v_row.created_at,'updated_at',v_row.updated_at,
+      'scopes',v_row.scopes
+    ));
+    v_last_created := v_row.created_at;
+    v_last_id := v_row.id;
+  END LOOP;
+
+  IF v_has_more THEN
+    v_next_cursor := pg_catalog.encode(
+      pg_catalog.convert_to(v_last_created::text || '|' || v_last_id::text,'UTF8'),'base64'
+    );
+  END IF;
+  RETURN pg_catalog.jsonb_build_object('ok',true,'data',
+    pg_catalog.jsonb_build_object('events',v_events,'next_cursor',v_next_cursor));
+EXCEPTION
+  WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
+       OR numeric_value_out_of_range OR invalid_parameter_value
+       OR character_not_in_repertoire THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+END;
+$;
+
+-- Create event: all writes, audit and idempotency are atomic in this function call.
+CREATE FUNCTION public.maintenance_event_create(p_request jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_key uuid;
+  v_payload jsonb;
+  v_old_payload jsonb;
+  v_old_response jsonb;
+  v_title text;
+  v_message text;
+  v_note text;
+  v_reason text;
+  v_global boolean;
+  v_status text;
+  v_start timestamptz;
+  v_end timestamptz;
+  v_codes text[];
+  v_code_count integer;
+  v_event private.maintenance_events%ROWTYPE;
+  v_response jsonb;
+BEGIN
+  IF v_actor IS NULL OR NOT public.is_admin() THEN
+    RAISE EXCEPTION USING ERRCODE='42501', MESSAGE='FORBIDDEN';
+  END IF;
+  IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request)<>'object'
+     OR (p_request - ARRAY['title','message','internal_note','is_global','scope_codes',
+                           'starts_at','ends_at','status','reason','idempotency_key']) <> '{}'::jsonb THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  IF pg_catalog.jsonb_typeof(p_request->'is_global') IS DISTINCT FROM 'boolean'
+     OR pg_catalog.jsonb_typeof(p_request->'scope_codes') IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  v_title := pg_catalog.btrim(p_request->>'title');
+  v_message := pg_catalog.btrim(p_request->>'message');
+  v_note := p_request->>'internal_note';
+  v_reason := pg_catalog.btrim(p_request->>'reason');
+  v_global := (p_request->>'is_global')::boolean;
+  v_status := p_request->>'status';
+  v_start := (p_request->>'starts_at')::timestamptz;
+  v_end := (p_request->>'ends_at')::timestamptz;
+  v_key := (p_request->>'idempotency_key')::uuid;
+  IF v_key IS NULL OR v_title IS NULL OR v_title='' OR pg_catalog.char_length(v_title)>200
+     OR v_message IS NULL OR v_message='' OR pg_catalog.char_length(v_message)>4000
+     OR (v_note IS NOT NULL AND pg_catalog.char_length(v_note)>4000)
+     OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
+     OR v_start IS NULL OR v_end IS NULL OR v_start>=v_end
+     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled') THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  SELECT COALESCE(pg_catalog.array_agg(DISTINCT x ORDER BY x),ARRAY[]::text[])
+    INTO v_codes FROM pg_catalog.jsonb_array_elements_text(p_request->'scope_codes') x;
+  SELECT pg_catalog.count(*) INTO v_code_count FROM private.maintenance_scopes s
+   WHERE s.code=ANY(v_codes) AND s.enabled;
+  IF v_code_count<>pg_catalog.cardinality(v_codes)
+     OR (v_global AND pg_catalog.cardinality(v_codes)<>0)
+     OR (NOT v_global AND pg_catalog.cardinality(v_codes)=0) THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
+  v_payload := p_request || pg_catalog.jsonb_build_object('_operation','create');
+  SELECT request_payload,response_json INTO v_old_payload,v_old_response
+    FROM private.maintenance_idempotency
+   WHERE actor_id=v_actor AND idempotency_key=v_key;
+  IF FOUND THEN
+    IF v_old_payload<>v_payload THEN
+      RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='IDEMPOTENCY_KEY_REUSED';
+    END IF;
+    RETURN v_old_response;
+  END IF;
+
+  IF v_status='scheduled' AND EXISTS (
+    SELECT 1 FROM private.maintenance_events e
+     WHERE e.status='scheduled' AND e.starts_at<v_end AND v_start<e.ends_at
+       AND (v_global OR e.is_global OR EXISTS (
+         SELECT 1 FROM private.maintenance_event_scopes es
+          WHERE es.event_id=e.id AND es.scope_code=ANY(v_codes)
+       ))
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
+  END IF;
+
+  INSERT INTO private.maintenance_events(title,message,internal_note,is_global,status,starts_at,ends_at)
+  VALUES(v_title,v_message,v_note,v_global,v_status,v_start,v_end)
+  RETURNING * INTO v_event;
+  IF pg_catalog.cardinality(v_codes)>0 THEN
+    INSERT INTO private.maintenance_event_scopes(event_id,scope_code)
+    SELECT v_event.id,x FROM pg_catalog.unnest(v_codes) x;
+  END IF;
+  v_response := pg_catalog.jsonb_build_object('ok',true,'data',
+    pg_catalog.jsonb_build_object('event_id',v_event.id,'version',v_event.version,
+      'status',v_event.status,'title',v_event.title));
+  INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
+  VALUES(v_event.id,'create',v_reason,NULL,
+    pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes));
+  INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
+  VALUES(v_key,v_payload,v_response);
+  RETURN v_response;
+EXCEPTION
+  WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
+       OR numeric_value_out_of_range OR invalid_parameter_value
+       OR character_not_in_repertoire THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+END;
+$;
+
+-- Update event: merges partial input against the stored row before validating final state.
+CREATE FUNCTION public.maintenance_event_update(p_request jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_key uuid;
+  v_payload jsonb;
+  v_old_payload jsonb;
+  v_old_response jsonb;
+  v_event private.maintenance_events%ROWTYPE;
+  v_title text;
+  v_message text;
+  v_note text;
+  v_reason text;
+  v_global boolean;
+  v_start timestamptz;
+  v_end timestamptz;
+  v_codes text[];
+  v_code_count integer;
+  v_schedule_changed boolean;
+  v_before_data jsonb;
+  v_after_data jsonb;
+  v_response jsonb;
+BEGIN
+  IF v_actor IS NULL OR NOT public.is_admin() THEN
+    RAISE EXCEPTION USING ERRCODE='42501', MESSAGE='FORBIDDEN';
+  END IF;
+  IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request)<>'object'
+     OR (p_request - ARRAY['event_id','expected_version','reason','idempotency_key',
+       'title','message','internal_note','is_global','scope_codes','starts_at','ends_at']) <> '{}'::jsonb
+     OR NOT (p_request ?| ARRAY['title','message','internal_note','is_global','scope_codes','starts_at','ends_at']) THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  v_key := (p_request->>'idempotency_key')::uuid;
+  v_reason := pg_catalog.btrim(p_request->>'reason');
+  IF v_key IS NULL OR p_request->>'event_id' IS NULL OR p_request->>'expected_version' IS NULL
+     OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
+     OR (p_request->>'expected_version')::bigint<1 THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
+  v_payload := p_request || pg_catalog.jsonb_build_object('_operation','update');
+  SELECT request_payload,response_json INTO v_old_payload,v_old_response
+    FROM private.maintenance_idempotency WHERE actor_id=v_actor AND idempotency_key=v_key;
+  IF FOUND THEN
+    IF v_old_payload<>v_payload THEN
+      RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='IDEMPOTENCY_KEY_REUSED';
+    END IF;
+    RETURN v_old_response;
+  END IF;
+
+  SELECT * INTO v_event FROM private.maintenance_events
+   WHERE id=(p_request->>'event_id')::uuid FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P0002', MESSAGE='NOT_FOUND'; END IF;
+  IF v_event.version<>(p_request->>'expected_version')::bigint THEN
+    RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='VERSION_CONFLICT';
+  END IF;
+  IF v_event.status IN ('cancelled','completed') THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+
+  IF (p_request ? 'is_global' AND pg_catalog.jsonb_typeof(p_request->'is_global')<>'boolean')
+     OR (p_request ? 'scope_codes' AND pg_catalog.jsonb_typeof(p_request->'scope_codes')<>'array')
+     OR (p_request ? 'starts_at' AND p_request->>'starts_at' IS NULL)
+     OR (p_request ? 'ends_at' AND p_request->>'ends_at' IS NULL)
+     OR (p_request ? 'title' AND p_request->>'title' IS NULL)
+     OR (p_request ? 'message' AND p_request->>'message' IS NULL) THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  v_title := CASE WHEN p_request ? 'title' THEN pg_catalog.btrim(p_request->>'title') ELSE v_event.title END;
+  v_message := CASE WHEN p_request ? 'message' THEN pg_catalog.btrim(p_request->>'message') ELSE v_event.message END;
+  v_note := CASE WHEN p_request ? 'internal_note' THEN p_request->>'internal_note' ELSE v_event.internal_note END;
+  v_global := CASE WHEN p_request ? 'is_global' THEN (p_request->>'is_global')::boolean ELSE v_event.is_global END;
+  v_start := CASE WHEN p_request ? 'starts_at' THEN (p_request->>'starts_at')::timestamptz ELSE v_event.starts_at END;
+  v_end := CASE WHEN p_request ? 'ends_at' THEN (p_request->>'ends_at')::timestamptz ELSE v_event.ends_at END;
+  SELECT COALESCE(pg_catalog.array_agg(es.scope_code ORDER BY es.scope_code),ARRAY[]::text[])
+    INTO v_codes FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id;
+  IF p_request ? 'scope_codes' THEN
+    IF pg_catalog.jsonb_typeof(p_request->'scope_codes')<>'array' THEN
+      RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+    END IF;
+    SELECT COALESCE(pg_catalog.array_agg(DISTINCT x ORDER BY x),ARRAY[]::text[])
+      INTO v_codes FROM pg_catalog.jsonb_array_elements_text(p_request->'scope_codes') x;
+  END IF;
+  SELECT pg_catalog.count(*) INTO v_code_count FROM private.maintenance_scopes s
+   WHERE s.code=ANY(v_codes) AND s.enabled;
+  IF v_title IS NULL OR v_title='' OR pg_catalog.char_length(v_title)>200
+     OR v_message IS NULL OR v_message='' OR pg_catalog.char_length(v_message)>4000
+     OR (v_note IS NOT NULL AND pg_catalog.char_length(v_note)>4000)
+     OR v_start>=v_end OR v_code_count<>pg_catalog.cardinality(v_codes)
+     OR (v_global AND pg_catalog.cardinality(v_codes)<>0)
+     OR (NOT v_global AND pg_catalog.cardinality(v_codes)=0) THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',
+    COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
+              FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id),'[]'::jsonb));
+  v_schedule_changed := p_request ?| ARRAY['is_global','scope_codes','starts_at','ends_at'];
+  IF v_event.status='scheduled' AND v_event.starts_at<=pg_catalog.now() AND v_schedule_changed THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  IF v_event.status='scheduled' AND EXISTS (
+    SELECT 1 FROM private.maintenance_events e
+     WHERE e.id<>v_event.id AND e.status='scheduled'
+       AND e.starts_at<v_end AND v_start<e.ends_at
+       AND (v_global OR e.is_global OR EXISTS (
+         SELECT 1 FROM private.maintenance_event_scopes es
+          WHERE es.event_id=e.id AND es.scope_code=ANY(v_codes)
+       ))
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
+  END IF;
+
+  UPDATE private.maintenance_events
+     SET title=v_title,message=v_message,internal_note=v_note,is_global=v_global,
+         starts_at=v_start,ends_at=v_end,version=version+1
+   WHERE id=v_event.id RETURNING * INTO v_event;
+  IF p_request ? 'scope_codes' THEN
+    DELETE FROM private.maintenance_event_scopes WHERE event_id=v_event.id;
+    IF pg_catalog.cardinality(v_codes)>0 THEN
+      INSERT INTO private.maintenance_event_scopes(event_id,scope_code)
+      SELECT v_event.id,x FROM pg_catalog.unnest(v_codes) x;
+    END IF;
+  END IF;
+  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
+  v_response := pg_catalog.jsonb_build_object('ok',true,'data',
+    pg_catalog.jsonb_build_object('event_id',v_event.id,'version',v_event.version,
+      'status',v_event.status,'title',v_event.title));
+  INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
+  VALUES(v_event.id,'update',v_reason,v_before_data,v_after_data);
+  INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
+  VALUES(v_key,v_payload,v_response);
+  RETURN v_response;
+EXCEPTION
+  WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
+       OR numeric_value_out_of_range OR invalid_parameter_value
+       OR character_not_in_repertoire THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+END;
+$;
+
+-- Lifecycle action: schedule, cancel, complete.
+CREATE FUNCTION public.maintenance_event_action(p_request jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_key uuid;
+  v_payload jsonb;
+  v_old_payload jsonb;
+  v_old_response jsonb;
+  v_event private.maintenance_events%ROWTYPE;
+  v_reason text;
+  v_action text;
+  v_response jsonb;
+  v_codes text[];
+  v_before_data jsonb;
+  v_after_data jsonb;
+BEGIN
+  IF v_actor IS NULL OR NOT public.is_admin() THEN
+    RAISE EXCEPTION USING ERRCODE='42501', MESSAGE='FORBIDDEN';
+  END IF;
+  IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request)<>'object'
+     OR (p_request - ARRAY['event_id','expected_version','action','reason','idempotency_key']) <> '{}'::jsonb THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  v_key := (p_request->>'idempotency_key')::uuid;
+  v_reason := pg_catalog.btrim(p_request->>'reason');
+  v_action := p_request->>'action';
+  IF v_key IS NULL OR p_request->>'event_id' IS NULL OR p_request->>'expected_version' IS NULL
+     OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
+     OR (p_request->>'expected_version')::bigint<1
+     OR v_action IS NULL OR v_action NOT IN ('schedule','cancel','complete') THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
+  v_payload := p_request || pg_catalog.jsonb_build_object('_operation','action');
+  SELECT request_payload,response_json INTO v_old_payload,v_old_response
+    FROM private.maintenance_idempotency WHERE actor_id=v_actor AND idempotency_key=v_key;
+  IF FOUND THEN
+    IF v_old_payload<>v_payload THEN
+      RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='IDEMPOTENCY_KEY_REUSED';
+    END IF;
+    RETURN v_old_response;
+  END IF;
+
+  SELECT * INTO v_event FROM private.maintenance_events
+   WHERE id=(p_request->>'event_id')::uuid FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P0002', MESSAGE='NOT_FOUND'; END IF;
+  IF v_event.version<>(p_request->>'expected_version')::bigint THEN
+    RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='VERSION_CONFLICT';
+  END IF;
+  SELECT COALESCE(pg_catalog.array_agg(es.scope_code ORDER BY es.scope_code),ARRAY[]::text[])
+    INTO v_codes FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id;
+  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
+
+  IF v_action='schedule' THEN
+    IF v_event.status<>'draft' THEN
+      RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM private.maintenance_events e
+       WHERE e.id<>v_event.id AND e.status='scheduled'
+         AND e.starts_at<v_event.ends_at AND v_event.starts_at<e.ends_at
+         AND (v_event.is_global OR e.is_global OR EXISTS (
+           SELECT 1 FROM private.maintenance_event_scopes es
+            WHERE es.event_id=e.id AND es.scope_code=ANY(v_codes)
+         ))
+    ) THEN
+      RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
+    END IF;
+  ELSIF v_action='cancel' THEN
+    IF v_event.status NOT IN ('draft','scheduled') THEN
+      RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+    END IF;
+  ELSIF v_action='complete' THEN
+    IF v_event.status<>'scheduled' OR pg_catalog.now()<v_event.ends_at THEN
+      RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+    END IF;
+  END IF;
+
+  UPDATE private.maintenance_events
+     SET status=CASE v_action WHEN 'schedule' THEN 'scheduled'
+                              WHEN 'cancel' THEN 'cancelled'
+                              ELSE 'completed' END,
+         version=version+1
+   WHERE id=v_event.id RETURNING * INTO v_event;
+  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
+  v_response := pg_catalog.jsonb_build_object('ok',true,'data',
+    pg_catalog.jsonb_build_object('event_id',v_event.id,'version',v_event.version,
+      'status',v_event.status,'action',v_action));
+  INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
+  VALUES(v_event.id,v_action,v_reason,v_before_data,v_after_data);
+  INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
+  VALUES(v_key,v_payload,v_response);
+  RETURN v_response;
+EXCEPTION
+  WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
+       OR numeric_value_out_of_range OR invalid_parameter_value
+       OR character_not_in_repertoire THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+END;
+$;
+
+-- RPC ACLs: revoke PostgreSQL's default PUBLIC EXECUTE first.
+REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.maintenance_status_public(jsonb) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.maintenance_admin_list(jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.maintenance_event_create(jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
+
+COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
+COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; all writes should use SECURITY INVOKER RPCs.';
+COMMENT ON TABLE private.maintenance_audit_logs IS 'Append-only audit trail; row mutation and TRUNCATE are blocked by triggers.';
+ THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+    END IF;
+    v_limit := (p_request->>'limit')::integer;
+  END IF;
+  IF v_limit < 1 OR v_limit > 100 THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
-  IF p_request ? 'is_global' AND pg_catalog.jsonb_typeof(p_request->'is_global') <> 'boolean' THEN
+  IF p_request ? 'status' AND (
+       pg_catalog.jsonb_typeof(p_request->'status') IS DISTINCT FROM 'string'
+       OR p_request->>'status' NOT IN ('draft','scheduled','cancelled','completed')
+     ) THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+  END IF;
+  IF p_request ? 'scope' AND (
+       pg_catalog.jsonb_typeof(p_request->'scope') IS DISTINCT FROM 'string'
+       OR pg_catalog.btrim(p_request->>'scope') = ''
+       OR NOT EXISTS (SELECT 1 FROM private.maintenance_scopes s WHERE s.code=p_request->>'scope')
+     ) THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+  END IF;
+  IF p_request ? 'is_global' AND
+     pg_catalog.jsonb_typeof(p_request->'is_global') IS DISTINCT FROM 'boolean' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+  END IF;
+  IF p_request ? 'from' AND (
+       pg_catalog.jsonb_typeof(p_request->'from') IS DISTINCT FROM 'string'
+       OR pg_catalog.btrim(p_request->>'from') = ''
+     ) THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+  END IF;
+  IF p_request ? 'to' AND (
+       pg_catalog.jsonb_typeof(p_request->'to') IS DISTINCT FROM 'string'
+       OR pg_catalog.btrim(p_request->>'to') = ''
+     ) THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+  END IF;
+  IF p_request ? 'from' AND p_request ? 'to'
+     AND (p_request->>'from')::timestamptz >= (p_request->>'to')::timestamptz THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
   IF p_request ? 'cursor' THEN
+    IF pg_catalog.jsonb_typeof(p_request->'cursor') IS DISTINCT FROM 'string'
+       OR pg_catalog.btrim(p_request->>'cursor') = '' THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+    END IF;
     v_cursor_text := pg_catalog.convert_from(pg_catalog.decode(p_request->>'cursor','base64'),'UTF8');
+    IF pg_catalog.position('|' IN v_cursor_text) < 1
+       OR pg_catalog.position('|' IN pg_catalog.substr(v_cursor_text,
+            pg_catalog.position('|' IN v_cursor_text)+1)) > 0 THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
+    END IF;
     v_cursor_created := pg_catalog.split_part(v_cursor_text,'|',1)::timestamptz;
     v_cursor_id := pg_catalog.split_part(v_cursor_text,'|',2)::uuid;
   END IF;
