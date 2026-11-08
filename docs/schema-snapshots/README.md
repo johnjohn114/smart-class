@@ -27,7 +27,7 @@
 - public relations 45（44 tables + 1 view）。
 - public columns 420。
 - public RLS policies 98。
-- public triggers 9。
+- public triggers 7（本輪 2026-11-08 唯讀查詢複核）。
 - public functions 38。
 - private schema 不存在。
 - Supabase migration list 空集合；supabase_migrations.schema_migrations 不存在。
