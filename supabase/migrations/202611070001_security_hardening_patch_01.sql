@@ -397,9 +397,12 @@ declare r record;
 begin
  for r in select p.oid::regprocedure AS sig from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='public' and p.prosecdef and left(p.proname,6)='admin_'
- loop execute format('revoke execute on function %s from public, anon',r.sig); end loop;
+ loop
+   execute format('revoke execute on function %s from public, anon',r.sig);
+   execute format('grant execute on function %s to authenticated',r.sig);
+ end loop;
 end;
-$$;
+$;
 
 -- 7. Keep member-facing RPCs authenticated; remove anon/PUBLIC execution.
 revoke execute on function public.check_growth_achievements(uuid) from public,anon;
@@ -413,6 +416,20 @@ revoke execute on function public.record_growth_activity() from public,anon;
 revoke execute on function public.redeem_growth_reward(uuid) from public,anon;
 revoke execute on function public.use_growth_coupon(uuid) from public,anon;
 revoke execute on function public.is_admin_user() from public,anon;
+
+-- Explicitly restore signed-in browser execution after revoking the default PUBLIC grant.
+grant execute on function public.check_growth_achievements(uuid) to authenticated;
+grant execute on function public.refresh_growth_level(uuid) to authenticated;
+grant execute on function public.checkin_competition(uuid,text) to authenticated;
+grant execute on function public.close_my_support_ticket(uuid) to authenticated;
+grant execute on function public.complete_growth_task(text) to authenticated;
+grant execute on function public.create_cash_order(uuid,integer,text) to authenticated;
+grant execute on function public.join_competition_waitlist(uuid,text) to authenticated;
+grant execute on function public.record_growth_activity() to authenticated;
+grant execute on function public.redeem_growth_reward(uuid) to authenticated;
+grant execute on function public.use_growth_coupon(uuid) to authenticated;
+grant execute on function public.is_admin_user() to authenticated;
+grant execute on function public.increment_download_count(uuid) to authenticated;
 
 -- Internal writers and trigger handlers are not browser RPC endpoints.
 revoke execute on function public.award_growth_points(uuid,integer,text,text,text,text,uuid) from public,anon,authenticated;
