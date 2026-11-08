@@ -1,102 +1,124 @@
-# Maintenance SQL 與 API v0.5 相容性盤點 v0.1
+# Maintenance SQL 與 API v0.5 相容性盤點 v0.2
 
 > 日期：2026-11-08  
 > 分支：`feature/maintenance-system`  
-> 性質：唯讀盤點；不是 migration，不可執行。  
-> 結論：原始四表 SQL 尚未取得，因此本文件只記錄可由現有證據確認的事項與阻擋條件。
+> 性質：依目前可讀取的附件、設計文件、API 規格及 Edge Function 程式進行靜態交叉盤點；不是 Migration，不可執行。  
+> 結論：原始 SQL 仍未取得；但 repository 內已有較完整的五表資料模型設計，足以先完成介面需求盤點。
 
-## 1. 本輪實際可取得的來源
+## 0. v0.1 更正紀錄
 
-目前可讀取的使用者附件：
-- `啟動第一步檢查.txt`
+前版盤點有兩項錯誤，這裡正式更正：
 
-該附件內容是先前 SQL 審查摘要，列出四個預期資料表名稱：
-- `maintenance_state`
-- `maintenance_events`
-- `maintenance_scopes`
-- `maintenance_audit_logs`
+1. 使用者附件 `啟動第一步檢查.txt` 只有「四張資料表」的概括描述，**沒有列出四張表的名稱，也沒有 SQL 原始碼**。前版稱附件列出 `maintenance_state`、`maintenance_events`、`maintenance_scopes`、`maintenance_audit_logs`，沒有來源依據，該清單作廢。
+2. Repository 的資料庫設計 v0.1～v0.3 實際描述的是**五張核心資料表**，而非前版所稱的四張表；沒有 `maintenance_state`。全站控制由 `maintenance_events.is_global` 表示。
 
-但附件沒有 SQL 原始碼，不包含 `CREATE TABLE`、欄位定義、constraint、index、trigger、RLS policy 或 GRANT statement。附件中提及的 `v26.11.7_maintenance_migration_review.sql` 並未隨本輪附件提供；不能以先前對話中的下載連結或摘要代替實際 SQL 檔案。
+## 1. 本輪實際可讀取來源
 
-## 2. 現有 Supabase schema snapshot 核對
+- 使用者附件：`啟動第一步檢查.txt`（62 行、2,839 bytes），內容是先前審查摘要，不是 SQL。
+- `docs/maintenance-database-design-v0.1.md`
+- `docs/maintenance-database-design-v0.2.md`
+- `docs/maintenance-database-design-v0.3.md`
+- `docs/maintenance-api-spec-v0.4.md`（文件內標題為 API v0.5）
+- `docs/maintenance-connection-architecture-v0.4.md`
+- `docs/maintenance-permission-rpc-security-review-v0.2.md`
+- `docs/maintenance-rpc-sql-contract-v0.1.md`
+- 五支 Edge Function 及共用驗證程式。
 
-檢查 `docs/schema-snapshots/20261108-public-tables-policies.sql`：
+Repository 的 `supabase/migrations/` 目前只列出三個既有、與 maintenance 無關的 migration；沒有 maintenance migration。
 
-- 找不到上述四個 maintenance table 名稱。
-- 因此目前快照沒有證據顯示這四張維護資料表已存在於 public schema。
-- 本輪不推論 private schema 也不存在於當前遠端以外的任何環境；以既有 pre-SQL verification 記錄為準，當時 private schema 尚不存在。
+## 2. 目前設計文件採用的五表模型
 
-### 2.1 可確認的既有關聯欄位
+| 資料表 | 主要責任 | API/Edge 對應 |
+|---|---|---|
+| `private.maintenance_scopes` | 七個維護範圍目錄 | scope code/name |
+| `private.maintenance_events` | 事件主檔、全站旗標、狀態、時間、version | create/list/update/action/status |
+| `private.maintenance_event_scopes` | 事件與 scope 的多對多關聯 | API 的 `scope_codes` 由 RPC 轉成關聯列 |
+| `private.maintenance_audit_logs` | 操作稽核、before/after、actor、reason | create/update/action 同交易寫入 |
+| `private.maintenance_idempotency` | 重複請求保護 | create/update/action 的 `idempotency_key` |
 
-`public.announcements`：
-- `id uuid DEFAULT gen_random_uuid() NOT NULL`
-- 可支持「若 maintenance event 要關聯公告，UUID 型別可相容」這項初步判斷。
-- 但 API v0.5 尚未確認維護事件是否必須關聯 announcement；不得因此自行新增 FK。
+全站維護不是獨立的 `maintenance_state` table，也不是第八個 scope；使用 `maintenance_events.is_global`。全站事件不應建立 scope links；局部事件至少要有一個有效 scope。
 
-`public.profiles`：
-- `id uuid NOT NULL`，FK 指向 `auth.users(id)`
-- `role text DEFAULT 'visitor' NOT NULL`
-- 現有 `public.is_admin()` 候選 helper 依此 profile/role 模型判斷管理員；仍需真實 JWT 測試。
-- 不得在 maintenance tables 再建立另一套可由客戶端任意指定的 actor/admin 欄位作為授權來源。
+## 3. 欄位與 API/Edge 介面交叉核對
 
-## 3. 依 API v0.5 必須滿足的資料模型能力
+| API/Edge 欄位或規則 | 資料模型對應 | 盤點結果 |
+|---|---|---|
+| `title`, `message`, `internal_note` | events 同名欄位 | 名稱一致；長度限制仍是暫定值 |
+| `is_global` | events.is_global | 一致 |
+| `scope_codes` | scopes.code + event_scopes | 需要 RPC 做 code lookup 與關聯列交易寫入 |
+| `starts_at`, `ends_at` | events 同名欄位 | v0.2/v0.3 設計與 Edge 程式一致 |
+| `status` | events.status | 目前四值：draft/scheduled/cancelled/completed |
+| `expected_version` | events.version | RPC 必須讀取並比對，再原子遞增 |
+| `created_by`, `updated_by` | events actor 欄位 | 必須由資料庫身分上下文取得，不接受前端 actor |
+| `idempotency_key` | idempotency.actor_id/key | actor 由 auth.uid()；request hash 應由可信伺服器端正規化計算 |
+| audit `request_id` | audit_logs.request_id NOT NULL | Edge request 不接受 request_id；RPC 必須自行產生或由可信層產生 |
+| admin list `from`, `to`, `limit`, `cursor` | events 查詢 | limit 有 1–100 驗證；cursor 的排序鍵、編碼及穩定分頁規則尚未定義 |
+| status response whitelist | events + scopes | RPC 必須明確挑選公開欄位，不能回傳 internal_note/actor/audit/idempotency |
 
-這些是需求能力，不是已核實的欄位名稱：
+### 3.1 更新請求的必要 RPC 行為
 
-1. 維護事件：標題、公開訊息、內部備註、全站/局部旗標、開始/結束時間、狀態、version、建立/更新時間及 actor/audit 關聯。
-2. Scope 關聯：支援七個既定 scope code；全站事件不得帶 scope links；局部事件至少一個 scope。
-3. Audit：與事件變更同交易寫入，actor 取自 `auth.uid())，不得由 request 指定。
-4. Idempotency：create/update/action 的 key 與 payload/result 關聯必須在交易內一致處理。
-5. 衝突控制：排程建立/修改需在資料庫交易內處理競爭條件，不能只靠 Edge Function 先查再寫。
-6. 公開狀態：只能回傳 API v0.5 白名單欄位；不得洩漏 internal note、actor IDs、audit 或 idempotency 資料。
-7. 權限：private schema、SECURITY INVOKER RPC、最小 grants、RLS；不使用 service_role 代表使用者。
+Edge Function 的 update parser 接受部分欄位更新。當 request 只改 `is_global`、`scope_codes`、`starts_at` 或 `ends_at` 其中一部分時，Edge parser 無法單獨驗證資料庫原值。
 
-## 4. 與舊 SQL 摘要的待核對項目
+因此 RPC 必須在同一交易內：
+1. 以 `event_id` 讀取目前事件及 scope links。
+2. 合併 patch 與現有值。
+3. 對合併後的最終資料驗證全站/局部規則、時間先後、scope 啟用狀態及衝突。
+4. 比對 `expected_version`，成功後才更新 version。
+5. 寫入 audit 與 idempotency 結果。
 
-| 項目 | 摘要提及 | 原始 SQL 證據 | 狀態 |
-|---|---|---|---|
-| 四張表 | 有 | 無 | 阻擋 |
-| 欄位與型別 | 無完整資料 | 無 | 阻擋 |
-| announcement FK | 摘要稱 UUID 相容 | 無 FK SQL | 未核實 |
-| 七個 scope codes | 有 | 無 CHECK/seed SQL | 未核實 |
-| RLS policies | 摘要稱四表啟用 | 無 policy SQL | 未核實 |
-| anon/authenticated grants | 摘要稱不授權 | 無 GRANT/REVOKE SQL | 未核實 |
-| service_role grants | 摘要稱曾過寬且已修正 | 無修正版 SQL | 未核實 |
-| audit truncate trigger | 摘要稱已增加 | 無 trigger/function SQL | 未核實 |
-| indexes/unique constraints | 未完整列出 | 無 | 阻擋 |
-| RPC signature/body | 未提供 | 無 | 尚待撰寫 |
+若只驗證 request 中同時出現的欄位，會讓單欄位 patch 可能破壞既有資料一致性。
 
-## 5. 與目前 Edge Function 呼叫端的介面
+### 3.2 排程與狀態機
 
-本分支 Edge Functions 已採用開發契約：
-- RPC 位於 `public`。
-- 每個 RPC 使用單一 `p_request jsonb` 參數。
-- Edge Function 以原始 user bearer token 呼叫 RPC。
-- 管理 RPC 必須在 DB 端再次檢查 `auth.uid() IS NOT NULL AND public.is_admin()`。
-- 所有管理操作及 audit/idempotency/衝突控制必須在單一 DB transaction 內完成。
+資料庫交易函式必須統一處理 create/update/schedule，並在同一交易中完成鎖定、衝突檢查、event/scope 寫入、audit、idempotency。Edge Function 先查再寫不能防止併發穿透。
 
-此為呼叫端目前採用的契約，不代表資料庫已存在這些 signature。原始 SQL 若採不同結構，需先修正呼叫契約或設計 adapter；不得靜默假設相容。
+目前 Edge action 只接受 `schedule`、`cancel`、`complete`；RPC 必須落實狀態轉換及終態限制。scheduled 是否正在維護由伺服器時間與 `[starts_at, ends_at)` 計算，不應另造可手動修改的 active 狀態。
 
-## 6. 開始撰寫 migration 前的阻擋條件
+## 4. 連線及權限決議（以較新文件為準）
 
-取得原始 `v26.11.7_maintenance_migration_review.sql` 後，逐項核對：
-1. CREATE TABLE 與欄位型別/default/nullability。
-2. PK/FK/CHECK/UNIQUE 與索引。
-3. 所有 trigger/function 及觸發時機。
-4. RLS enable/force 與每一條 policy。
-5. schema/table/function ACL、PUBLIC/anon/authenticated/service_role 權限。
-6. audit append-only 保護的實際邊界及 owner/superuser 限制。
-7. 與 API v0.5 五個 RPC 所需交易能力的差距。
-8. private schema Data API exposure、SECURITY INVOKER grants 與 RLS 的可行性。
+資料庫設計 v0.3 的 SUPABASE_DB_URL + Postgres driver 方案已被 connection architecture v0.4 取代，不得沿用舊方案。
 
-在以上核對完成前，不產生聲稱可直接執行的最終 migration SQL，不執行任何 Supabase DDL/DML。
+目前應採：
+- private schema，不加入 Data API Exposed schemas。
+- public RPC + SECURITY INVOKER + 固定空 search_path + 全限定名稱。
+- Edge Function 使用原始使用者 bearer token 與 publishable/anon key 呼叫 RPC；不可使用 service_role 代表使用者。
+- 管理 RPC 內再次檢查 `auth.uid() IS NOT NULL AND public.is_admin()`。
+- status RPC 可授予 anon/authenticated EXECUTE；anon 只取得必要 schema USAGE/SELECT 並由 RLS 限定公開狀態列。
+- 管理 RPC 僅 authenticated EXECUTE，並授予 invoker 實際需要的最小 table privileges + RLS。
+- audit 不授予一般 UPDATE/DELETE；但 PostgreSQL grants/RLS 不能辨識 table 操作是否來自 RPC 內部，不能宣稱絕對禁止 authenticated 直接 INSERT。
 
-## 7. 本輪執行紀錄
+## 5. Edge Function 靜態核對結果
 
-- 已讀取使用者附件全文。
-- 已讀取目前 branch 的 public schema snapshot 與 API v0.5、安全審查文件。
-- 已確認 snapshot 未包含四張 maintenance tables。
-- 已確認 `public.announcements.id` 為 UUID，`public.profiles.id` 為 UUID 且 role 欄位存在。
-- 未修改 Supabase。
-- 未執行 SQL。
-- 未部署或建立付費資源。
+已讀取五個 entrypoint 與共用程式，靜態確認：
+- 五支 function 分別呼叫五個契約 RPC。
+- 所有 RPC request 使用單一 `p_request` JSONB body。
+- 管理端點要求 bearer token，轉送同一 token；程式碼未使用 service_role。
+- status endpoint 允許匿名，選用有效 bearer token 時才把 token 傳給 RPC。
+- scope code 白名單與 API 七個代碼一致。
+- create/update/action 的欄位白名單、UUID、ISO 時間與基本型別驗證已存在。
+- update parser 對 patch 合併後的最終狀態仍依賴 RPC 驗證（見 3.1）。
+
+這是靜態程式碼閱讀，不代表 Deno runtime、Supabase Auth、PostgREST、JWT/RLS 或 RPC 整合測試已通過。現有 Deno tests 尚未在本輪執行；目前執行環境沒有 Deno CLI。
+
+## 6. 尚未能完成的比對／阻擋項目
+
+| 項目 | 目前證據 | 結果 |
+|---|---|---|
+| 使用者提及的原始四表 SQL | 附件只有摘要，沒有 SQL | 阻擋：無法逐欄位審查或直接修補 |
+| 原始 SQL 的實際表數及表名 | 附件沒有列名；設計文件列五表 | 需使用者原始 SQL 才能確認四表版本來源 |
+| PK/FK/CHECK/UNIQUE/index | 設計文件有建議，無實際 SQL | 未核實 |
+| RLS policies / grants / triggers | 附件只有摘要敘述，無 SQL | 未核實 |
+| 五個 RPC function body | 目前只有呼叫契約，無 SQL body | 尚未實作 |
+| admin list cursor contract | 僅有 cursor 欄位 | 待定 |
+| 欄位長度限制 | Edge 程式有暫定 200/4000/500 | 不可視為正式定稿 |
+| 真實 anon/user/admin JWT + RLS | 無隔離整合測試 | 未測 |
+| Deno tests | 有測試檔，但無 Deno CLI | 未執行 |
+
+## 7. 下一個安全可執行步驟
+
+1. 找回原始 `v26.11.7_maintenance_migration_review.sql`，或由使用者重新上傳。沒有它就不能聲稱完成「原始四表 SQL」逐欄位核對。
+2. 將資料模型收斂為五表設計（若原始 SQL 證明實際是四表，需先逐項說明差異，不直接套用）。
+3. 定義 admin-list cursor、長度上限、狀態轉換及 audit request_id 產生方式。
+4. 再撰寫五個 RPC SQL 草案，完成靜態 parse 與測試。
+5. 在隔離環境測試 anon/authenticated/admin JWT、RLS、PostgREST、交易、併發與 idempotency。
+
+本輪沒有執行任何 Supabase DDL/DML、migration、repair、deployment，也沒有新增付費資源。
