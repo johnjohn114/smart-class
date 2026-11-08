@@ -2,7 +2,7 @@
 
 > 日期：2026-11-08  
 > 分支：`feature/maintenance-system`  
-> 狀態：開發分支提案；不是正式架構核准、不是 migration，不可直接部署。  
+> 狀態：使用者已選定方向 B；此文件為開發分支實作基準草案，不是正式 production migration，不可直接部署。  
 > 目的：將原始四表 SQL、目前 API v0.5、五支 Edge Functions 與 user-JWT/SECURITY INVOKER 安全模型收斂，作為 RPC SQL 與隔離測試的唯一實作基準候選。
 
 ## 1. 本輪採用的方向
@@ -16,7 +16,7 @@
 - 以 API v0.5 的七個 scope code 為候選 canonical codes。
 - 不把原始 SQL 的四表直接當成可執行 RPC 的 schema；它是產品需求與歷史設計來源，需明確記錄轉換。
 
-這是開發建議，尚未代表使用者已核准正式 schema，也未執行任何資料庫變更。
+使用者已明確選擇方向 B。這代表採用五表 private + user JWT + SECURITY INVOKER 作為後續開發方向；仍不代表已核准正式 migration，也未執行任何資料庫變更。
 
 ## 2. 為何不直接沿用原始四表
 
@@ -122,7 +122,7 @@
 
 ## 8. 進入 SQL 實作前的阻擋項
 
-1. 確認是否接受以 `is_global` 取代 singleton `maintenance_state` 作為新系統模型。
+1. 方向 B 已選定：新系統以 `is_global` 取代 singleton `maintenance_state`；仍需檢查前端/既有資料是否依賴舊 singleton，並記錄未來搬遷策略。
 2. 確認原始 SQL 的 mode/background_path/announcement_id/actual timestamps 是否仍為產品必要欄位。
 3. 確認七個 API scope codes 作為 canonical codes。
 4. 完成 status anon SELECT grants + RLS 的隔離可行性驗證。
