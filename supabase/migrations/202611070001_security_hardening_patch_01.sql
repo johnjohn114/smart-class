@@ -347,33 +347,60 @@ revoke all on table
  public.growth_achievement_unlock_history,public.growth_achievements,public.growth_activity_days,
  public.growth_levels,public.growth_point_transactions,public.growth_reset_history,
  public.growth_reward_redemptions,public.growth_rewards,public.growth_tasks,public.growth_user_achievements,
- public.growth_user_tasks,public.notifications,public.order_items,public.orders,public.support_tickets,
- public.user_activity_badges,public.visitor_accounts,public.visitor_profiles
+ public.growth_user_tasks,public.notifications,public.order_items,public.orders,public.profiles,
+ public.support_tickets,public.user_activity_badges,public.visitor_accounts,public.visitor_profiles
 from anon;
 
+-- Table-level REVOKE does not remove legacy column-level grants. Clear those too
+-- for every restricted table, including profiles which has no anon-facing policy.
+do $
+declare c record;
+begin
+  for c in
+    select table_name,column_name
+    from information_schema.columns
+    where table_schema='public'
+      and table_name = any(array[
+        'activity_badges','announcement_reads','competition_attendance',
+        'competition_registrations','competition_reward_grants','competition_reward_rules',
+        'competition_waitlist','coupons','device_push_tokens','download_files',
+        'growth_achievement_unlock_history','growth_achievements','growth_activity_days',
+        'growth_levels','growth_point_transactions','growth_reset_history',
+        'growth_reward_redemptions','growth_rewards','growth_tasks','growth_user_achievements',
+        'growth_user_tasks','notifications','order_items','orders','profiles',
+        'support_tickets','user_activity_badges','visitor_accounts','visitor_profiles'
+      ])
+  loop
+    execute format(
+      'revoke all privileges (%I) on table public.%I from anon',
+      c.column_name,c.table_name
+    );
+  end loop;
+end;
+$;
+
 -- visitor_profiles has RLS enabled but intentionally no browser policies and is unused by the current frontend.
--- Remove its authenticated table grants as defense in depth; trusted backend/service operations remain separate.
+-- Remove both table-level and legacy column-level authenticated grants.
 revoke all on table public.visitor_profiles from authenticated;
+do $
+declare c record;
+begin
+  for c in
+    select column_name from information_schema.columns
+    where table_schema='public' and table_name='visitor_profiles'
+  loop
+    execute format(
+      'revoke all privileges (%I) on table public.visitor_profiles from authenticated',
+      c.column_name
+    );
+  end loop;
+end;
+$;
 
 -- Published download catalog is intentionally visible before login.
 -- Expose only the fields used by the public catalog; never expose storage internals or counters.
 grant select (id,title,description,file_url,published,created_at,storage_provider,file_size,version)
   on table public.download_files to anon;
--- Clear legacy column-level privileges first; table-level REVOKE does not remove them.
-do $$
-declare c record;
-begin
-  for c in
-    select column_name from information_schema.columns
-    where table_schema='public' and table_name='download_files'
-  loop
-    execute format(
-      'revoke all privileges (%I) on table public.download_files from anon',
-      c.column_name
-    );
-  end loop;
-end;
-$$;
 -- Reapply only the public catalog SELECT columns after clearing legacy grants.
 grant select (id,title,description,file_url,published,created_at,storage_provider,file_size,version)
   on table public.download_files to anon;
