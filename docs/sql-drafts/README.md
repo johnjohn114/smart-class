@@ -1,3 +1,5 @@
+> **設計更新（2026-11-08）**：原先的資料庫連線模型已由 [maintenance-connection-architecture-v0.4.md](../maintenance-connection-architecture-v0.4.md) 統一為「使用者 JWT + public SECURITY INVOKER RPC + private schema + RLS」。舊草案中的 service_role／直接連線假設不得作為正式 SQL 依據。現有草案仍是不可部署的早期參考稿，必須依 v0.4 重新審查後才可使用。
+
 # SQL 準備紀錄 v0.1
 
 ## 目前產物
