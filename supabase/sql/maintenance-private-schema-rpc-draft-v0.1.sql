@@ -404,11 +404,12 @@ BEGIN
   v_start := (p_request->>'starts_at')::timestamptz;
   v_end := (p_request->>'ends_at')::timestamptz;
   v_key := (p_request->>'idempotency_key')::uuid;
-  IF v_title IS NULL OR v_title='' OR pg_catalog.char_length(v_title)>200
+  IF v_key IS NULL OR v_title IS NULL OR v_title='' OR pg_catalog.char_length(v_title)>200
      OR v_message IS NULL OR v_message='' OR pg_catalog.char_length(v_message)>4000
      OR (v_note IS NOT NULL AND pg_catalog.char_length(v_note)>4000)
      OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
-     OR v_start>=v_end OR v_status NOT IN ('draft','scheduled') THEN
+     OR v_start IS NULL OR v_end IS NULL OR v_start>=v_end
+     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled') THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   SELECT COALESCE(pg_catalog.array_agg(DISTINCT x ORDER BY x),ARRAY[]::text[])
@@ -487,6 +488,8 @@ DECLARE
   v_codes text[];
   v_code_count integer;
   v_schedule_changed boolean;
+  v_before_data jsonb;
+  v_after_data jsonb;
   v_response jsonb;
 BEGIN
   IF v_actor IS NULL OR NOT public.is_admin() THEN
@@ -500,7 +503,8 @@ BEGIN
   END IF;
   v_key := (p_request->>'idempotency_key')::uuid;
   v_reason := pg_catalog.btrim(p_request->>'reason');
-  IF v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
+  IF v_key IS NULL OR p_request->>'event_id' IS NULL OR p_request->>'expected_version' IS NULL
+     OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
      OR (p_request->>'expected_version')::bigint<1 THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
@@ -526,6 +530,14 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
 
+  IF (p_request ? 'is_global' AND pg_catalog.jsonb_typeof(p_request->'is_global')<>'boolean')
+     OR (p_request ? 'scope_codes' AND pg_catalog.jsonb_typeof(p_request->'scope_codes')<>'array')
+     OR (p_request ? 'starts_at' AND p_request->>'starts_at' IS NULL)
+     OR (p_request ? 'ends_at' AND p_request->>'ends_at' IS NULL)
+     OR (p_request ? 'title' AND p_request->>'title' IS NULL)
+     OR (p_request ? 'message' AND p_request->>'message' IS NULL) THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
   v_title := CASE WHEN p_request ? 'title' THEN pg_catalog.btrim(p_request->>'title') ELSE v_event.title END;
   v_message := CASE WHEN p_request ? 'message' THEN pg_catalog.btrim(p_request->>'message') ELSE v_event.message END;
   v_note := CASE WHEN p_request ? 'internal_note' THEN p_request->>'internal_note' ELSE v_event.internal_note END;
@@ -551,6 +563,9 @@ BEGIN
      OR (NOT v_global AND pg_catalog.cardinality(v_codes)=0) THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
+  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',
+    COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
+              FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id),'[]'::jsonb));
   v_schedule_changed := p_request ?| ARRAY['is_global','scope_codes','starts_at','ends_at'];
   IF v_event.status='scheduled' AND v_event.starts_at<=pg_catalog.now() AND v_schedule_changed THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
@@ -578,12 +593,12 @@ BEGIN
       SELECT v_event.id,x FROM pg_catalog.unnest(v_codes) x;
     END IF;
   END IF;
+  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
   v_response := pg_catalog.jsonb_build_object('ok',true,'data',
     pg_catalog.jsonb_build_object('event_id',v_event.id,'version',v_event.version,
       'status',v_event.status,'title',v_event.title));
   INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
-  VALUES(v_event.id,'update',v_reason,pg_catalog.to_jsonb(v_event)-'updated_at',
-    pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes));
+  VALUES(v_event.id,'update',v_reason,v_before_data,v_after_data);
   INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
   VALUES(v_key,v_payload,v_response);
   RETURN v_response;
@@ -608,6 +623,8 @@ DECLARE
   v_action text;
   v_response jsonb;
   v_codes text[];
+  v_before_data jsonb;
+  v_after_data jsonb;
 BEGIN
   IF v_actor IS NULL OR NOT public.is_admin() THEN
     RAISE EXCEPTION USING ERRCODE='42501', MESSAGE='FORBIDDEN';
@@ -619,9 +636,10 @@ BEGIN
   v_key := (p_request->>'idempotency_key')::uuid;
   v_reason := pg_catalog.btrim(p_request->>'reason');
   v_action := p_request->>'action';
-  IF v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
+  IF v_key IS NULL OR p_request->>'event_id' IS NULL OR p_request->>'expected_version' IS NULL
+     OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
      OR (p_request->>'expected_version')::bigint<1
-     OR v_action NOT IN ('schedule','cancel','complete') THEN
+     OR v_action IS NULL OR v_action NOT IN ('schedule','cancel','complete') THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
 
@@ -644,6 +662,7 @@ BEGIN
   END IF;
   SELECT COALESCE(pg_catalog.array_agg(es.scope_code ORDER BY es.scope_code),ARRAY[]::text[])
     INTO v_codes FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id;
+  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
 
   IF v_action='schedule' THEN
     IF v_event.status<>'draft' THEN
@@ -676,15 +695,12 @@ BEGIN
                               ELSE 'completed' END,
          version=version+1
    WHERE id=v_event.id RETURNING * INTO v_event;
+  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
   v_response := pg_catalog.jsonb_build_object('ok',true,'data',
     pg_catalog.jsonb_build_object('event_id',v_event.id,'version',v_event.version,
       'status',v_event.status,'action',v_action));
   INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
-  VALUES(v_event.id,v_action,v_reason,
-    pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('previous_status',
-      CASE v_action WHEN 'schedule' THEN 'draft' WHEN 'cancel' THEN 'draft_or_scheduled'
-                    ELSE 'scheduled' END),
-    pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes));
+  VALUES(v_event.id,v_action,v_reason,v_before_data,v_after_data);
   INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
   VALUES(v_key,v_payload,v_response);
   RETURN v_response;
