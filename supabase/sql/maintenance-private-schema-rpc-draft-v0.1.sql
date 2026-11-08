@@ -399,8 +399,8 @@ BEGIN
                            'starts_at','ends_at','status','reason','idempotency_key']) <> '{}'::jsonb THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
-  IF pg_catalog.jsonb_typeof(p_request->'is_global')<>'boolean'
-     OR pg_catalog.jsonb_typeof(p_request->'scope_codes')<>'array' THEN
+  IF pg_catalog.jsonb_typeof(p_request->'is_global') IS DISTINCT FROM 'boolean'
+     OR pg_catalog.jsonb_typeof(p_request->'scope_codes') IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   v_title := pg_catalog.btrim(p_request->>'title');
