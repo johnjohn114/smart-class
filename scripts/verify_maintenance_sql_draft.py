@@ -66,6 +66,15 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["rpc_cast_errors_normalized"] = (
         len(re.findall(r"WHEN invalid_text_representation OR invalid_datetime_format", sql, re.I)) >= 4
     )
+    checks["public_rpc_definitions_unique"] = all(
+        len(re.findall(rf"CREATE\\s+FUNCTION\\s+public\\.{rpc}\\s*\\(", sql, re.I)) == 1
+        for rpc in RPCS
+    )
+    checks["dollar_quote_balance"] = (
+        len(re.findall(r"^\\s*AS \\\$\\$\\s*$", sql, re.M))
+        == len(re.findall(r"^\\s*\\$\\$;\\s*$", sql, re.M))
+    )
+    checks["no_bare_dollar_closer"] = not bool(re.search(r"^\\s*\\$;\\s*$", sql, re.M))
     return checks
 
 
