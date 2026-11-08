@@ -5,14 +5,14 @@ import argparse, re, sys
 
 EXPECTED = {
  "20261108-public-tables-policies.sql": [
-  ("tables", r"(?im)^CREATE TABLE public\\.", 44),
+  ("tables", r"(?im)^CREATE TABLE public\.", 44),
   ("policies", r"(?im)^CREATE POLICY ", 98),
   ("indexes", r"(?im)^CREATE (?:UNIQUE )?INDEX ", 49),
  ],
- "20261108-public-views.sql": [("views", r"(?im)^CREATE OR REPLACE VIEW public\\.", 1)],
- "20261108-public-functions.sql": [("functions", r"(?im)^CREATE OR REPLACE FUNCTION public\\.", 38)],
+ "20261108-public-views.sql": [("views", r"(?im)^CREATE OR REPLACE VIEW public\.", 1)],
+ "20261108-public-functions.sql": [("functions", r"(?im)^CREATE OR REPLACE FUNCTION public\.", 38)],
  "20261108-public-triggers.sql": [("triggers", r"(?im)^CREATE TRIGGER ", 7)],
- "20261108-public-types-sequences.sql": [("sequence inventory", r"(?im)^-- public\\.[^\\s]+_seq\\b", 1)],
+ "20261108-public-types-sequences.sql": [("sequence inventory", r"(?im)^-- public\.[^\s]+_seq\b", 1)],
 }
 
 def main():
