@@ -7,7 +7,9 @@
 
 BEGIN;
 
--- activity_badges\nCREATE TABLE public.activity_badges (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+-- activity_badges
+CREATE TABLE public.activity_badges (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   code text NOT NULL,
   title text NOT NULL,
   description text,
@@ -18,8 +20,12 @@ BEGIN;
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT activity_badges_code_key UNIQUE (code),
   CONSTRAINT activity_badges_pkey PRIMARY KEY (id),
-  CONSTRAINT activity_badges_requirement_type_check CHECK (requirement_type = ANY (ARRAY['first_activity'::text, 'activity_count'::text, 'total_points'::text, 'perfect_attendance'::text]))\n);\nALTER TABLE public.activity_badges ENABLE ROW LEVEL SECURITY;
--- ai_announcement_generations\nCREATE TABLE public.ai_announcement_generations (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT activity_badges_requirement_type_check CHECK (requirement_type = ANY (ARRAY['first_activity'::text, 'activity_count'::text, 'total_points'::text, 'perfect_attendance'::text]))
+);
+ALTER TABLE public.activity_badges ENABLE ROW LEVEL SECURITY;
+-- ai_announcement_generations
+CREATE TABLE public.ai_announcement_generations (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid NOT NULL,
   topic text NOT NULL,
   event_info text,
@@ -31,14 +37,22 @@ BEGIN;
   generated_content text,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT ai_announcement_generations_pkey PRIMARY KEY (id),
-  CONSTRAINT ai_announcement_generations_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.ai_announcement_generations ENABLE ROW LEVEL SECURITY;
--- announcement_reads\nCREATE TABLE public.announcement_reads (\n  announcement_id uuid NOT NULL,
+  CONSTRAINT ai_announcement_generations_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.ai_announcement_generations ENABLE ROW LEVEL SECURITY;
+-- announcement_reads
+CREATE TABLE public.announcement_reads (
+  announcement_id uuid NOT NULL,
   user_id uuid NOT NULL,
   read_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT announcement_reads_announcement_id_fkey FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE CASCADE,
   CONSTRAINT announcement_reads_pkey PRIMARY KEY (announcement_id, user_id),
-  CONSTRAINT announcement_reads_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.announcement_reads ENABLE ROW LEVEL SECURITY;
--- announcements\nCREATE TABLE public.announcements (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT announcement_reads_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.announcement_reads ENABLE ROW LEVEL SECURITY;
+-- announcements
+CREATE TABLE public.announcements (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   title text NOT NULL,
   content text NOT NULL,
   date date DEFAULT CURRENT_DATE,
@@ -63,8 +77,12 @@ BEGIN;
   CONSTRAINT announcements_event_date_range_check CHECK (event_end_date IS NULL OR event_date IS NULL OR event_end_date >= event_date),
   CONSTRAINT announcements_event_date_source_check CHECK (event_date_source IS NULL OR (event_date_source = ANY (ARRAY['manual'::text, 'auto'::text]))),
   CONSTRAINT announcements_pkey PRIMARY KEY (id),
-  CONSTRAINT announcements_popup_mode_check CHECK (popup_mode = ANY (ARRAY['once'::text, 'every_visit'::text]))\n);\nALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
--- app_releases\nCREATE TABLE public.app_releases (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT announcements_popup_mode_check CHECK (popup_mode = ANY (ARRAY['once'::text, 'every_visit'::text]))
+);
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+-- app_releases
+CREATE TABLE public.app_releases (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   version_code integer NOT NULL,
   version_name text NOT NULL,
   release_notes text DEFAULT ''::text NOT NULL,
@@ -76,8 +94,12 @@ BEGIN;
   CONSTRAINT app_releases_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id),
   CONSTRAINT app_releases_pkey PRIMARY KEY (id),
   CONSTRAINT app_releases_version_code_check CHECK (version_code > 0),
-  CONSTRAINT app_releases_version_code_key UNIQUE (version_code)\n);\nALTER TABLE public.app_releases ENABLE ROW LEVEL SECURITY;
--- competition_attendance\nCREATE TABLE public.competition_attendance (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT app_releases_version_code_key UNIQUE (version_code)
+);
+ALTER TABLE public.app_releases ENABLE ROW LEVEL SECURITY;
+-- competition_attendance
+CREATE TABLE public.competition_attendance (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   competition_id uuid NOT NULL,
   registration_id uuid NOT NULL,
   user_id uuid NOT NULL,
@@ -94,16 +116,24 @@ BEGIN;
   CONSTRAINT competition_attendance_pkey PRIMARY KEY (id),
   CONSTRAINT competition_attendance_registration_id_fkey FOREIGN KEY (registration_id) REFERENCES competition_registrations(id) ON DELETE CASCADE,
   CONSTRAINT competition_attendance_status_check CHECK (status = ANY (ARRAY['checked_in'::text, 'late'::text, 'no_show'::text, 'cancelled'::text])),
-  CONSTRAINT competition_attendance_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.competition_attendance ENABLE ROW LEVEL SECURITY;
--- competition_categories\nCREATE TABLE public.competition_categories (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competition_attendance_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.competition_attendance ENABLE ROW LEVEL SECURITY;
+-- competition_categories
+CREATE TABLE public.competition_categories (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   name text NOT NULL,
   sort_order integer DEFAULT 100 NOT NULL,
   active boolean DEFAULT true NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   parent_category text,
   CONSTRAINT competition_categories_name_key UNIQUE (name),
-  CONSTRAINT competition_categories_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.competition_categories ENABLE ROW LEVEL SECURITY;
--- competition_registrations\nCREATE TABLE public.competition_registrations (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competition_categories_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.competition_categories ENABLE ROW LEVEL SECURITY;
+-- competition_registrations
+CREATE TABLE public.competition_registrations (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   competition_id uuid NOT NULL,
   user_id uuid NOT NULL,
   member_no integer,
@@ -119,8 +149,12 @@ BEGIN;
   CONSTRAINT competition_registrations_competition_id_user_id_key UNIQUE (competition_id, user_id),
   CONSTRAINT competition_registrations_pkey PRIMARY KEY (id),
   CONSTRAINT competition_registrations_status_check CHECK (status = ANY (ARRAY['active'::text, 'pending'::text, 'approved'::text, 'rejected'::text, 'cancelled'::text])),
-  CONSTRAINT competition_registrations_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.competition_registrations ENABLE ROW LEVEL SECURITY;
--- competition_results\nCREATE TABLE public.competition_results (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competition_registrations_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.competition_registrations ENABLE ROW LEVEL SECURITY;
+-- competition_results
+CREATE TABLE public.competition_results (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   competition_id uuid NOT NULL,
   player_name text NOT NULL,
   place integer NOT NULL,
@@ -131,8 +165,12 @@ BEGIN;
   CONSTRAINT competition_results_competition_id_fkey FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
   CONSTRAINT competition_results_pkey PRIMARY KEY (id),
   CONSTRAINT competition_results_place_check CHECK (place > 0),
-  CONSTRAINT competition_results_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL\n);\nALTER TABLE public.competition_results ENABLE ROW LEVEL SECURITY;
--- competition_reward_grants\nCREATE TABLE public.competition_reward_grants (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competition_results_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL
+);
+ALTER TABLE public.competition_results ENABLE ROW LEVEL SECURITY;
+-- competition_reward_grants
+CREATE TABLE public.competition_reward_grants (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   competition_id uuid NOT NULL,
   reward_rule_id uuid NOT NULL,
   user_id uuid NOT NULL,
@@ -141,8 +179,12 @@ BEGIN;
   CONSTRAINT competition_reward_grants_pkey PRIMARY KEY (id),
   CONSTRAINT competition_reward_grants_reward_rule_id_fkey FOREIGN KEY (reward_rule_id) REFERENCES competition_reward_rules(id) ON DELETE CASCADE,
   CONSTRAINT competition_reward_grants_reward_rule_id_user_id_key UNIQUE (reward_rule_id, user_id),
-  CONSTRAINT competition_reward_grants_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.competition_reward_grants ENABLE ROW LEVEL SECURITY;
--- competition_reward_rules\nCREATE TABLE public.competition_reward_rules (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competition_reward_grants_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.competition_reward_grants ENABLE ROW LEVEL SECURITY;
+-- competition_reward_rules
+CREATE TABLE public.competition_reward_rules (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   competition_id uuid NOT NULL,
   reward_type text NOT NULL,
   reward_value integer,
@@ -154,8 +196,12 @@ BEGIN;
   CONSTRAINT competition_reward_rules_badge_id_fkey FOREIGN KEY (badge_id) REFERENCES activity_badges(id) ON DELETE SET NULL,
   CONSTRAINT competition_reward_rules_competition_id_fkey FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
   CONSTRAINT competition_reward_rules_pkey PRIMARY KEY (id),
-  CONSTRAINT competition_reward_rules_reward_type_check CHECK (reward_type = ANY (ARRAY['points'::text, 'badge'::text]))\n);\nALTER TABLE public.competition_reward_rules ENABLE ROW LEVEL SECURITY;
--- competition_waitlist\nCREATE TABLE public.competition_waitlist (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competition_reward_rules_reward_type_check CHECK (reward_type = ANY (ARRAY['points'::text, 'badge'::text]))
+);
+ALTER TABLE public.competition_reward_rules ENABLE ROW LEVEL SECURITY;
+-- competition_waitlist
+CREATE TABLE public.competition_waitlist (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   competition_id uuid NOT NULL,
   user_id uuid NOT NULL,
   member_no integer,
@@ -170,8 +216,12 @@ BEGIN;
   CONSTRAINT competition_waitlist_competition_id_user_id_key UNIQUE (competition_id, user_id),
   CONSTRAINT competition_waitlist_pkey PRIMARY KEY (id),
   CONSTRAINT competition_waitlist_status_check CHECK (status = ANY (ARRAY['waiting'::text, 'promoted'::text, 'cancelled'::text])),
-  CONSTRAINT competition_waitlist_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.competition_waitlist ENABLE ROW LEVEL SECURITY;
--- competitions\nCREATE TABLE public.competitions (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competition_waitlist_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.competition_waitlist ENABLE ROW LEVEL SECURITY;
+-- competitions
+CREATE TABLE public.competitions (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   name text NOT NULL,
   category text DEFAULT 'Minecraft'::text NOT NULL,
   event_date date,
@@ -192,8 +242,12 @@ BEGIN;
   waitlist_enabled boolean DEFAULT true NOT NULL,
   completion_points integer DEFAULT 20 NOT NULL,
   settled_at timestamp with time zone,
-  CONSTRAINT competitions_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.competitions ENABLE ROW LEVEL SECURITY;
--- coupons\nCREATE TABLE public.coupons (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT competitions_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.competitions ENABLE ROW LEVEL SECURITY;
+-- coupons
+CREATE TABLE public.coupons (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid NOT NULL,
   title text NOT NULL,
   description text,
@@ -205,8 +259,12 @@ BEGIN;
   usage_condition text,
   used_at timestamp with time zone,
   CONSTRAINT coupons_pkey PRIMARY KEY (id),
-  CONSTRAINT coupons_user_id_fkey FOREIGN KEY (user_id) REFERENCES visitor_accounts(id) ON DELETE CASCADE\n);\nALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
--- device_push_tokens\nCREATE TABLE public.device_push_tokens (\n  id bigint GENERATED BY DEFAULT AS IDENTITY NOT NULL,
+  CONSTRAINT coupons_user_id_fkey FOREIGN KEY (user_id) REFERENCES visitor_accounts(id) ON DELETE CASCADE
+);
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
+-- device_push_tokens
+CREATE TABLE public.device_push_tokens (
+  id bigint GENERATED BY DEFAULT AS IDENTITY NOT NULL,
   user_id uuid DEFAULT auth.uid() NOT NULL,
   token text NOT NULL,
   platform text DEFAULT 'android'::text NOT NULL,
@@ -215,8 +273,12 @@ BEGIN;
   CONSTRAINT device_push_tokens_pkey PRIMARY KEY (id),
   CONSTRAINT device_push_tokens_platform_check CHECK (platform = 'android'::text),
   CONSTRAINT device_push_tokens_token_key UNIQUE (token),
-  CONSTRAINT device_push_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.device_push_tokens ENABLE ROW LEVEL SECURITY;
--- download_files\nCREATE TABLE public.download_files (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT device_push_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.device_push_tokens ENABLE ROW LEVEL SECURITY;
+-- download_files
+CREATE TABLE public.download_files (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   title text NOT NULL,
   description text,
   file_name text,
@@ -231,16 +293,24 @@ BEGIN;
   download_count bigint DEFAULT 0 NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT download_files_pkey PRIMARY KEY (id),
-  CONSTRAINT download_files_storage_provider_check CHECK (storage_provider = ANY (ARRAY['supabase'::text, 'r2'::text, 'github'::text]))\n);\nALTER TABLE public.download_files ENABLE ROW LEVEL SECURITY;
--- form_answers\nCREATE TABLE public.form_answers (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT download_files_storage_provider_check CHECK (storage_provider = ANY (ARRAY['supabase'::text, 'r2'::text, 'github'::text]))
+);
+ALTER TABLE public.download_files ENABLE ROW LEVEL SECURITY;
+-- form_answers
+CREATE TABLE public.form_answers (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   response_id uuid NOT NULL,
   question_id uuid NOT NULL,
   answer_text text,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT form_answers_pkey PRIMARY KEY (id),
   CONSTRAINT form_answers_question_id_fkey FOREIGN KEY (question_id) REFERENCES form_questions(id) ON DELETE CASCADE,
-  CONSTRAINT form_answers_response_id_fkey FOREIGN KEY (response_id) REFERENCES form_responses(id) ON DELETE CASCADE\n);\nALTER TABLE public.form_answers ENABLE ROW LEVEL SECURITY;
--- form_questions\nCREATE TABLE public.form_questions (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT form_answers_response_id_fkey FOREIGN KEY (response_id) REFERENCES form_responses(id) ON DELETE CASCADE
+);
+ALTER TABLE public.form_answers ENABLE ROW LEVEL SECURITY;
+-- form_questions
+CREATE TABLE public.form_questions (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   form_id uuid NOT NULL,
   question text NOT NULL,
   question_type text DEFAULT 'text'::text NOT NULL,
@@ -250,23 +320,35 @@ BEGIN;
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT form_questions_form_id_fkey FOREIGN KEY (form_id) REFERENCES forms(id) ON DELETE CASCADE,
   CONSTRAINT form_questions_pkey PRIMARY KEY (id),
-  CONSTRAINT form_questions_question_type_check CHECK (question_type = ANY (ARRAY['text'::text, 'textarea'::text, 'email'::text, 'date'::text, 'radio'::text, 'checkbox'::text, 'select'::text]))\n);\nALTER TABLE public.form_questions ENABLE ROW LEVEL SECURITY;
--- form_responses\nCREATE TABLE public.form_responses (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT form_questions_question_type_check CHECK (question_type = ANY (ARRAY['text'::text, 'textarea'::text, 'email'::text, 'date'::text, 'radio'::text, 'checkbox'::text, 'select'::text]))
+);
+ALTER TABLE public.form_questions ENABLE ROW LEVEL SECURITY;
+-- form_responses
+CREATE TABLE public.form_responses (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   form_id uuid NOT NULL,
   user_id uuid,
   visitor_email text,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT form_responses_form_id_fkey FOREIGN KEY (form_id) REFERENCES forms(id) ON DELETE CASCADE,
   CONSTRAINT form_responses_pkey PRIMARY KEY (id),
-  CONSTRAINT form_responses_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL\n);\nALTER TABLE public.form_responses ENABLE ROW LEVEL SECURITY;
--- forms\nCREATE TABLE public.forms (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT form_responses_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL
+);
+ALTER TABLE public.form_responses ENABLE ROW LEVEL SECURITY;
+-- forms
+CREATE TABLE public.forms (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   title text NOT NULL,
   description text,
   published boolean DEFAULT false NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT forms_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.forms ENABLE ROW LEVEL SECURITY;
--- growth_achievement_unlock_history\nCREATE TABLE public.growth_achievement_unlock_history (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT forms_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.forms ENABLE ROW LEVEL SECURITY;
+-- growth_achievement_unlock_history
+CREATE TABLE public.growth_achievement_unlock_history (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid NOT NULL,
   achievement_id uuid NOT NULL,
   unlocked_at timestamp with time zone NOT NULL,
@@ -276,8 +358,12 @@ BEGIN;
   snapshot_reward_points integer DEFAULT 0 NOT NULL,
   CONSTRAINT growth_achievement_unlock_history_achievement_id_fkey FOREIGN KEY (achievement_id) REFERENCES growth_achievements(id) ON DELETE CASCADE,
   CONSTRAINT growth_achievement_unlock_history_pkey PRIMARY KEY (id),
-  CONSTRAINT growth_achievement_unlock_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.growth_achievement_unlock_history ENABLE ROW LEVEL SECURITY;
--- growth_achievements\nCREATE TABLE public.growth_achievements (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT growth_achievement_unlock_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.growth_achievement_unlock_history ENABLE ROW LEVEL SECURITY;
+-- growth_achievements
+CREATE TABLE public.growth_achievements (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   code text NOT NULL,
   title text NOT NULL,
   description text,
@@ -294,21 +380,33 @@ BEGIN;
   CONSTRAINT growth_achievements_pkey PRIMARY KEY (id),
   CONSTRAINT growth_achievements_rarity_check CHECK (rarity = ANY (ARRAY['common'::text, 'rare'::text, 'epic'::text, 'legendary'::text])),
   CONSTRAINT growth_achievements_requirement_count_check CHECK (requirement_count > 0),
-  CONSTRAINT growth_achievements_reward_points_check CHECK (reward_points >= 0)\n);\nALTER TABLE public.growth_achievements ENABLE ROW LEVEL SECURITY;
--- growth_activity_days\nCREATE TABLE public.growth_activity_days (\n  user_id uuid NOT NULL,
+  CONSTRAINT growth_achievements_reward_points_check CHECK (reward_points >= 0)
+);
+ALTER TABLE public.growth_achievements ENABLE ROW LEVEL SECURITY;
+-- growth_activity_days
+CREATE TABLE public.growth_activity_days (
+  user_id uuid NOT NULL,
   activity_date date NOT NULL,
   source text DEFAULT 'visit'::text NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT growth_activity_days_pkey PRIMARY KEY (user_id, activity_date),
-  CONSTRAINT growth_activity_days_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.growth_activity_days ENABLE ROW LEVEL SECURITY;
--- growth_levels\nCREATE TABLE public.growth_levels (\n  code text NOT NULL,
+  CONSTRAINT growth_activity_days_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.growth_activity_days ENABLE ROW LEVEL SECURITY;
+-- growth_levels
+CREATE TABLE public.growth_levels (
+  code text NOT NULL,
   name text NOT NULL,
   min_points integer DEFAULT 0 NOT NULL,
   icon text DEFAULT '⭐'::text NOT NULL,
   sort_order integer DEFAULT 0 NOT NULL,
   CONSTRAINT growth_levels_min_points_check CHECK (min_points >= 0),
-  CONSTRAINT growth_levels_pkey PRIMARY KEY (code)\n);\nALTER TABLE public.growth_levels ENABLE ROW LEVEL SECURITY;
--- growth_point_transactions\nCREATE TABLE public.growth_point_transactions (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT growth_levels_pkey PRIMARY KEY (code)
+);
+ALTER TABLE public.growth_levels ENABLE ROW LEVEL SECURITY;
+-- growth_point_transactions
+CREATE TABLE public.growth_point_transactions (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid NOT NULL,
   amount integer NOT NULL,
   reason text NOT NULL,
@@ -321,8 +419,12 @@ BEGIN;
   CONSTRAINT growth_point_transactions_amount_check CHECK (amount <> 0),
   CONSTRAINT growth_point_transactions_pkey PRIMARY KEY (id),
   CONSTRAINT growth_point_transactions_source_key_key UNIQUE (source_key),
-  CONSTRAINT growth_point_transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.growth_point_transactions ENABLE ROW LEVEL SECURITY;
--- growth_reset_history\nCREATE TABLE public.growth_reset_history (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT growth_point_transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.growth_point_transactions ENABLE ROW LEVEL SECURITY;
+-- growth_reset_history
+CREATE TABLE public.growth_reset_history (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid NOT NULL,
   reset_by uuid,
   reset_no integer NOT NULL,
@@ -338,8 +440,12 @@ BEGIN;
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT growth_reset_history_pkey PRIMARY KEY (id),
   CONSTRAINT growth_reset_history_reset_by_fkey FOREIGN KEY (reset_by) REFERENCES auth.users(id) ON DELETE SET NULL,
-  CONSTRAINT growth_reset_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.growth_reset_history ENABLE ROW LEVEL SECURITY;
--- growth_reward_redemptions\nCREATE TABLE public.growth_reward_redemptions (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT growth_reset_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.growth_reset_history ENABLE ROW LEVEL SECURITY;
+-- growth_reward_redemptions
+CREATE TABLE public.growth_reward_redemptions (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   reward_id uuid NOT NULL,
   user_id uuid NOT NULL,
   point_cost integer NOT NULL,
@@ -351,8 +457,12 @@ BEGIN;
   CONSTRAINT growth_reward_redemptions_point_cost_check CHECK (point_cost > 0),
   CONSTRAINT growth_reward_redemptions_reward_id_fkey FOREIGN KEY (reward_id) REFERENCES growth_rewards(id) ON DELETE RESTRICT,
   CONSTRAINT growth_reward_redemptions_status_check CHECK (status = ANY (ARRAY['redeemed'::text, 'cancelled'::text])),
-  CONSTRAINT growth_reward_redemptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.growth_reward_redemptions ENABLE ROW LEVEL SECURITY;
--- growth_rewards\nCREATE TABLE public.growth_rewards (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT growth_reward_redemptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.growth_reward_redemptions ENABLE ROW LEVEL SECURITY;
+-- growth_rewards
+CREATE TABLE public.growth_rewards (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   code text NOT NULL,
   title text NOT NULL,
   description text,
@@ -381,8 +491,12 @@ BEGIN;
   CONSTRAINT growth_rewards_point_cost_check CHECK (point_cost > 0),
   CONSTRAINT growth_rewards_redeemed_count_check CHECK (redeemed_count >= 0),
   CONSTRAINT growth_rewards_required_achievement_id_fkey FOREIGN KEY (required_achievement_id) REFERENCES growth_achievements(id) ON DELETE SET NULL,
-  CONSTRAINT growth_rewards_reward_type_check CHECK (reward_type = 'coupon'::text)\n);\nALTER TABLE public.growth_rewards ENABLE ROW LEVEL SECURITY;
--- growth_tasks\nCREATE TABLE public.growth_tasks (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT growth_rewards_reward_type_check CHECK (reward_type = 'coupon'::text)
+);
+ALTER TABLE public.growth_rewards ENABLE ROW LEVEL SECURITY;
+-- growth_tasks
+CREATE TABLE public.growth_tasks (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   code text NOT NULL,
   title text NOT NULL,
   description text,
@@ -399,28 +513,44 @@ BEGIN;
   CONSTRAINT growth_tasks_pkey PRIMARY KEY (id),
   CONSTRAINT growth_tasks_requirement_count_check CHECK (requirement_count > 0),
   CONSTRAINT growth_tasks_reward_points_check CHECK (reward_points >= 0),
-  CONSTRAINT growth_tasks_task_type_check CHECK (task_type = ANY (ARRAY['profile_complete'::text, 'first_registration'::text, 'first_result'::text, 'registration_count'::text, 'result_count'::text]))\n);\nALTER TABLE public.growth_tasks ENABLE ROW LEVEL SECURITY;
--- growth_user_achievements\nCREATE TABLE public.growth_user_achievements (\n  user_id uuid NOT NULL,
+  CONSTRAINT growth_tasks_task_type_check CHECK (task_type = ANY (ARRAY['profile_complete'::text, 'first_registration'::text, 'first_result'::text, 'registration_count'::text, 'result_count'::text]))
+);
+ALTER TABLE public.growth_tasks ENABLE ROW LEVEL SECURITY;
+-- growth_user_achievements
+CREATE TABLE public.growth_user_achievements (
+  user_id uuid NOT NULL,
   achievement_id uuid NOT NULL,
   unlocked_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT growth_user_achievements_achievement_id_fkey FOREIGN KEY (achievement_id) REFERENCES growth_achievements(id) ON DELETE CASCADE,
   CONSTRAINT growth_user_achievements_pkey PRIMARY KEY (user_id, achievement_id),
-  CONSTRAINT growth_user_achievements_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.growth_user_achievements ENABLE ROW LEVEL SECURITY;
--- growth_user_tasks\nCREATE TABLE public.growth_user_tasks (\n  user_id uuid NOT NULL,
+  CONSTRAINT growth_user_achievements_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.growth_user_achievements ENABLE ROW LEVEL SECURITY;
+-- growth_user_tasks
+CREATE TABLE public.growth_user_tasks (
+  user_id uuid NOT NULL,
   task_id uuid NOT NULL,
   progress integer DEFAULT 0 NOT NULL,
   completed_at timestamp with time zone,
   cycle_key text DEFAULT 'once'::text NOT NULL,
   CONSTRAINT growth_user_tasks_pkey PRIMARY KEY (user_id, task_id, cycle_key),
   CONSTRAINT growth_user_tasks_task_id_fkey FOREIGN KEY (task_id) REFERENCES growth_tasks(id) ON DELETE CASCADE,
-  CONSTRAINT growth_user_tasks_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.growth_user_tasks ENABLE ROW LEVEL SECURITY;
--- member_no_counter\nCREATE TABLE public.member_no_counter (\n  id boolean DEFAULT true NOT NULL,
+  CONSTRAINT growth_user_tasks_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.growth_user_tasks ENABLE ROW LEVEL SECURITY;
+-- member_no_counter
+CREATE TABLE public.member_no_counter (
+  id boolean DEFAULT true NOT NULL,
   next_no integer NOT NULL,
   compacted boolean DEFAULT false NOT NULL,
   repair_version integer DEFAULT 0 NOT NULL,
   CONSTRAINT member_no_counter_id_check CHECK (id = true),
-  CONSTRAINT member_no_counter_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.member_no_counter ENABLE ROW LEVEL SECURITY;
--- notifications\nCREATE TABLE public.notifications (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT member_no_counter_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.member_no_counter ENABLE ROW LEVEL SECURITY;
+-- notifications
+CREATE TABLE public.notifications (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid,
   title text NOT NULL,
   content text NOT NULL,
@@ -430,8 +560,12 @@ BEGIN;
   ticket_id uuid,
   CONSTRAINT notifications_pkey PRIMARY KEY (id),
   CONSTRAINT notifications_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE SET NULL,
-  CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
--- order_items\nCREATE TABLE public.order_items (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+-- order_items
+CREATE TABLE public.order_items (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   order_id uuid NOT NULL,
   product_id uuid,
   product_name text NOT NULL,
@@ -444,8 +578,12 @@ BEGIN;
   CONSTRAINT order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
   CONSTRAINT order_items_quantity_check CHECK (quantity > 0),
   CONSTRAINT order_items_subtotal_check CHECK (subtotal >= 0::numeric),
-  CONSTRAINT order_items_unit_price_check CHECK (unit_price >= 0::numeric)\n);\nALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
--- orders\nCREATE TABLE public.orders (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT order_items_unit_price_check CHECK (unit_price >= 0::numeric)
+);
+ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+-- orders
+CREATE TABLE public.orders (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   order_no text DEFAULT ((('ORD-'::text || to_char(now(), 'YYYYMMDDHH24MISS'::text)) || '-'::text) || upper(substr(replace((gen_random_uuid())::text, '-'::text, ''::text), 1, 6))) NOT NULL,
   user_id uuid NOT NULL,
   status text DEFAULT 'pending_payment'::text NOT NULL,
@@ -462,8 +600,12 @@ BEGIN;
   CONSTRAINT orders_pkey PRIMARY KEY (id),
   CONSTRAINT orders_status_check CHECK (status = ANY (ARRAY['pending_payment'::text, 'paid'::text, 'completed'::text, 'cancelled'::text])),
   CONSTRAINT orders_total_amount_check CHECK (total_amount >= 0::numeric),
-  CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
--- products\nCREATE TABLE public.products (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+-- products
+CREATE TABLE public.products (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   name text NOT NULL,
   category text,
   price numeric(12,2) DEFAULT 0 NOT NULL,
@@ -473,8 +615,12 @@ BEGIN;
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT products_pkey PRIMARY KEY (id),
-  CONSTRAINT products_price_check CHECK (price >= 0::numeric)\n);\nALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
--- profiles\nCREATE TABLE public.profiles (\n  id uuid NOT NULL,
+  CONSTRAINT products_price_check CHECK (price >= 0::numeric)
+);
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+-- profiles
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
   role text DEFAULT 'visitor'::text NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   nickname text,
@@ -483,8 +629,12 @@ BEGIN;
   growth_level text DEFAULT 'newbie'::text NOT NULL,
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE,
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT profiles_role_check CHECK (role = ANY (ARRAY['admin'::text, 'visitor'::text]))\n);\nALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
--- quick_links\nCREATE TABLE public.quick_links (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT profiles_role_check CHECK (role = ANY (ARRAY['admin'::text, 'visitor'::text]))
+);
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+-- quick_links
+CREATE TABLE public.quick_links (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   name text NOT NULL,
   url text NOT NULL,
   icon text,
@@ -492,8 +642,12 @@ BEGIN;
   visible boolean DEFAULT true NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT quick_links_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.quick_links ENABLE ROW LEVEL SECURITY;
--- site_settings\nCREATE TABLE public.site_settings (\n  id integer DEFAULT 1 NOT NULL,
+  CONSTRAINT quick_links_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.quick_links ENABLE ROW LEVEL SECURITY;
+-- site_settings
+CREATE TABLE public.site_settings (
+  id integer DEFAULT 1 NOT NULL,
   site_name text DEFAULT '商業簡介'::text,
   hero_title text DEFAULT '商業簡介'::text,
   hero_text text DEFAULT '繽紛、活潑、充滿特色的專屬網站'::text,
@@ -519,8 +673,12 @@ BEGIN;
   contact3 text DEFAULT '📱 聯絡方式：請填入你的資訊'::text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT site_settings_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
--- support_tickets\nCREATE TABLE public.support_tickets (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT site_settings_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
+-- support_tickets
+CREATE TABLE public.support_tickets (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid DEFAULT auth.uid() NOT NULL,
   subject text NOT NULL,
   message text NOT NULL,
@@ -530,16 +688,24 @@ BEGIN;
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT support_tickets_pkey PRIMARY KEY (id),
   CONSTRAINT support_tickets_status_check CHECK (status = ANY (ARRAY['open'::text, 'answered'::text, 'closed'::text])),
-  CONSTRAINT support_tickets_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
--- user_activity_badges\nCREATE TABLE public.user_activity_badges (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT support_tickets_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
+-- user_activity_badges
+CREATE TABLE public.user_activity_badges (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   user_id uuid NOT NULL,
   badge_id uuid NOT NULL,
   unlocked_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT user_activity_badges_badge_id_fkey FOREIGN KEY (badge_id) REFERENCES activity_badges(id) ON DELETE CASCADE,
   CONSTRAINT user_activity_badges_pkey PRIMARY KEY (id),
   CONSTRAINT user_activity_badges_user_id_badge_id_key UNIQUE (user_id, badge_id),
-  CONSTRAINT user_activity_badges_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE\n);\nALTER TABLE public.user_activity_badges ENABLE ROW LEVEL SECURITY;
--- videos\nCREATE TABLE public.videos (\n  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  CONSTRAINT user_activity_badges_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+ALTER TABLE public.user_activity_badges ENABLE ROW LEVEL SECURITY;
+-- videos
+CREATE TABLE public.videos (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   title text NOT NULL,
   description text DEFAULT ''::text NOT NULL,
   youtube_url text NOT NULL,
@@ -552,8 +718,12 @@ BEGIN;
   published_at timestamp with time zone DEFAULT now() NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT videos_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
--- visitor_accounts\nCREATE TABLE public.visitor_accounts (\n  id uuid NOT NULL,
+  CONSTRAINT videos_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
+-- visitor_accounts
+CREATE TABLE public.visitor_accounts (
+  id uuid NOT NULL,
   email text NOT NULL,
   active boolean DEFAULT true NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -561,14 +731,20 @@ BEGIN;
   name text,
   CONSTRAINT visitor_accounts_email_key UNIQUE (email),
   CONSTRAINT visitor_accounts_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE,
-  CONSTRAINT visitor_accounts_pkey PRIMARY KEY (id)\n);\nALTER TABLE public.visitor_accounts ENABLE ROW LEVEL SECURITY;
--- visitor_profiles\nCREATE TABLE public.visitor_profiles (\n  id uuid NOT NULL,
+  CONSTRAINT visitor_accounts_pkey PRIMARY KEY (id)
+);
+ALTER TABLE public.visitor_accounts ENABLE ROW LEVEL SECURITY;
+-- visitor_profiles
+CREATE TABLE public.visitor_profiles (
+  id uuid NOT NULL,
   username text NOT NULL,
   active boolean DEFAULT true NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT visitor_profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE,
   CONSTRAINT visitor_profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT visitor_profiles_username_key UNIQUE (username)\n);\nALTER TABLE public.visitor_profiles ENABLE ROW LEVEL SECURITY;
+  CONSTRAINT visitor_profiles_username_key UNIQUE (username)
+);
+ALTER TABLE public.visitor_profiles ENABLE ROW LEVEL SECURITY;
 
 -- Non-constraint indexes
 CREATE INDEX announcement_reads_user_idx ON public.announcement_reads USING btree (user_id);
