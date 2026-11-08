@@ -41,3 +41,8 @@ supabase link --project-ref fsoowongtavlsrwvzbze
 
 ## 完成標準
 CLI dump 成功、無資料列或 secrets、獨立本機重建成功，並比對 tables/views/functions/triggers/indexes/constraints/RLS/ACL。全部通過前不可標記 baseline ready。
+
+
+## SQL 相依性檢查（新增）
+
+最新工具已新增 `scripts/verify_schema_dependencies.py`、`tests/test_verify_schema_dependencies.py` 與 `docs/maintenance-local-dependency-check-v0.1.md`。請從最新分支 ZIP 將這三個檔案放入本機對應資料夾，再依該文件執行檢查。此工具只讀本機快照，不連線或修改 Supabase。
