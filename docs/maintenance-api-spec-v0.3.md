@@ -1,3 +1,5 @@
+> **已被 v0.4 取代（2026-11-08）**：本文件提到的 SUPABASE_DB_URL + Postgres driver 與 private table 無任何 authenticated grants 的說法已不再採用。最新執行模型為使用者 JWT + public SECURITY INVOKER RPC + private schema + RLS，詳見 [maintenance-connection-architecture-v0.4.md](./maintenance-connection-architecture-v0.4.md)。請勿依本文件的舊連線描述實作。
+
 # 維護系統 API 規格 v0.3（安全審核修正版）
 
 > 尚未實作、尚未部署。與資料庫設計 v0.3 配套。
