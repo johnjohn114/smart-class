@@ -105,3 +105,31 @@
 
 ---
 本文件只建立待核對的 API 契約；尚未建立 Edge Functions、尚未執行 Migration，也尚未進行正式環境測試。
+
+
+## 6. Supabase 現況核對紀錄（2026-11-08，只讀檢查）
+
+核對對象：Supabase 專案 `fsoowongtavlsrwvzbze` 的目前連線資料庫與已部署 Edge Functions。以下只記錄本次可直接查證的現況，不代表功能已實作。
+
+### 已查證結果
+
+1. **目前 public schema 未見維護專用資料表。** 本次查詢到的 public base tables 共 43 張，沒有名稱包含 `maintenance`、`audit` 或 `event` 的資料表，也沒有任何維護相關欄位可供五支 API 直接使用。
+2. **目前已部署 Edge Functions 清單未見維護 API。** 已列出的函式為 `manage-visitors`、`create-visitor`（清單中另有一個 slug/name 不一致項）、`set-visitor-password`、`ai-generate-announcement`、`send-announcement-push`；未見本規格列出的五支 maintenance functions。
+3. **現有管理員角色來源可查證。** `public.profiles` 有 `id`、`role` 等欄位；`role` 預設為 `visitor`，資料庫檢查限制為 `admin` 或 `visitor`。
+4. **現有管理員判斷函式可查證。** `public.is_admin()` 以 `auth.uid()` 對應 `profiles.id` 且 `role='admin'` 判斷，函式為 `SECURITY DEFINER`，並設定空的 `search_path`。實作時仍須確認呼叫權限及函式擁有者，不可僅因函式存在就視為整體授權已安全。
+5. **profiles RLS policy 可查證。** 有管理員全權政策（使用 `is_admin()`）、本人讀取政策，以及本人更新政策（更新後限制 `role='visitor'`）。這可作為管理員驗證設計的現況參考。
+6. **七個維護範圍尚無資料庫證據。** 本次未查到維護範圍 enum、check constraint、scope table 或維護事件資料，故不能把「七個範圍」寫成已核實的正式代碼。
+7. **Migration 清單工具回傳空陣列。** 這只表示本次工具回傳沒有列出 migration 紀錄；不單憑此結果推論資料庫從未執行過任何 schema migration。
+
+### 對 API 草案的修正要求
+
+- 五支 API 目前都屬於**待建置**，不得描述為已存在或已可呼叫。
+- `maintenance-status` 目前沒有維護事件資料來源；需先設計並建立維護資料模型後才能實作。
+- `maintenance-admin-list`、`create`、`update`、`action` 都需要維護事件與稽核紀錄資料表／交易邏輯，目前資料庫尚未提供。
+- 管理員權限應以伺服器端驗證登入使用者，再根據受信任的 `profiles.role` 或經核實的 `is_admin()` 機制授權；不得接受前端自報角色。
+- scope 代碼、狀態機、排程重疊規則、編輯限制、稽核 schema 都仍是**未決設計**，需先定稿，再寫 migration 與函式。
+- 在資料模型與規則核准前，不部署 Edge Functions、不執行 Migration、不改動正式資料庫。
+
+### 本輪核對結論
+
+**結果：API 草案與目前資料庫尚未對接。** 已確認可重用的只有管理員角色資料與 `is_admin()` 判斷基礎；維護資料表、七個 scope 的正式代碼、狀態轉換與五支 API 均未在目前連線的 Supabase 專案中查得。
