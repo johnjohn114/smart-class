@@ -1,3 +1,5 @@
+> **已被 v0.4 取代（2026-11-08）**：本文件第 2、3、8、10 節所述的 SUPABASE_DB_URL + Postgres driver、直接連線及 grants 方案已不再採用。最新連線決策請看 [maintenance-connection-architecture-v0.4.md](./maintenance-connection-architecture-v0.4.md)。請勿依本文件 v0.3 的連線段落生成 SQL。欄位與事件規則仍是設計參考，待整合更新。
+
 # 維護系統資料庫設計 v0.3（安全審核修正版）
 
 > 依 2026-11-08 唯讀審核結果修正。
