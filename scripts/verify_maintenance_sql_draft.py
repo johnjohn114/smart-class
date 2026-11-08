@@ -39,7 +39,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
             re.search(rf"ALTER\s+TABLE\s+private\.{table}\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY", sql, re.I)
         )
     for rpc in RPCS:
-        pattern = rf"CREATE\s+FUNCTION\s+public\.{rpc}\s*\(p_request\s+jsonb\)(.*?)(?:\n\$\$;)"
+        pattern = rf"CREATE\s+FUNCTION\s+public\.{rpc}\s*\(p_request\s+jsonb\)(.*?)(?:\n\s*)?\$\$;"
         match = re.search(pattern, sql, re.I | re.S)
         checks[f"rpc:{rpc}"] = bool(match)
         checks[f"invoker:{rpc}"] = bool(
