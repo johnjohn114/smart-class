@@ -18,7 +18,7 @@ Edge Functions 會呼叫：
 - `public.maintenance_event_update(p_request jsonb)`
 - `public.maintenance_event_action(p_request jsonb)`
 
-所有 RPC 均需明確宣告 SECURITY INVOKER、固定空 search_path、完整限定物件名稱，並依既有權限審查設定 EXECUTE ACL。此文件不提供可直接套用的 function body 或 grants；實際 table names/columns/RLS 未確認前不得生成會操作資料的 SQL。
+SQL 草案目前已提供五個 RPC 的 function body、private tables、RLS、最小必要 table grants 與 EXECUTE ACL；各 RPC 均宣告 SECURITY INVOKER、固定空 search_path，並使用完整限定物件名稱。這些內容仍是未驗證的開發草案，不代表可直接套用或已通過 PostgreSQL、PostgREST、JWT/RLS 測試。若後續 schema、欄位、policy 或權限設計變更，必須同步更新 SQL 草案與本契約。
 
 ## 2. 身分上下文
 
