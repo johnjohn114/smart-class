@@ -1,6 +1,7 @@
 -- Catalog-reconstructed view definitions. Not pg_dump output.
 -- SECURITY INVOKER options and grants require separate verification.
-CREATE OR REPLACE VIEW public.activity_member_stats AS\n SELECT a.user_id,
+CREATE OR REPLACE VIEW public.activity_member_stats AS
+ SELECT a.user_id,
     max(COALESCE(p.nickname, (a.user_id)::text)) AS nickname,
     (count(*) FILTER (WHERE (a.status = ANY (ARRAY['checked_in'::text, 'late'::text]))))::integer AS attended_count,
     (count(*) FILTER (WHERE (a.status = 'late'::text)))::integer AS late_count,
