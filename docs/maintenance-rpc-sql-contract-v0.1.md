@@ -1,6 +1,6 @@
 # Maintenance RPC SQL 契約 v0.1
 
-> 狀態：Edge Function 呼叫端契約；尚無對應 SQL function，未執行 migration。
+> 狀態：Edge Function 呼叫端契約；對應 SQL function 草案已建立於 `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`，但尚未完成 PostgreSQL parser、資料庫整合測試或 migration。
 
 ## 1. 呼叫參數
 
