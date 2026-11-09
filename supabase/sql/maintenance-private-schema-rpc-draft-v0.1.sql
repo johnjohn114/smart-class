@@ -767,7 +767,9 @@ BEGIN
   END IF;
   SELECT COALESCE(pg_catalog.array_agg(es.scope_code ORDER BY es.scope_code),ARRAY[]::text[])
     INTO v_codes FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id;
-  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
+  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object(
+    'internal_note', (SELECT n.internal_note FROM private.maintenance_event_private_notes n WHERE n.event_id=v_event.id),
+    'scope_codes',v_codes);
 
   IF v_action='schedule' THEN
     IF v_event.status<>'draft' THEN
@@ -800,7 +802,9 @@ BEGIN
                               ELSE 'completed' END,
          version=version+1
    WHERE id=v_event.id RETURNING * INTO v_event;
-  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
+  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object(
+    'internal_note', (SELECT n.internal_note FROM private.maintenance_event_private_notes n WHERE n.event_id=v_event.id),
+    'scope_codes',v_codes);
   v_response := pg_catalog.jsonb_build_object('ok',true,'data',
     pg_catalog.jsonb_build_object('event_id',v_event.id,'version',v_event.version,
       'status',v_event.status,'action',v_action));
