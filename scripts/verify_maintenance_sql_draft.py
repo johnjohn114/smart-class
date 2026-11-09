@@ -62,7 +62,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         and "ALTER TABLE private.maintenance_event_private_notes ENABLE ROW LEVEL SECURITY" in sql
     )
     checks["notes_not_in_events_table"] = not bool(
-        re.search(r"CREATE\\s+TABLE\\s+private\\.maintenance_events\\s*\\([^;]*\\binternal_note\\b", sql, re.I | re.S)
+        re.search(r"CREATE\s+TABLE\s+private\.maintenance_events\s*\([^;]*\binternal_note\b", sql, re.I | re.S)
     )
     checks["no_events_delete_grant"] = not bool(
         re.search(r"GRANT\s+[^;]*DELETE[^;]*ON\s+private\.maintenance_events", sql, re.I)
