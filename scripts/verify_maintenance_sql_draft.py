@@ -47,6 +47,45 @@ def inspect_sql(sql: str) -> dict[str, bool]:
             match and re.search(r"SECURITY\s+INVOKER", match.group(1), re.I)
             and re.search(r"SET\s+search_path\s*=\s*''", match.group(1), re.I)
         )
+    checks["create_rpc_text_type_validation"] = all(
+        marker in sql for marker in (
+            "jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string'",
+            "jsonb_typeof(p_request->'message') IS DISTINCT FROM 'string'",
+            "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'",
+            "jsonb_typeof(p_request->'internal_note') NOT IN ('string','null')",
+        )
+    )
+    checks["update_rpc_text_type_validation"] = all(
+        marker in sql for marker in (
+            "jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string'",
+            "jsonb_typeof(p_request->'message') IS DISTINCT FROM 'string'",
+            "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'",
+            "jsonb_typeof(p_request->'internal_note') NOT IN ('string','null')",
+        )
+    )
+    checks["action_rpc_reason_type_validation"] = (
+        "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'" in sql
+    )
+    timezone_marker = "([Zz]|[+-][0-9]{2}:[0-9]{2})$"
+    checks["create_rpc_timezone_validation"] = (
+        "jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'" in sql
+        and "jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'" in sql
+        and sql.count(timezone_marker) >= 2
+    )
+    checks["update_rpc_timezone_validation"] = (
+        "jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'" in sql
+        and "jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'" in sql
+        and sql.count(timezone_marker) >= 2
+    )
+    checks["private_object_privileges_reset"] = all(
+        marker in sql
+        for marker in (
+            "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;",
+            "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;",
+            "REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;",
+        )
+    )
+
     checks["no_service_role_grants"] = not bool(
         re.search(r"GRANT\b[^;]*\bTO\s+[^;]*service_role", sql, re.I | re.S)
     )
