@@ -70,6 +70,7 @@
 - 不使用 service_role bypass RLS，不新增 DB URL 或資料庫密碼 secret。
 - private tables 全部啟用 RLS。RLS policy 必須限制 admin；必要時同時檢查 `auth.uid() IS NOT NULL`。
 - 前端只呼叫 Edge Functions；不直接操作維護資料表。
+- `internal_note` 雖然仍是 create/update/admin-list API 欄位，但資料庫草案必須存放於獨立的 `private.maintenance_event_private_notes`，不得放在一般維護事件資料列；該表啟用 RLS，僅 authenticated 管理員可讀寫。
 
 ### 3.3 請求與回應
 
