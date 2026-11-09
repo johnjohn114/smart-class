@@ -44,6 +44,17 @@ EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
+-- SQL type and timezone validation guardrail fixtures:
+jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string';
+jsonb_typeof(p_request->'message') IS DISTINCT FROM 'string';
+jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string';
+jsonb_typeof(p_request->'internal_note') NOT IN ('string','null');
+jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string';
+jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string';
+([Zz]|[+-][0-9]{2}:[0-9]{2})$;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;
 """
 
 
@@ -89,6 +100,40 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         result = inspect_sql(broken)
         self.assertFalse(result["dollar_quote_balance"])
         self.assertFalse(result["no_bare_dollar_closer"])
+
+
+    def test_missing_create_text_type_check_is_detected(self):
+        result = inspect_sql(GOOD.replace(
+            "jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string';", "", 1
+        ))
+        self.assertFalse(result["create_rpc_text_type_validation"])
+
+    def test_missing_update_note_type_check_is_detected(self):
+        result = inspect_sql(GOOD.replace(
+            "jsonb_typeof(p_request->'internal_note') NOT IN ('string','null');",
+            "", 1
+        ))
+        self.assertFalse(result["update_rpc_text_type_validation"])
+
+    def test_missing_action_reason_type_check_is_detected(self):
+        result = inspect_sql(GOOD.replace(
+            "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string';",
+            "", 1
+        ))
+        self.assertFalse(result["action_rpc_reason_type_validation"])
+
+    def test_missing_timezone_validation_is_detected(self):
+        result = inspect_sql(GOOD.replace(
+            "([Zz]|[+-][0-9]{2}:[0-9]{2})$;", "", 1
+        ))
+        self.assertFalse(result["create_rpc_timezone_validation"])
+
+    def test_missing_private_privilege_reset_is_detected(self):
+        result = inspect_sql(GOOD.replace(
+            "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;",
+            ""
+        ))
+        self.assertFalse(result["private_object_privileges_reset"])
 
     def test_duplicate_public_rpc_is_detected(self):
         duplicate = GOOD + "\nCREATE FUNCTION public.maintenance_event_create(p_request jsonb) RETURNS jsonb;"
