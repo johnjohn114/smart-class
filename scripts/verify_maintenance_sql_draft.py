@@ -71,8 +71,8 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         for rpc in RPCS
     )
     checks["dollar_quote_balance"] = (
-        len(re.findall(r"^\s*AS \$\$\s*$", sql, re.M))
-        == len(re.findall(r"^\s*\$\$;\s*$", sql, re.M))
+        len(re.findall(r"\bAS\s+\$\$", sql, re.I))
+        == len(re.findall(r"\$\$;", sql))
     )
     checks["no_bare_dollar_closer"] = not bool(re.search(r"^\s*\$;\s*$", sql, re.M))
     return checks

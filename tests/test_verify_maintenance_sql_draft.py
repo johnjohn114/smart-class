@@ -16,7 +16,7 @@ CREATE TABLE private.maintenance_idempotency (actor_id uuid);
         "maintenance_audit_logs", "maintenance_idempotency",
     )
 ) + "\n".join(
-    f"CREATE FUNCTION public.{name}(p_request jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$ BEGIN RETURN '{}'::jsonb; END; $$;"
+    f"CREATE FUNCTION public.{name}(p_request jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$ BEGIN RETURN '{{}}'::jsonb; END; $$;"
     for name in (
         "maintenance_status_public", "maintenance_admin_list",
         "maintenance_event_create", "maintenance_event_update",
@@ -67,7 +67,7 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         self.assertFalse(result["no_events_delete_grant"])
 
     def test_unclosed_dollar_quote_is_detected(self):
-        broken = GOOD.replace("$;", "$;", 1)
+        broken = GOOD.replace(" END; $$;", " END;\n$;", 1)
         result = inspect_sql(broken)
         self.assertFalse(result["dollar_quote_balance"])
         self.assertFalse(result["no_bare_dollar_closer"])
