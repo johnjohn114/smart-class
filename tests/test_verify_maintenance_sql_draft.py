@@ -129,14 +129,14 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
     def test_missing_update_note_type_check_is_detected(self):
         result = inspect_sql(GOOD.replace(
             "jsonb_typeof(p_request->'internal_note') NOT IN ('string','null');",
-            "", 1
+            "", 2
         ))
         self.assertFalse(result["update_rpc_text_type_validation"])
 
     def test_missing_action_reason_type_check_is_detected(self):
         result = inspect_sql(GOOD.replace(
             "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string';",
-            "", 1
+            "", 3
         ))
         self.assertFalse(result["action_rpc_reason_type_validation"])
 
