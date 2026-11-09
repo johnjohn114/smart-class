@@ -37,6 +37,7 @@
 - 不得在 Edge Function 使用 service_role 代表使用者呼叫管理 RPC。
 - 不接受 client 提供的 actor_id、user_id、role、isAdmin 或 email 作為授權依據。
 - 不在 log 記錄 bearer token、API key、完整敏感 request body 或 internal_note。
+- `internal_note` 在資料庫端獨立存放於 `private.maintenance_event_private_notes`，不得新增回 `maintenance_events` 主表；此表僅授權 authenticated 管理員，並啟用 RLS。
 - 不把管理員檢查只放在 Edge Function；資料庫 RPC 必須再次授權。
 - 不自行重試非冪等寫入；寫入重送必須沿用相同 idempotency key。
 - 不回傳 Postgres 原始錯誤訊息。
