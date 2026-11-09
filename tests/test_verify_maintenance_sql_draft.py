@@ -115,7 +115,7 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         self.assertFalse(result["no_events_delete_grant"])
 
     def test_unclosed_dollar_quote_is_detected(self):
-        broken = GOOD.replace(" END; $;", " END;\n$;\n", 1)
+        broken = GOOD.replace(" END; $$;", " END;\n$;\n", 1)
         result = inspect_sql(broken)
         self.assertFalse(result["dollar_quote_balance"])
         self.assertFalse(result["no_bare_dollar_closer"])
