@@ -125,3 +125,29 @@ Deno.test("action: only supports schedule, cancel, complete", async () => {
   }
   if (!rejected) throw new Error("unsupported action must be rejected");
 });
+
+Deno.test("status: rejects an explicitly blank scope", () => {
+  let rejected = false;
+  try {
+    parseStatusRequest(new Request("https://local.test/maintenance-status?scope="));
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("blank scope must be rejected");
+});
+
+Deno.test("admin list: rejects explicitly blank status, scope, from, and to", () => {
+  for (const parameter of ["status", "scope", "from", "to"]) {
+    let rejected = false;
+    try {
+      parseAdminListRequest(
+        new Request(`https://local.test/list?${parameter}=`),
+      );
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) {
+      throw new Error(`blank ${parameter} must be rejected`);
+    }
+  }
+});
