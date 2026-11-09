@@ -6,14 +6,15 @@ from scripts.verify_maintenance_sql_draft import inspect_sql
 GOOD = """
 CREATE TABLE private.maintenance_scopes (code text);
 CREATE TABLE private.maintenance_events (id uuid);
+CREATE TABLE private.maintenance_event_private_notes (event_id uuid, internal_note text);
 CREATE TABLE private.maintenance_event_scopes (event_id uuid);
 CREATE TABLE private.maintenance_audit_logs (id uuid);
 CREATE TABLE private.maintenance_idempotency (actor_id uuid);
 """ + "\n".join(
     f"ALTER TABLE private.{name} ENABLE ROW LEVEL SECURITY;"
     for name in (
-        "maintenance_scopes", "maintenance_events", "maintenance_event_scopes",
-        "maintenance_audit_logs", "maintenance_idempotency",
+        "maintenance_scopes", "maintenance_events", "maintenance_event_private_notes",
+        "maintenance_event_scopes", "maintenance_audit_logs", "maintenance_idempotency",
     )
 ) + "\n".join(
     f"CREATE FUNCTION public.{name}(p_request jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$ BEGIN RETURN '{{}}'::jsonb; END; $$;"
@@ -23,6 +24,9 @@ CREATE TABLE private.maintenance_idempotency (actor_id uuid);
         "maintenance_event_action",
     )
 ) + """
+CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());
+CREATE POLICY maintenance_event_private_notes_admin_insert ON private.maintenance_event_private_notes FOR INSERT TO authenticated WITH CHECK (public.is_admin());
+CREATE POLICY maintenance_event_private_notes_admin_update ON private.maintenance_event_private_notes FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 CREATE TRIGGER audit_no_mutation BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs
 FOR EACH ROW EXECUTE FUNCTION private.block_audit();
 CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON private.maintenance_audit_logs
@@ -47,6 +51,20 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
     def test_complete_draft_passes_guardrails(self):
         result = inspect_sql(GOOD)
         self.assertTrue(all(result.values()), result)
+
+    def test_internal_note_is_not_stored_on_public_event_row(self):
+        result = inspect_sql(GOOD.replace(
+            "CREATE TABLE private.maintenance_events (id uuid);",
+            "CREATE TABLE private.maintenance_events (id uuid, internal_note text);"
+        ))
+        self.assertFalse(result["notes_not_in_events_table"])
+
+    def test_missing_notes_admin_policy_is_detected(self):
+        result = inspect_sql(GOOD.replace(
+            "CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());",
+            ""
+        ))
+        self.assertFalse(result["notes_admin_only_rls"])
 
     def test_missing_rls_is_detected(self):
         result = inspect_sql(GOOD.replace(
