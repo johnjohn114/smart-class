@@ -16,6 +16,7 @@ SQL_PATH = Path("supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql")
 TABLES = (
     "maintenance_scopes",
     "maintenance_events",
+    "maintenance_event_private_notes",
     "maintenance_event_scopes",
     "maintenance_audit_logs",
     "maintenance_idempotency",
@@ -54,6 +55,15 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["audit_truncate_guard"] = "BEFORE TRUNCATE ON private.maintenance_audit_logs" in sql
     checks["idempotency_unique_actor_key"] = "PRIMARY KEY(actor_id, idempotency_key)" in sql
     checks["transaction_lock_present"] = "pg_advisory_xact_lock(20261108,1)" in sql
+    checks["notes_admin_only_rls"] = (
+        "CREATE POLICY maintenance_event_private_notes_admin_select" in sql
+        and "CREATE POLICY maintenance_event_private_notes_admin_insert" in sql
+        and "CREATE POLICY maintenance_event_private_notes_admin_update" in sql
+        and "ALTER TABLE private.maintenance_event_private_notes ENABLE ROW LEVEL SECURITY" in sql
+    )
+    checks["notes_not_in_events_table"] = not bool(
+        re.search(r"CREATE\\s+TABLE\\s+private\\.maintenance_events\\s*\\([^;]*\\binternal_note\\b", sql, re.I | re.S)
+    )
     checks["no_events_delete_grant"] = not bool(
         re.search(r"GRANT\s+[^;]*DELETE[^;]*ON\s+private\.maintenance_events", sql, re.I)
     )
