@@ -14,24 +14,24 @@ from pathlib import Path
 
 SQL_PATH = Path("supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql")
 TABLES = (
-    "maintenance_scopes",
-    "maintenance_events",
-    "maintenance_event_private_notes",
-    "maintenance_event_scopes",
-    "maintenance_audit_logs",
-    "maintenance_idempotency",
+    "maintenance_scopes", "maintenance_events", "maintenance_event_private_notes",
+    "maintenance_event_scopes", "maintenance_audit_logs", "maintenance_idempotency",
 )
 RPCS = (
-    "maintenance_status_public",
-    "maintenance_admin_list",
-    "maintenance_event_create",
-    "maintenance_event_update",
-    "maintenance_event_action",
+    "maintenance_status_public", "maintenance_admin_list", "maintenance_event_create",
+    "maintenance_event_update", "maintenance_event_action",
 )
+
+
+def _rpc_body(sql: str, rpc: str) -> str:
+    pattern = rf"CREATE\s+FUNCTION\s+public\.{rpc}\s*\(p_request\s+jsonb\)(.*?)(?:\n\s*)?\$\$;"
+    match = re.search(pattern, sql, re.I | re.S)
+    return match.group(1) if match else ""
 
 
 def inspect_sql(sql: str) -> dict[str, bool]:
     checks: dict[str, bool] = {}
+    bodies = {rpc: _rpc_body(sql, rpc) for rpc in RPCS}
     for table in TABLES:
         checks[f"table:{table}"] = bool(
             re.search(rf"CREATE\s+TABLE\s+private\.{table}\b", sql, re.I)
@@ -39,16 +39,18 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         checks[f"rls:{table}"] = bool(
             re.search(rf"ALTER\s+TABLE\s+private\.{table}\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY", sql, re.I)
         )
-    for rpc in RPCS:
-        pattern = rf"CREATE\s+FUNCTION\s+public\.{rpc}\s*\(p_request\s+jsonb\)(.*?)(?:\n\s*)?\$\$;"
-        match = re.search(pattern, sql, re.I | re.S)
-        checks[f"rpc:{rpc}"] = bool(match)
+    for rpc, body in bodies.items():
+        checks[f"rpc:{rpc}"] = bool(body)
         checks[f"invoker:{rpc}"] = bool(
-            match and re.search(r"SECURITY\s+INVOKER", match.group(1), re.I)
-            and re.search(r"SET\s+search_path\s*=\s*''", match.group(1), re.I)
+            body and re.search(r"SECURITY\s+INVOKER", body, re.I)
+            and re.search(r"SET\s+search_path\s*=\s*''", body, re.I)
         )
+
+    create_body = bodies["maintenance_event_create"]
+    update_body = bodies["maintenance_event_update"]
+    action_body = bodies["maintenance_event_action"]
     checks["create_rpc_text_type_validation"] = all(
-        marker in sql for marker in (
+        marker in create_body for marker in (
             "jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string'",
             "jsonb_typeof(p_request->'message') IS DISTINCT FROM 'string'",
             "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'",
@@ -56,7 +58,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         )
     )
     checks["update_rpc_text_type_validation"] = all(
-        marker in sql for marker in (
+        marker in update_body for marker in (
             "jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string'",
             "jsonb_typeof(p_request->'message') IS DISTINCT FROM 'string'",
             "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'",
@@ -64,22 +66,21 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         )
     )
     checks["action_rpc_reason_type_validation"] = (
-        "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'" in sql
+        "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'" in action_body
     )
     timezone_marker = "([Zz]|[+-][0-9]{2}:[0-9]{2})$"
     checks["create_rpc_timezone_validation"] = (
-        "jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'" in sql
-        and "jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'" in sql
-        and sql.count(timezone_marker) >= 2
+        "jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'" in create_body
+        and "jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'" in create_body
+        and create_body.count(timezone_marker) >= 2
     )
     checks["update_rpc_timezone_validation"] = (
-        "jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'" in sql
-        and "jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'" in sql
-        and sql.count(timezone_marker) >= 2
+        "jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'" in update_body
+        and "jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'" in update_body
+        and update_body.count(timezone_marker) >= 2
     )
     checks["private_object_privileges_reset"] = all(
-        marker in sql
-        for marker in (
+        marker in sql for marker in (
             "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;",
             "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;",
             "REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;",
@@ -106,12 +107,12 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["no_events_delete_grant"] = not bool(
         re.search(r"GRANT\s+[^;]*DELETE[^;]*ON\s+private\.maintenance_events", sql, re.I)
     )
-    checks["safe_limit_default"] = "v_limit integer := 20;" in sql
+    checks["safe_limit_default"] = "v_limit integer := 20;" in bodies["maintenance_admin_list"]
     checks["admin_list_type_validation"] = (
-        "pg_catalog.jsonb_typeof(p_request->'status') IS DISTINCT FROM 'string'" in sql
-        and "pg_catalog.jsonb_typeof(p_request->'limit') IS DISTINCT FROM 'number'" in sql
+        "jsonb_typeof(p_request->'status') IS DISTINCT FROM 'string'" in bodies["maintenance_admin_list"]
+        and "jsonb_typeof(p_request->'limit') IS DISTINCT FROM 'number'" in bodies["maintenance_admin_list"]
     )
-    checks["cursor_shape_validation"] = "pg_catalog.strpos(v_cursor_text,'|')" in sql
+    checks["cursor_shape_validation"] = "pg_catalog.strpos(v_cursor_text,'|')" in bodies["maintenance_admin_list"]
     checks["rpc_cast_errors_normalized"] = (
         len(re.findall(r"WHEN invalid_text_representation OR invalid_datetime_format", sql, re.I)) >= 4
     )
