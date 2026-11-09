@@ -173,6 +173,12 @@ CREATE POLICY maintenance_idempotency_admin_insert
   ON private.maintenance_idempotency FOR INSERT TO authenticated
   WITH CHECK (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
 
+-- Reset object-level privileges before applying the explicit least-privilege grants below.
+-- This is scoped to the newly-created private schema and avoids inheriting broader grants.
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;
+
 -- Internal notes are isolated in an admin-only table, independent of public event-row visibility.
 -- Keep private excluded from Data API Exposed schemas as an additional security boundary.
 GRANT SELECT (code,label,enabled,sort_order) ON private.maintenance_scopes TO anon, authenticated;
@@ -360,13 +366,15 @@ BEGIN
   IF p_request ? 'from' AND (
        pg_catalog.jsonb_typeof(p_request->'from') IS DISTINCT FROM 'string'
        OR pg_catalog.btrim(p_request->>'from') = ''
-     ) THEN
+       OR (p_request->>'from') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'
+     
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
   IF p_request ? 'to' AND (
        pg_catalog.jsonb_typeof(p_request->'to') IS DISTINCT FROM 'string'
        OR pg_catalog.btrim(p_request->>'to') = ''
-     ) THEN
+       OR (p_request->>'to') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'
+     
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
   IF p_request ? 'from' AND p_request ? 'to'
@@ -472,7 +480,17 @@ BEGIN
                            'starts_at','ends_at','status','reason','idempotency_key']) <> '{}'::jsonb THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
-  IF pg_catalog.jsonb_typeof(p_request->'is_global') IS DISTINCT FROM 'boolean'
+  IF pg_catalog.jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'message') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'status') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'idempotency_key') IS DISTINCT FROM 'string'
+     OR (p_request ? 'internal_note' AND pg_catalog.jsonb_typeof(p_request->'internal_note') NOT IN ('string','null'))
+     OR pg_catalog.jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'
+     OR (p_request->>'starts_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'
+     OR (p_request->>'ends_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'
+     OR pg_catalog.jsonb_typeof(p_request->'is_global') IS DISTINCT FROM 'boolean'
      OR pg_catalog.jsonb_typeof(p_request->'scope_codes') IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
@@ -589,6 +607,22 @@ BEGIN
      OR (p_request - ARRAY['event_id','expected_version','reason','idempotency_key',
        'title','message','internal_note','is_global','scope_codes','starts_at','ends_at']) <> '{}'::jsonb
      OR NOT (p_request ?| ARRAY['title','message','internal_note','is_global','scope_codes','starts_at','ends_at']) THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  IF pg_catalog.jsonb_typeof(p_request->'event_id') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'expected_version') IS DISTINCT FROM 'number'
+     OR (p_request->>'expected_version') !~ '^[1-9][0-9]*$'
+     OR pg_catalog.jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'idempotency_key') IS DISTINCT FROM 'string'
+     OR (p_request ? 'title' AND pg_catalog.jsonb_typeof(p_request->'title') IS DISTINCT FROM 'string')
+     OR (p_request ? 'message' AND pg_catalog.jsonb_typeof(p_request->'message') IS DISTINCT FROM 'string')
+     OR (p_request ? 'internal_note' AND pg_catalog.jsonb_typeof(p_request->'internal_note') NOT IN ('string','null'))
+     OR (p_request ? 'starts_at' AND (pg_catalog.jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string'
+         OR (p_request->>'starts_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'))
+     OR (p_request ? 'ends_at' AND (pg_catalog.jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'
+         OR (p_request->>'ends_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'))
+     OR (p_request ? 'is_global' AND pg_catalog.jsonb_typeof(p_request->'is_global') IS DISTINCT FROM 'boolean')
+     OR (p_request ? 'scope_codes' AND pg_catalog.jsonb_typeof(p_request->'scope_codes') IS DISTINCT FROM 'array') THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   v_key := (p_request->>'idempotency_key')::uuid;
@@ -736,6 +770,14 @@ BEGIN
   END IF;
   IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request)<>'object'
      OR (p_request - ARRAY['event_id','expected_version','action','reason','idempotency_key']) <> '{}'::jsonb THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  IF pg_catalog.jsonb_typeof(p_request->'event_id') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'expected_version') IS DISTINCT FROM 'number'
+     OR (p_request->>'expected_version') !~ '^[1-9][0-9]*$'
+     OR pg_catalog.jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'idempotency_key') IS DISTINCT FROM 'string'
+     OR pg_catalog.jsonb_typeof(p_request->'action') IS DISTINCT FROM 'string' THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   v_key := (p_request->>'idempotency_key')::uuid;
