@@ -203,8 +203,8 @@ export function parseStatusRequest(req: Request): JsonObject {
     }
   }
   const scope = url.searchParams.get("scope");
-  if (!scope) return {};
-  if (!SCOPE_CODES.includes(scope as typeof SCOPE_CODES[number])) {
+  if (scope === null) return {};
+  if (!scope.trim() || !SCOPE_CODES.includes(scope as typeof SCOPE_CODES[number])) {
     throw new HttpError(422, "VALIDATION_ERROR", "scope 不在允許範圍內");
   }
   return { scope };
@@ -220,15 +220,15 @@ export function parseAdminListRequest(req: Request): JsonObject {
   }
   const result: JsonObject = {};
   const status = url.searchParams.get("status");
-  if (status) {
-    if (!["draft", "scheduled", "cancelled", "completed"].includes(status)) {
+  if (status !== null) {
+    if (!status.trim() || !["draft", "scheduled", "cancelled", "completed"].includes(status)) {
       throw new HttpError(422, "VALIDATION_ERROR", "status 不正確");
     }
     result.status = status;
   }
   const scope = url.searchParams.get("scope");
-  if (scope) {
-    if (!SCOPE_CODES.includes(scope as typeof SCOPE_CODES[number])) {
+  if (scope !== null) {
+    if (!scope.trim() || !SCOPE_CODES.includes(scope as typeof SCOPE_CODES[number])) {
       throw new HttpError(422, "VALIDATION_ERROR", "scope 不正確");
     }
     result.scope = scope;
@@ -242,9 +242,9 @@ export function parseAdminListRequest(req: Request): JsonObject {
   }
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
-  if (from) result.from = requireIsoDate(from, "from");
-  if (to) result.to = requireIsoDate(to, "to");
-  if (from && to && Date.parse(from) >= Date.parse(to)) {
+  if (from !== null) result.from = requireIsoDate(from, "from");
+  if (to !== null) result.to = requireIsoDate(to, "to");
+  if (from !== null && to !== null && Date.parse(from) >= Date.parse(to)) {
     throw new HttpError(422, "VALIDATION_ERROR", "from 必須早於 to");
   }
   const limit = url.searchParams.get("limit");
