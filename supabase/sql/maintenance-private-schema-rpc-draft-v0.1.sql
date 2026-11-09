@@ -367,14 +367,14 @@ BEGIN
        pg_catalog.jsonb_typeof(p_request->'from') IS DISTINCT FROM 'string'
        OR pg_catalog.btrim(p_request->>'from') = ''
        OR (p_request->>'from') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'
-     
+     ) THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
   IF p_request ? 'to' AND (
        pg_catalog.jsonb_typeof(p_request->'to') IS DISTINCT FROM 'string'
        OR pg_catalog.btrim(p_request->>'to') = ''
        OR (p_request->>'to') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'
-     
+     ) THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
   IF p_request ? 'from' AND p_request ? 'to'
