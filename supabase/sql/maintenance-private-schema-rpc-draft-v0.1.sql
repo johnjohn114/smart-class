@@ -50,7 +50,6 @@ CREATE TABLE private.maintenance_events (
   id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
   title text NOT NULL CHECK (pg_catalog.char_length(title) BETWEEN 1 AND 200),
   message text NOT NULL CHECK (pg_catalog.char_length(message) BETWEEN 1 AND 4000),
-  internal_note text CHECK (internal_note IS NULL OR pg_catalog.char_length(internal_note) <= 4000),
   is_global boolean NOT NULL,
   status text NOT NULL CHECK (status IN ('draft','scheduled','cancelled','completed')),
   starts_at timestamptz NOT NULL,
@@ -60,6 +59,12 @@ CREATE TABLE private.maintenance_events (
   created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
   updated_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
   CONSTRAINT maintenance_events_time_check CHECK (starts_at < ends_at)
+);
+
+CREATE TABLE private.maintenance_event_private_notes (
+  event_id uuid PRIMARY KEY REFERENCES private.maintenance_events(id) ON DELETE RESTRICT,
+  internal_note text CHECK (internal_note IS NULL OR pg_catalog.char_length(internal_note) <= 4000),
+  updated_at timestamptz NOT NULL DEFAULT pg_catalog.now()
 );
 
 CREATE TABLE private.maintenance_event_scopes (
@@ -100,6 +105,7 @@ CREATE INDEX maintenance_audit_logs_event_created_idx
 
 ALTER TABLE private.maintenance_scopes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_event_private_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_event_scopes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_idempotency ENABLE ROW LEVEL SECURITY;
@@ -122,6 +128,17 @@ CREATE POLICY maintenance_events_admin_insert
   WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin() AND created_by = auth.uid());
 CREATE POLICY maintenance_events_admin_update
   ON private.maintenance_events FOR UPDATE TO authenticated
+  USING (auth.uid() IS NOT NULL AND public.is_admin())
+  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+
+CREATE POLICY maintenance_event_private_notes_admin_select
+  ON private.maintenance_event_private_notes FOR SELECT TO authenticated
+  USING (auth.uid() IS NOT NULL AND public.is_admin());
+CREATE POLICY maintenance_event_private_notes_admin_insert
+  ON private.maintenance_event_private_notes FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+CREATE POLICY maintenance_event_private_notes_admin_update
+  ON private.maintenance_event_private_notes FOR UPDATE TO authenticated
   USING (auth.uid() IS NOT NULL AND public.is_admin())
   WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
 
@@ -156,10 +173,8 @@ CREATE POLICY maintenance_idempotency_admin_insert
   ON private.maintenance_idempotency FOR INSERT TO authenticated
   WITH CHECK (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
 
--- Column-level grants keep anon from reading private notes and actor/audit data.
--- IMPORTANT: authenticated needs SELECT on the event table for the SECURITY INVOKER admin-list RPC.
--- RLS is row-based and cannot hide internal_note by column for non-admin authenticated users.
--- Therefore private MUST remain excluded from Data API Exposed schemas; the public RPCs are the only app entry points.
+-- Internal notes are isolated in an admin-only table, independent of public event-row visibility.
+-- Keep private excluded from Data API Exposed schemas as an additional security boundary.
 GRANT SELECT (code,label,enabled,sort_order) ON private.maintenance_scopes TO anon, authenticated;
 GRANT SELECT (id,title,message,is_global,status,starts_at,ends_at)
   ON private.maintenance_events TO anon;
@@ -167,9 +182,10 @@ GRANT SELECT (event_id,scope_code) ON private.maintenance_event_scopes TO anon;
 
 GRANT SELECT ON private.maintenance_events, private.maintenance_event_scopes,
   private.maintenance_scopes TO authenticated;
-GRANT INSERT (title,message,internal_note,is_global,status,starts_at,ends_at)
+GRANT SELECT, INSERT, UPDATE ON private.maintenance_event_private_notes TO authenticated;
+GRANT INSERT (title,message,is_global,status,starts_at,ends_at)
   ON private.maintenance_events TO authenticated;
-GRANT UPDATE (title,message,internal_note,is_global,status,starts_at,ends_at,version,updated_at)
+GRANT UPDATE (title,message,is_global,status,starts_at,ends_at,version,updated_at)
   ON private.maintenance_events TO authenticated;
 GRANT INSERT (event_id,scope_code), DELETE ON private.maintenance_event_scopes TO authenticated;
 GRANT SELECT ON private.maintenance_audit_logs TO authenticated;
@@ -373,11 +389,12 @@ BEGIN
   END IF;
 
   FOR v_row IN
-    SELECT e.id,e.title,e.message,e.internal_note,e.is_global,e.status,e.starts_at,e.ends_at,
+    SELECT e.id,e.title,e.message,n.internal_note,e.is_global,e.status,e.starts_at,e.ends_at,
            e.version,e.created_at,e.updated_at,
            COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
                      FROM private.maintenance_event_scopes es WHERE es.event_id=e.id),'[]'::jsonb) AS scopes
       FROM private.maintenance_events e
+      LEFT JOIN private.maintenance_event_private_notes n ON n.event_id=e.id
      WHERE (NOT (p_request ? 'status') OR e.status=p_request->>'status')
        AND (NOT (p_request ? 'is_global') OR e.is_global=(p_request->>'is_global')::boolean)
        AND (NOT (p_request ? 'from') OR e.starts_at >= (p_request->>'from')::timestamptz)
@@ -509,9 +526,13 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
   END IF;
 
-  INSERT INTO private.maintenance_events(title,message,internal_note,is_global,status,starts_at,ends_at)
-  VALUES(v_title,v_message,v_note,v_global,v_status,v_start,v_end)
+  INSERT INTO private.maintenance_events(title,message,is_global,status,starts_at,ends_at)
+  VALUES(v_title,v_message,v_global,v_status,v_start,v_end)
   RETURNING * INTO v_event;
+  IF v_note IS NOT NULL THEN
+    INSERT INTO private.maintenance_event_private_notes(event_id,internal_note)
+    VALUES(v_event.id,v_note);
+  END IF;
   IF pg_catalog.cardinality(v_codes)>0 THEN
     INSERT INTO private.maintenance_event_scopes(event_id,scope_code)
     SELECT v_event.id,x FROM pg_catalog.unnest(v_codes) x;
@@ -521,7 +542,7 @@ BEGIN
       'status',v_event.status,'title',v_event.title));
   INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
   VALUES(v_event.id,'create',v_reason,NULL,
-    pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes));
+    pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes,'internal_note',v_note));
   INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
   VALUES(v_key,v_payload,v_response);
   RETURN v_response;
@@ -609,7 +630,9 @@ BEGIN
   END IF;
   v_title := CASE WHEN p_request ? 'title' THEN pg_catalog.btrim(p_request->>'title') ELSE v_event.title END;
   v_message := CASE WHEN p_request ? 'message' THEN pg_catalog.btrim(p_request->>'message') ELSE v_event.message END;
-  v_note := CASE WHEN p_request ? 'internal_note' THEN p_request->>'internal_note' ELSE v_event.internal_note END;
+  SELECT n.internal_note INTO v_note
+    FROM private.maintenance_event_private_notes n WHERE n.event_id=v_event.id;
+  v_note := CASE WHEN p_request ? 'internal_note' THEN p_request->>'internal_note' ELSE v_note END;
   v_global := CASE WHEN p_request ? 'is_global' THEN (p_request->>'is_global')::boolean ELSE v_event.is_global END;
   v_start := CASE WHEN p_request ? 'starts_at' THEN (p_request->>'starts_at')::timestamptz ELSE v_event.starts_at END;
   v_end := CASE WHEN p_request ? 'ends_at' THEN (p_request->>'ends_at')::timestamptz ELSE v_event.ends_at END;
@@ -632,8 +655,9 @@ BEGIN
      OR (NOT v_global AND pg_catalog.cardinality(v_codes)=0) THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
-  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',
-    COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
+  v_before_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object(
+    'internal_note', (SELECT n.internal_note FROM private.maintenance_event_private_notes n WHERE n.event_id=v_event.id),
+    'scope_codes', COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
               FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id),'[]'::jsonb));
   v_schedule_changed := p_request ?| ARRAY['is_global','scope_codes','starts_at','ends_at'];
   IF v_event.status='scheduled' AND v_event.starts_at<=pg_catalog.now() AND v_schedule_changed THEN
@@ -652,9 +676,15 @@ BEGIN
   END IF;
 
   UPDATE private.maintenance_events
-     SET title=v_title,message=v_message,internal_note=v_note,is_global=v_global,
+     SET title=v_title,message=v_message,is_global=v_global,
          starts_at=v_start,ends_at=v_end,version=version+1
    WHERE id=v_event.id RETURNING * INTO v_event;
+  IF p_request ? 'internal_note' THEN
+    INSERT INTO private.maintenance_event_private_notes(event_id,internal_note)
+    VALUES(v_event.id,v_note)
+    ON CONFLICT (event_id) DO UPDATE
+      SET internal_note=EXCLUDED.internal_note, updated_at=pg_catalog.now();
+  END IF;
   IF p_request ? 'scope_codes' THEN
     DELETE FROM private.maintenance_event_scopes WHERE event_id=v_event.id;
     IF pg_catalog.cardinality(v_codes)>0 THEN
@@ -662,7 +692,8 @@ BEGIN
       SELECT v_event.id,x FROM pg_catalog.unnest(v_codes) x;
     END IF;
   END IF;
-  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes);
+  v_after_data := pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object(
+    'internal_note',v_note,'scope_codes',v_codes);
   v_response := pg_catalog.jsonb_build_object('ok',true,'data',
     pg_catalog.jsonb_build_object('event_id',v_event.id,'version',v_event.version,
       'status',v_event.status,'title',v_event.title));
@@ -799,5 +830,6 @@ GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticate
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
-COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; all writes should use SECURITY INVOKER RPCs.';
+COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use SECURITY INVOKER RPCs.';
+COMMENT ON TABLE private.maintenance_event_private_notes IS 'Admin-only internal notes, separated from publicly visible maintenance event rows.';
 COMMENT ON TABLE private.maintenance_audit_logs IS 'Append-only audit trail; row mutation and TRUNCATE are blocked by triggers.';
