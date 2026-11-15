@@ -21,7 +21,7 @@
 - `maintenance_event_update`
 - `maintenance_event_action`
 
-五支 Edge Function 原始碼已提交至 `feature/maintenance-system`，但尚未執行測試或部署；五個 RPC、private schema 與維護資料表尚未建立。本文件只定義契約，不代表 API 已可用。
+五支 Edge Function 原始碼已提交至 `feature/maintenance-system`，但尚未執行完整測試或部署；五個 RPC、private schema 與六張維護資料表目前僅有未驗證 SQL 草案，尚未建立。本文件只定義契約，不代表 API 已可用。資料表基準為 `maintenance_scopes`、`maintenance_events`、`maintenance_event_private_notes`、`maintenance_event_scopes`、`maintenance_audit_logs`、`maintenance_idempotency`；舊四表 `public.maintenance_state` 設計不屬於本版架構。
 
 ## 2. 已確認的產品規則
 
