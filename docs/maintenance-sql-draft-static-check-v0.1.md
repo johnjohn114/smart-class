@@ -13,8 +13,8 @@ python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py' -
 
 ## 檢查內容
 
-- 五張 private tables 是否存在於草案。
-- 五張資料表是否都啟用 RLS。
+- 六張 private tables 是否存在於草案：maintenance_scopes、maintenance_events、maintenance_event_private_notes、maintenance_event_scopes、maintenance_audit_logs、maintenance_idempotency。
+- 六張資料表是否都啟用 RLS。
 - 五個 public RPC 是否存在，且明確為 SECURITY INVOKER + 空 search_path。
 - 不授予 service_role 維護表權限。
 - 不出現 SECURITY DEFINER。
