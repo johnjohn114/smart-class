@@ -4,3 +4,17 @@ const SUPABASE_ANON_KEY = "sb_publishable_nAKu843QXRNajjS5F6EYGA_xxn9UlLb";
 
 // 測試用訪客密碼；正式網站建議改成伺服器端驗證。
 const DEMO_VISITOR_PASSWORD = "20260811Open";
+
+// 載入共用維護狀態提示；各頁面由 maintenance-client.js 自動判斷所屬範圍。
+(function loadMaintenanceClient() {
+  if (document.querySelector('script[data-maintenance-client]')) return;
+
+  const currentScript = document.currentScript;
+  if (!currentScript || !currentScript.src) return;
+
+  const clientScript = document.createElement('script');
+  clientScript.src = new URL('maintenance-client.js?v=0.1.2', currentScript.src).href;
+  clientScript.async = true;
+  clientScript.dataset.maintenanceClient = 'true';
+  document.head.appendChild(clientScript);
+})();
