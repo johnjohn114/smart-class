@@ -95,6 +95,14 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["audit_truncate_guard"] = "BEFORE TRUNCATE ON private.maintenance_audit_logs" in sql
     checks["idempotency_unique_actor_key"] = "PRIMARY KEY(actor_id, idempotency_key)" in sql
     checks["transaction_lock_present"] = "pg_advisory_xact_lock(20261108,1)" in sql
+    # The frontend checks site_core on every page, so site_core overlaps every local scope.
+    checks["site_core_conflicts_with_all_scopes"] = all(
+        marker in body for body, marker in (
+            (create_body, "'site_core'=ANY(v_codes)"),
+            (update_body, "'site_core'=ANY(v_codes)"),
+            (action_body, "'site_core'=ANY(v_codes)"),
+        )
+    ) and sql.count("es.scope_code='site_core' OR es.scope_code=ANY(v_codes)") >= 3
     checks["notes_admin_only_rls"] = (
         "CREATE POLICY maintenance_event_private_notes_admin_select" in sql
         and "CREATE POLICY maintenance_event_private_notes_admin_insert" in sql
