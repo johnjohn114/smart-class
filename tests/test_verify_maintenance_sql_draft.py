@@ -152,6 +152,14 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         ))
         self.assertFalse(result["update_rpc_timezone_validation"])
 
+    def test_site_core_must_conflict_with_every_local_scope(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["site_core_conflicts_with_all_scopes"])
+
+        broken = GOOD.replace("'site_core'=ANY(v_codes)", "false")
+        result = inspect_sql(broken)
+        self.assertFalse(result["site_core_conflicts_with_all_scopes"])
+
     def test_missing_private_privilege_reset_is_detected(self):
         result = inspect_sql(GOOD.replace(
             "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;",
