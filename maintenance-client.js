@@ -23,6 +23,7 @@
   const PAGE_SCOPE_MAP = {
   "index.html": "announcements_info",
   "news.html": "announcements_info",
+  "search.html": "site_core",
   "calendar.html": "events_competitions",
   "competitions.html": "events_competitions",
   "videos.html": "video_content",
