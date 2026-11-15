@@ -55,7 +55,6 @@ CREATE TABLE private.maintenance_events (
   starts_at timestamptz NOT NULL,
   ends_at timestamptz NOT NULL,
   version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
-  created_by uuid DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
   updated_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
   CONSTRAINT maintenance_events_time_check CHECK (starts_at < ends_at)
@@ -125,7 +124,7 @@ CREATE POLICY maintenance_events_admin_select
   USING (auth.uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_events_admin_insert
   ON private.maintenance_events FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin() AND created_by = auth.uid());
+  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_events_admin_update
   ON private.maintenance_events FOR UPDATE TO authenticated
   USING (auth.uid() IS NOT NULL AND public.is_admin())
