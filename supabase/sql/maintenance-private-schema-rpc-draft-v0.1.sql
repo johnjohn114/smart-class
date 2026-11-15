@@ -536,9 +536,9 @@ BEGIN
   IF v_status='scheduled' AND EXISTS (
     SELECT 1 FROM private.maintenance_events e
      WHERE e.status='scheduled' AND e.starts_at<v_end AND v_start<e.ends_at
-       AND (v_global OR e.is_global OR EXISTS (
+       AND (v_global OR e.is_global OR 'site_core'=ANY(v_codes) OR EXISTS (
          SELECT 1 FROM private.maintenance_event_scopes es
-          WHERE es.event_id=e.id AND es.scope_code=ANY(v_codes)
+          WHERE es.event_id=e.id AND (es.scope_code='site_core' OR es.scope_code=ANY(v_codes))
        ))
   ) THEN
     RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
@@ -701,9 +701,9 @@ BEGIN
     SELECT 1 FROM private.maintenance_events e
      WHERE e.id<>v_event.id AND e.status='scheduled'
        AND e.starts_at<v_end AND v_start<e.ends_at
-       AND (v_global OR e.is_global OR EXISTS (
+       AND (v_global OR e.is_global OR 'site_core'=ANY(v_codes) OR EXISTS (
          SELECT 1 FROM private.maintenance_event_scopes es
-          WHERE es.event_id=e.id AND es.scope_code=ANY(v_codes)
+          WHERE es.event_id=e.id AND (es.scope_code='site_core' OR es.scope_code=ANY(v_codes))
        ))
   ) THEN
     RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
@@ -821,9 +821,9 @@ BEGIN
       SELECT 1 FROM private.maintenance_events e
        WHERE e.id<>v_event.id AND e.status='scheduled'
          AND e.starts_at<v_event.ends_at AND v_event.starts_at<e.ends_at
-         AND (v_event.is_global OR e.is_global OR EXISTS (
+         AND (v_event.is_global OR e.is_global OR 'site_core'=ANY(v_codes) OR EXISTS (
            SELECT 1 FROM private.maintenance_event_scopes es
-            WHERE es.event_id=e.id AND es.scope_code=ANY(v_codes)
+            WHERE es.event_id=e.id AND (es.scope_code='site_core' OR es.scope_code=ANY(v_codes))
          ))
     ) THEN
       RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
