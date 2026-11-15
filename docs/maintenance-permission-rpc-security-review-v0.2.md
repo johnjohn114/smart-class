@@ -1,3 +1,5 @@
+> **後續審查：** 本文件為 2026-11-08 的歷史設計審查。2026-11-15 的 SQL 靜態資料暴露審查與修正，請以 [maintenance-permission-data-exposure-review-v0.3.md](./maintenance-permission-data-exposure-review-v0.3.md) 為準；本文件仍保留原始權限決策與限制紀錄。
+
 # Maintenance System 權限與 RPC 安全審查 v0.2
 
 > 日期：2026-11-08  
