@@ -67,12 +67,31 @@
   }
 
   function getOptionalAdminToken() {
-    // Never read visitor_access_token. The backend independently verifies admin status.
+    // Match the admin page's session recovery, but never read visitor_access_token.
+    // The backend validates the token and derives admin bypass from public.is_admin().
     try {
-      return window.localStorage.getItem('access_token') || '';
+      const stores = [window.localStorage, window.sessionStorage];
+      for (const store of stores) {
+        const token = store.getItem('access_token');
+        if (token) return token;
+      }
+
+      for (const store of stores) {
+        for (const key of Object.keys(store)) {
+          if (!key.includes('auth-token')) continue;
+          try {
+            const raw = JSON.parse(store.getItem(key) || 'null');
+            const session = raw?.currentSession || raw?.session || raw;
+            if (session?.access_token) return session.access_token;
+          } catch (_parseError) {
+            // Ignore unrelated or malformed storage entries.
+          }
+        }
+      }
     } catch (_error) {
-      return '';
+      // Storage may be unavailable; public status still works anonymously.
     }
+    return '';
   }
 
   async function fetchStatus(scope) {
