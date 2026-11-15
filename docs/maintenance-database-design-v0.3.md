@@ -1,3 +1,5 @@
+> **歷史欄位草案，勿作目前 SQL 欄位依據（2026-11-15）**：本文件的 `scope_id`、舊版 audit/idempotency 欄位與舊 DB driver 連線內容不等於目前六表 SQL。後續欄位與呼叫契約以 [maintenance-architecture-baseline-decision-v0.1.md](./maintenance-architecture-baseline-decision-v0.1.md)、API v0.5、RPC contract v0.1 及目前 SQL 草案為準。保留本文件供歷史追溯，不可直接依本文件生成或執行 migration。
+
 > **已被 v0.4 取代（2026-11-08）**：本文件第 2、3、8、10 節所述的 SUPABASE_DB_URL + Postgres driver、直接連線及 grants 方案已不再採用。最新連線決策請看 [maintenance-connection-architecture-v0.4.md](./maintenance-connection-architecture-v0.4.md)。請勿依本文件 v0.3 的連線段落生成 SQL。欄位與事件規則仍是設計參考，待整合更新。
 
 # 維護系統資料庫設計 v0.3（安全審核修正版）
