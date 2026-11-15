@@ -57,7 +57,7 @@ GOOD = (
     + rpc("maintenance_event_create", CREATE_BODY)
     + rpc("maintenance_event_update", UPDATE_BODY)
     + rpc("maintenance_event_action",
-          "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string';")
+          "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'; 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);")
     + """
 CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_insert ON private.maintenance_event_private_notes FOR INSERT TO authenticated WITH CHECK (public.is_admin());
@@ -75,6 +75,7 @@ EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;
+GRANT SELECT (id,title,message,is_global,status,starts_at,ends_at) ON private.maintenance_events TO anon;
 """
 )
 
@@ -90,6 +91,17 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
             "CREATE TABLE private.maintenance_events (id uuid, internal_note text);"
         ))
         self.assertFalse(result["notes_not_in_events_table"])
+
+    def test_creator_id_must_not_be_exposed_on_events(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["creator_id_not_exposed_on_events"])
+
+        broken = GOOD.replace(
+            "CREATE TABLE private.maintenance_events (id uuid);",
+            "CREATE TABLE private.maintenance_events (id uuid, created_by uuid);"
+        )
+        result = inspect_sql(broken)
+        self.assertFalse(result["creator_id_not_exposed_on_events"])
 
     def test_missing_notes_admin_policy_is_detected(self):
         result = inspect_sql(GOOD.replace(
