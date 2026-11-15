@@ -17,6 +17,8 @@
 
 存取架構採 Edge Functions + 原始使用者 JWT + public SECURITY INVOKER RPC + private schema tables + RLS。維護管理操作必須在資料庫端檢查 `auth.uid() IS NOT NULL AND public.is_admin()`。不以 service_role 代表使用者執行管理 RPC。
 
+`site_core` 是跨頁面的共用核心維護範圍：前端每個頁面都會同時查詢 `site_core` 與頁面專屬 scope，因此 `site_core` 必須與任何其他局部 scope 的重疊時段互斥。SQL 草案的 create、update、schedule 三條寫入路徑都需維持此規則。
+
 ## 2. 舊四表 SQL 的處理
 
 舊版 `public.maintenance_state`、`public.maintenance_events`、`public.maintenance_scopes`、`public.maintenance_audit_logs` 是不同資料模型，含 singleton global state、每事件 scope rows 及 service_role 存取方向。
