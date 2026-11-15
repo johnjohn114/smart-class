@@ -21,6 +21,7 @@
     'downloads_app'
   ]);
   const PAGE_SCOPE_MAP = {
+  "index.html": "announcements_info",
   "news.html": "announcements_info",
   "calendar.html": "events_competitions",
   "competitions.html": "events_competitions",
