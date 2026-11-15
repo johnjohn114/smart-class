@@ -997,6 +997,7 @@ document.addEventListener('DOMContentLoaded',()=>{bindMobileAdminNav();bind();co
 
 // ===== 維護管理：所有寫入操作均由 Edge Function 與資料庫再次驗證管理員權限 =====
 let maintenanceEventsCache = [];
+let maintenanceEditingScheduleLocked = false;
 
 function maintenanceUuid() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -1083,7 +1084,7 @@ function renderMaintenanceEvents() {
     const scopes = event.is_global
       ? '全站'
       : (Array.isArray(event.scopes) ? event.scopes.map(maintenanceScopeLabel).join('、') : '未指定');
-    const canEdit = event.status !== 'completed';
+    const canEdit = event.status === 'draft' || event.status === 'scheduled';
     let actions = '';
 
     if (event.status === 'draft') {
@@ -1147,12 +1148,16 @@ function maintenanceSyncScopeOptions() {
   const wrapper = $('maintenanceScopeOptions');
   if (wrapper) wrapper.hidden = global;
   wrapper?.querySelectorAll('[data-maintenance-scope]').forEach(input => {
-    input.disabled = global;
+    input.disabled = global || maintenanceEditingScheduleLocked;
     if (global) input.checked = false;
   });
 }
 
 function maintenanceClearForm() {
+  maintenanceEditingScheduleLocked = false;
+  ['maintenanceStartsAt', 'maintenanceEndsAt', 'maintenanceGlobal'].forEach(id => {
+    if ($(id)) $(id).disabled = false;
+  });
   ['maintenanceEventId', 'maintenanceEventVersion', 'maintenanceTitle',
     'maintenanceMessage', 'maintenanceStartsAt', 'maintenanceEndsAt',
     'maintenanceInternalNote', 'maintenanceReason'
@@ -1160,6 +1165,7 @@ function maintenanceClearForm() {
 
   if ($('maintenanceGlobal')) $('maintenanceGlobal').checked = false;
   document.querySelectorAll('[data-maintenance-scope]').forEach(input => {
+    input.disabled = false;
     input.checked = false;
   });
   maintenanceSyncScopeOptions();
@@ -1172,6 +1178,7 @@ function maintenanceEditEvent(eventId) {
   const event = maintenanceEventsCache.find(item => String(item.id) === String(eventId));
   if (!event) return;
 
+  maintenanceEditingScheduleLocked = event.status === 'scheduled' && Date.parse(event.starts_at) <= Date.now();
   $('maintenanceEventId').value = event.id;
   $('maintenanceEventVersion').value = String(event.version);
   $('maintenanceTitle').value = event.title || '';
@@ -1180,6 +1187,9 @@ function maintenanceEditEvent(eventId) {
   $('maintenanceStartsAt').value = taipeiDateTimeLocal(event.starts_at);
   $('maintenanceEndsAt').value = taipeiDateTimeLocal(event.ends_at);
   $('maintenanceGlobal').checked = Boolean(event.is_global);
+  $('maintenanceStartsAt').disabled = maintenanceEditingScheduleLocked;
+  $('maintenanceEndsAt').disabled = maintenanceEditingScheduleLocked;
+  $('maintenanceGlobal').disabled = maintenanceEditingScheduleLocked;
 
   const scopes = Array.isArray(event.scopes) ? event.scopes : [];
   document.querySelectorAll('[data-maintenance-scope]').forEach(input => {
@@ -1187,6 +1197,7 @@ function maintenanceEditEvent(eventId) {
   });
 
   $('maintenanceReason').value = '更新維護事件';
+  msg('maintenanceMsg', maintenanceEditingScheduleLocked ? '此事件已進入維護期間，只能修改標題、訪客訊息與內部備註。' : '');
   $('maintenanceFormTitle').textContent = '編輯維護事件（' + maintenanceStatusLabel(event.status) + '）';
   $('saveMaintenanceEvent').textContent = '💾 儲存修改';
   maintenanceSyncScopeOptions();
@@ -1225,13 +1236,17 @@ async function saveMaintenanceEvent() {
     title,
     message,
     internal_note: internalNote,
-    is_global: isGlobal,
-    scope_codes: scopeCodes,
-    starts_at: startsAt,
-    ends_at: endsAt,
     reason,
     idempotency_key: maintenanceUuid()
   };
+
+  // Active scheduled events may change descriptive fields only; the database rejects schedule changes.
+  if (!eventId || !maintenanceEditingScheduleLocked) {
+    body.is_global = isGlobal;
+    body.scope_codes = scopeCodes;
+    body.starts_at = startsAt;
+    body.ends_at = endsAt;
+  }
 
   if (eventId) {
     body.event_id = eventId;
