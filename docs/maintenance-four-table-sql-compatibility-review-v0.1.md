@@ -1,3 +1,5 @@
+> **歷史審查，已由 v0.1 架構基準決策取代（2026-11-15）**：本文保留當時四表與五表設計的差異分析；當時提及的「五表」已更新為目前六表基準。後續實作請以 [maintenance-architecture-baseline-decision-v0.1.md](./maintenance-architecture-baseline-decision-v0.1.md)、API v0.5 與目前六表 SQL 草案為準。本文的「停止生成／部署」結論是當時尚未決策時的歷史狀態，不代表目前架構決策仍未完成。不得執行本文描述的舊四表 SQL。
+
 # Maintenance 四表 SQL 與目前 API/Edge 架構相容性審查 v0.1
 
 > 日期：2026-11-08  
