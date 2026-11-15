@@ -113,7 +113,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         re.search(r"CREATE\s+TABLE\s+private\.maintenance_events\s*\([^;]*\binternal_note\b", sql, re.I | re.S)
     )
     checks["creator_id_not_exposed_on_events"] = not bool(
-        re.search(r"CREATE\\s+TABLE\\s+private\\.maintenance_events\\s*\\([^;]*\\bcreated_by\\b", sql, re.I | re.S)
+        re.search(r"CREATE\s+TABLE\s+private\.maintenance_events\s*\([^;]*\bcreated_by\b", sql, re.I | re.S)
     ) and "GRANT SELECT (id,title,message,is_global,status,starts_at,ends_at)" in sql
 
     checks["no_events_delete_grant"] = not bool(
