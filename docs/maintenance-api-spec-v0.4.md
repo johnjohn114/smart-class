@@ -234,7 +234,7 @@ Request：
 只對 `scheduled` 事件進行衝突判斷：
 - global/global：時間重疊即衝突。
 - global/local 或 local/global：時間重疊即衝突。
-- local/local：時間重疊且 scope 交集非空才衝突。
+- local/local：時間重疊且 scope 交集非空才衝突；但 `site_core` 是全站共用核心範圍，與任何局部 scope 都視為衝突。前端每個頁面都會額外查詢 `site_core`，因此不可讓 `site_core` 與其他局部維護事件在相同時間並行。
 - draft、cancelled、completed 不佔用排程。
 - 同一事件 update 不得與自己比對而誤判衝突。
 
