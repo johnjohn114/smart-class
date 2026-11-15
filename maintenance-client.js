@@ -1,8 +1,8 @@
 /**
  * Smart Class - Maintenance Client
- * Version: 0.1.1
+ * Version: 0.1.2
  *
- * Public-page maintenance notice only.
+ * Shared public-page maintenance notice.
  * This module does not block page features or perform admin mutations.
  */
 (function () {
@@ -20,6 +20,20 @@
     'store_support',
     'downloads_app'
   ]);
+  const PAGE_SCOPE_MAP = {
+  "news.html": "announcements_info",
+  "calendar.html": "events_competitions",
+  "competitions.html": "events_competitions",
+  "videos.html": "video_content",
+  "my.html": "membership_growth",
+  "coupons.html": "membership_growth",
+  "products.html": "store_support",
+  "checkout.html": "store_support",
+  "support.html": "store_support",
+  "downloads.html": "downloads_app",
+  "app-updates.html": "downloads_app",
+  "settings.html": "downloads_app"
+};
   const BANNER_ID = 'maintenanceStatusBanner';
   const REQUEST_TIMEOUT_MS = 8000;
 
@@ -34,23 +48,24 @@
     }
 
     return {
-      url: String(SUPABASE_URL).replace(/\/$/, ''),
+      url: String(SUPABASE_URL).replace(/\\/$/, ''),
       key: SUPABASE_ANON_KEY
     };
   }
 
   function getPageScope() {
+    const pageName = window.location.pathname.split('/').pop() || 'index.html';
     const requested =
       document.body?.dataset.maintenanceScope ||
       window.MAINTENANCE_SCOPE ||
+      PAGE_SCOPE_MAP[pageName] ||
       CORE_SCOPE;
 
     return VALID_SCOPES.has(requested) ? requested : CORE_SCOPE;
   }
 
   function getOptionalAdminToken() {
-    // Deliberately do not read visitor_access_token.
-    // The backend independently verifies whether this token belongs to an admin.
+    // Never read visitor_access_token. The backend independently verifies admin status.
     try {
       return window.localStorage.getItem('access_token') || '';
     } catch (_error) {
@@ -89,10 +104,10 @@
       const payload = await response.json().catch(() => null);
 
       if (!response.ok || !payload || payload.ok !== true) {
-        const message =
+        throw new Error(
           payload?.error?.message ||
-          '維護狀態查詢失敗（HTTP ' + response.status + '）';
-        throw new Error(message);
+          '維護狀態查詢失敗（HTTP ' + response.status + '）'
+        );
       }
 
       if (!payload.data || typeof payload.data !== 'object') {
@@ -147,9 +162,7 @@
   }
 
   function chooseActiveStatus(results) {
-    const active = results.filter(
-      item => item && item.is_maintenance === true
-    );
+    const active = results.filter(item => item && item.is_maintenance === true);
 
     active.sort((a, b) => {
       if (Boolean(a.is_global) !== Boolean(b.is_global)) {
@@ -158,7 +171,6 @@
 
       const aCore = Array.isArray(a.scopes) && a.scopes.includes(CORE_SCOPE);
       const bCore = Array.isArray(b.scopes) && b.scopes.includes(CORE_SCOPE);
-
       return Number(bCore) - Number(aCore);
     });
 
@@ -168,24 +180,14 @@
   async function check() {
     const pageScope = getPageScope();
     const scopes = [...new Set([CORE_SCOPE, pageScope])];
-
-    // allSettled preserves a successful result if the other scope request fails.
-    const settled = await Promise.allSettled(
-      scopes.map(scope => fetchStatus(scope))
-    );
-
+    const settled = await Promise.allSettled(scopes.map(fetchStatus));
     const results = settled
       .filter(item => item.status === 'fulfilled')
       .map(item => item.value);
     const failures = settled.filter(item => item.status === 'rejected');
 
-    // This flag is supplied by the server after checking public.is_admin().
-    // A client-side role or user ID is never used to grant bypass.
-    const adminBypass = results.some(
-      item => item.admin_bypass === true
-    );
-
-    if (adminBypass) {
+    // Only the server-provided flag, derived from public.is_admin(), grants bypass.
+    if (results.some(item => item.admin_bypass === true)) {
       hideBanner();
       return {
         ok: failures.length === 0,
@@ -196,13 +198,11 @@
     }
 
     const active = chooseActiveStatus(results);
-
     if (active) {
       showBanner(
         active.title || '網站維護通知',
         active.message || '目前部分服務正在維護，請稍後再試。'
       );
-
       return {
         ok: failures.length === 0,
         maintenance: true,
@@ -216,16 +216,10 @@
         '維護狀態暫時無法完整確認',
         '網站目前仍可正常瀏覽，部分服務狀態尚未取得，請稍後再確認。'
       );
-
-      failures.forEach(item => {
-        console.warn('[Maintenance] 狀態查詢失敗：', item.reason);
-      });
-
-      return {
-        ok: false,
-        maintenance: false,
-        partialFailure: true
-      };
+      failures.forEach(item =>
+        console.warn('[Maintenance] 狀態查詢失敗：', item.reason)
+      );
+      return { ok: false, maintenance: false, partialFailure: true };
     }
 
     hideBanner();
@@ -235,7 +229,7 @@
   function start() {
     if (!document.body) return;
     check().catch(error => {
-      // Fail-open: never prevent normal page rendering because this module failed.
+      // Fail-open: this status client never blocks normal page rendering.
       console.warn('[Maintenance] 模組執行失敗：', error);
       showBanner(
         '維護狀態暫時無法確認',
@@ -244,10 +238,7 @@
     });
   }
 
-  window.MaintenanceClient = {
-    check,
-    start
-  };
+  window.MaintenanceClient = { check, start };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });
