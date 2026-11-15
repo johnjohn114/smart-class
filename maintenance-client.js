@@ -48,7 +48,7 @@
     }
 
     return {
-      url: String(SUPABASE_URL).replace(/\\/$/, ''),
+      url: String(SUPABASE_URL).replace(/\/$/, ''),
       key: SUPABASE_ANON_KEY
     };
   }
