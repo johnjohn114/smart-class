@@ -94,7 +94,7 @@ jobs:
             --env PORT=9999 \
             --env API_EXTERNAL_URL=http://localhost:9999 \
             --env GOTRUE_DB_DRIVER=postgres \
-            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/maintenance_gotrue_test?sslmode=disable \
+            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/maintenance_gotrue_test?sslmode=disable%26search_path=auth \
             --env GOTRUE_JWT_SECRET=maintenance-gotrue-ci-secret-at-least-32-bytes-long \
             --env GOTRUE_JWT_EXP=3600 \
             --env GOTRUE_JWT_AUD=authenticated \
