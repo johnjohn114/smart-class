@@ -13,7 +13,10 @@ RETURNS uuid
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+  SELECT NULLIF(COALESCE(
+    NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'sub',
+    NULLIF(current_setting('request.jwt.claim.sub', true), '')
+  ), '')::uuid
 $$;
 GRANT USAGE ON SCHEMA auth TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
@@ -24,8 +27,10 @@ LANGUAGE sql
 STABLE
 AS $$
   SELECT COALESCE(
-    current_setting('request.jwt.claim.sub', true) =
-      '00000000-0000-4000-8000-000000000001',
+    COALESCE(
+      NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'sub',
+      NULLIF(current_setting('request.jwt.claim.sub', true), '')
+    ) = '00000000-0000-4000-8000-000000000001',
     false
   )
 $$;
