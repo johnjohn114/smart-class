@@ -92,3 +92,20 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-postgres-isolated.test.sql
+
+      - name: Wait for PostgREST
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3000/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'PostgREST did not become ready' >&2
+          exit 1
+
+      - name: Verify PostgREST JWT, RPC, RLS and concurrent writes
+        env:
+          POSTGREST_URL: http://localhost:3000
+          TEST_JWT_SECRET: maintenance-ci-only-secret-key-at-least-32-bytes-long
+        run: python supabase/tests/sql/test_postgrest_jwt_rls_concurrency.py
