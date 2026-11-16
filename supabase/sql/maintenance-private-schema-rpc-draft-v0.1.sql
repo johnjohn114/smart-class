@@ -500,7 +500,7 @@ BEGIN
   END IF;
   v_title := pg_catalog.btrim(p_request->>'title');
   v_message := pg_catalog.btrim(p_request->>'message');
-  v_note := p_request->>'internal_note';
+  v_note := NULLIF(pg_catalog.btrim(p_request->>'internal_note'),'');
   v_reason := pg_catalog.btrim(p_request->>'reason');
   v_global := (p_request->>'is_global')::boolean;
   v_status := p_request->>'status';
@@ -722,7 +722,7 @@ BEGIN
   v_message := CASE WHEN p_request ? 'message' THEN pg_catalog.btrim(p_request->>'message') ELSE v_event.message END;
   SELECT n.internal_note INTO v_note
     FROM private.maintenance_event_private_notes n WHERE n.event_id=v_event.id;
-  v_note := CASE WHEN p_request ? 'internal_note' THEN p_request->>'internal_note' ELSE v_note END;
+  v_note := CASE WHEN p_request ? 'internal_note' THEN NULLIF(pg_catalog.btrim(p_request->>'internal_note'),'') ELSE v_note END;
   v_global := CASE WHEN p_request ? 'is_global' THEN (p_request->>'is_global')::boolean ELSE v_event.is_global END;
   v_start := CASE WHEN p_request ? 'starts_at' THEN (p_request->>'starts_at')::timestamptz ELSE v_event.starts_at END;
   v_end := CASE WHEN p_request ? 'ends_at' THEN (p_request->>'ends_at')::timestamptz ELSE v_event.ends_at END;
