@@ -245,3 +245,105 @@ Deno.test("date validation: rejects non-leap-year February 29", async () => {
   if (!rejected) throw new Error("non-leap-year February 29 must be rejected");
 });
 
+Deno.test("status: rejects duplicate scope parameters", () => {
+  let rejected = false;
+  try {
+    parseStatusRequest(
+      new Request("https://local.test/status?scope=site_core&scope=video_content"),
+    );
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("duplicate scope parameters must be rejected");
+});
+
+Deno.test("admin list: rejects duplicate filters", () => {
+  let rejected = false;
+  try {
+    parseAdminListRequest(
+      new Request("https://local.test/list?limit=10&limit=20"),
+    );
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("duplicate filters must be rejected");
+});
+
+Deno.test("request body: rejects missing JSON content type", async () => {
+  const req = new Request("https://local.test/create", {
+    method: "POST",
+    body: "{}",
+  });
+  let rejected = false;
+  try {
+    await parseCreateRequest(req);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("non-JSON content type must be rejected");
+});
+
+Deno.test("request body: rejects malformed JSON and non-object JSON", async () => {
+  for (const body of ["{", "null", "[]", '"text"']) {
+    const req = new Request("https://local.test/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    let rejected = false;
+    try {
+      await parseCreateRequest(req);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) throw new Error(`invalid JSON body must be rejected: ${body}`);
+  }
+});
+
+Deno.test("request body: enforces 64 KiB UTF-8 byte limit", async () => {
+  const req = new Request("https://local.test/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "字".repeat(23000) }),
+  });
+  let rejected = false;
+  try {
+    await parseCreateRequest(req);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("body over 64 KiB must be rejected");
+});
+
+Deno.test("date validation: rejects out-of-range time and timezone", async () => {
+  for (const value of [
+    "2026-11-16T24:00:00+08:00",
+    "2026-11-16T10:99:00+08:00",
+    "2026-11-16T10:00:00+14:01",
+    "2026-11-16T10:00:00+08:99",
+  ]) {
+    const req = new Request("https://local.test/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "系統維護",
+        message: "服務將進行維護",
+        is_global: true,
+        scope_codes: [],
+        starts_at: value,
+        ends_at: "2026-11-17T10:00:00+08:00",
+        status: "draft",
+        reason: "排定維護",
+        idempotency_key: uuid,
+      }),
+    });
+    let rejected = false;
+    try {
+      await parseCreateRequest(req);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) throw new Error(`invalid time zone/date must be rejected: ${value}`);
+  }
+});
+

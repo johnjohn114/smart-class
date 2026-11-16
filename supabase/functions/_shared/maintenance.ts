@@ -163,11 +163,19 @@ function requireIsoDate(value: unknown, name: string): string {
   const year = Number(parts[1]);
   const month = Number(parts[2]);
   const day = Number(parts[3]);
+  const hour = Number(parts[4]);
+  const minute = Number(parts[5]);
+  const second = Number(parts[6]);
+  const zone = parts[7];
+  const zoneHour = zone.toUpperCase() === "Z" ? 0 : Number(zone.slice(1, 3));
+  const zoneMinute = zone.toUpperCase() === "Z" ? 0 : Number(zone.slice(4, 6));
   const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const daysPerMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   if (
     month < 1 || month > 12 ||
     day < 1 || day > daysPerMonth[month - 1] ||
+    hour > 23 || minute > 59 || second > 59 ||
+    zoneHour > 14 || zoneMinute > 59 || (zoneHour === 14 && zoneMinute !== 0) ||
     !Number.isFinite(Date.parse(result!))
   ) {
     throw new HttpError(422, "VALIDATION_ERROR", `${name} 時間無效`);
@@ -196,7 +204,7 @@ async function readJsonBody(req: Request): Promise<JsonObject> {
     throw new HttpError(400, "INVALID_REQUEST", "Content-Type 必須是 application/json");
   }
   const raw = await req.text();
-  if (raw.length > 64 * 1024) {
+  if (new TextEncoder().encode(raw).byteLength > 64 * 1024) {
     throw new HttpError(413, "INVALID_REQUEST", "請求內容超過大小限制");
   }
   let parsed: unknown;
@@ -214,6 +222,9 @@ export function parseStatusRequest(req: Request): JsonObject {
     if (key !== "scope") {
       throw new HttpError(400, "INVALID_REQUEST", "查詢參數不支援");
     }
+    if (url.searchParams.getAll(key).length > 1) {
+      throw new HttpError(400, "INVALID_REQUEST", "查詢參數不可重複");
+    }
   }
   const scope = url.searchParams.get("scope");
   if (scope === null) return {};
@@ -229,6 +240,9 @@ export function parseAdminListRequest(req: Request): JsonObject {
   for (const key of url.searchParams.keys()) {
     if (!allowed.includes(key)) {
       throw new HttpError(400, "INVALID_REQUEST", "查詢參數不支援");
+    }
+    if (url.searchParams.getAll(key).length > 1) {
+      throw new HttpError(400, "INVALID_REQUEST", "查詢參數不可重複");
     }
   }
   const result: JsonObject = {};
