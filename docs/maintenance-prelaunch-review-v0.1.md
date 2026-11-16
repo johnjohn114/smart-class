@@ -368,3 +368,13 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 - The disposable regression test now asserts the counter remains at 100 immediately after the existing-admin conflict, then checks the first genuinely new visitor receives 100.
 - A concurrent first-time insert race can still produce an unused counter value if two independent transactions attempt the same previously absent profile simultaneously; this candidate test does not claim to prove that race impossible. Review whether member numbers require gap-free allocation before production approval.
 - Changes remain on feature/maintenance-system; CI must be rerun against the new commit. No production database writes, migration, deployment, merge, or paid resources.
+
+
+### 6.19 Corrected member-number conflict regression test CI result（2026-11-17）
+
+- Workflow run `43912032237` tested commit `7c1750d19c91af548dd0b8d8cd2e6ae5e688eae5`, which includes the corrected migration and regression test; result: **success**.
+- Deno type checks/tests: success.
+- GoTrue-issued JWT and PostgREST integration: success (verification step completed successfully).
+- Isolated PostgreSQL 17 RPC/RLS suite, growth authorization regression, and default-privilege/trigger-side-effect regression: success.
+- The branch HEAD subsequently advanced to `4e42ded34ec1e11ac451ac1e92fef7ad4ef6a1b3` with a documentation-only commit; the tested code commit is its direct parent. No code changed after the successful CI run.
+- Scope remains limited to disposable CI environments and the feature branch. The SQL fixture still uses simplified stand-ins for some production functions, so this pass does not establish full production-schema compatibility or eliminate the concurrent first-profile insert race described in 6.18. No production migration, deployment, merge, or paid resource.
