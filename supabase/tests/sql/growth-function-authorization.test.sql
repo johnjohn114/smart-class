@@ -278,6 +278,33 @@ END
 $admin_allowed$;
 RESET ROLE;
 
+-- An authenticated SQL role without a user JWT must never pass admin guards.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE authenticated;
+DO $missing_identity_denied$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000010');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '只有管理員可以刪除獎勵' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: admin delete accepted a missing auth.uid()'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.admin_upsert_growth_reward(
+      NULL,'should-not-exist','Should Not Exist',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+      NULL,NULL,NULL,NULL,NULL,NULL,1,true
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '只有管理員可以管理獎勵' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: admin upsert accepted a missing auth.uid()'; END IF;
+END
+$missing_identity_denied$;
+RESET ROLE;
+
 -- A normal authenticated member cannot use admin reward RPCs.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
 SET ROLE authenticated;
