@@ -77,8 +77,8 @@ BEGIN
     'internal_note', 'CI_PRIVATE_NOTE_DO_NOT_EXPOSE',
     'is_global', true,
     'scope_codes', '[]'::jsonb,
-    'starts_at', pg_catalog.to_char(pg_catalog.now() - interval '5 minutes', 'YYYY-MM-DD"T"HH24:MI:SSOF'),
-    'ends_at', pg_catalog.to_char(pg_catalog.now() + interval '1 hour', 'YYYY-MM-DD"T"HH24:MI:SSOF'),
+    'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '1 hour') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'isolated PostgreSQL integration test',
     'idempotency_key', '00000000-0000-4000-8000-000000000011'
@@ -191,8 +191,8 @@ BEGIN
     'message', 'This must be rejected',
     'is_global', true,
     'scope_codes', '[]'::jsonb,
-    'starts_at', pg_catalog.to_char(pg_catalog.now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'),
-    'ends_at', pg_catalog.to_char(pg_catalog.now() + interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI:SSOF'),
+    'starts_at', pg_catalog.to_char(pg_catalog.now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '30 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'conflict integration test',
     'idempotency_key', '00000000-0000-4000-8000-000000000012'
