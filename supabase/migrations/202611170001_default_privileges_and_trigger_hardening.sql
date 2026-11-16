@@ -29,9 +29,15 @@ SECURITY DEFINER
 SET search_path TO ''
 AS $function$
 BEGIN
-  INSERT INTO public.profiles(id, role)
-  VALUES (NEW.id, 'visitor')
-  ON CONFLICT (id) DO NOTHING;
+  -- Avoid firing profiles' BEFORE INSERT member-number trigger for a known
+  -- existing profile (ON CONFLICT is checked only after BEFORE INSERT).
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles WHERE id = NEW.id
+  ) THEN
+    INSERT INTO public.profiles(id, role)
+    VALUES (NEW.id, 'visitor')
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
   RETURN NEW;
 END;
 $function$;
