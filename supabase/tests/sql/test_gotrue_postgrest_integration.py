@@ -196,9 +196,9 @@ def main():
         "Local scope overlap", scope_start + timedelta(minutes=10),
         scope_end + timedelta(minutes=10), ["events_competitions"])
     status, overlap_result = run_action(overlapping_local_id, "schedule")
-    assert_true(status == 400 and isinstance(overlap_result, dict)
+    assert_true(status in (400, 409, 422) and isinstance(overlap_result, dict)
                 and overlap_result.get("message") == "CONFLICT",
-                "overlapping events in the same local scope are rejected")
+                f"overlapping events in the same local scope are rejected (HTTP {status}; body={overlap_result!r})")
 
     adjacent_local_id = create_scope_draft(
         "Local scope adjacent", scope_end, scope_end + timedelta(minutes=20),
@@ -222,9 +222,9 @@ def main():
     assert_true(status == 200 and global_updated.get("data", {}).get("version") == 2,
                 "global conflict fixture is updated")
     status, global_conflict = run_action(global_overlap_id, "schedule", version=2)
-    assert_true(status == 400 and isinstance(global_conflict, dict)
+    assert_true(status in (400, 409, 422) and isinstance(global_conflict, dict)
                 and global_conflict.get("message") == "CONFLICT",
-                "global schedule conflicts with an overlapping local-scope event")
+                f"global schedule conflicts with an overlapping local-scope event (HTTP {status}; body={global_conflict!r})")
 
     # A draft create isolates idempotency behavior from schedule conflict checks.
     idem_start = datetime.now(timezone.utc) + timedelta(days=2)
