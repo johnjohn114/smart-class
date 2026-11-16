@@ -242,3 +242,49 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 - [查看最終 CI 紀錄](https://github.com/johnjohn114/smart-class/actions/runs/43905317681)
 
 本輪仍不代表正式環境已修補。Migration baseline、正式 Data API exposed schemas、其他 SECURITY DEFINER 函式完整逐項授權矩陣、Edge Function 部署設定/CORS、限流及 retention 政策仍是後續阻擋項目。
+
+
+### 6.14 全量 SECURITY DEFINER 稽核、ACL 收斂與 RLS 相容性（2026-11-17）
+
+**正式 Supabase 唯讀盤點**
+- `public` schema 共 36 個 SECURITY DEFINER routines：31 個一般可呼叫函式、5 個 trigger functions。
+- 31 個一般函式中，anon 目前可 EXECUTE 30 個；authenticated 可 EXECUTE 30 個。所有 36 個 routine 的 owner 均為 `postgres`。
+- 5 個 trigger functions 已確認各自掛載於既有 trigger；它們不是一般 RPC，不應授予 API roles 直接 EXECUTE。
+- API roles 對 `public` schema 沒有 CREATE 權限；本次盤點的 public tables 均啟用 RLS。
+- `is_admin()` 的 search_path 為空字串，且 anon 沒有 EXECUTE；但正式 RLS policy 中有多個 PUBLIC policy 會呼叫 `is_admin()`（包括 competitions、competition_results、forms、form_questions、products、quick_links）。因此候選 ACL 必須把 `is_admin()` 當作唯一 anon allowlist helper：它只查詢 `auth.uid()` 對應的 admin role，匿名身分應回傳 false。不能為追求「anon 零 EXECUTE」而破壞公開資料查詢的 RLS policy。
+- `is_admin_user()` 僅供 authenticated 的影片管理 policy / 管理函式使用，不需要 anon EXECUTE。
+- PostgreSQL default privileges 仍對 `public` schema 未來建立的函式授予 anon/authenticated/service_role EXECUTE；未來新建 table 的預設 ACL 亦相當寬鬆。這不會自動改變本次已盤點的現有函式，但屬於下一份獨立 default-privileges policy 的阻擋項目。本次沒有變更 default privileges，因為需先盤點未來一般 SECURITY INVOKER RPC 的授權相容性。
+- `member_no_counter`、`visitor_profiles` 有 RLS 但沒有 policy；API roles 即使有 table ACL 仍會被 RLS 擋下，需另案確認其使用情境。
+
+**全量函式風險分類**
+- 管理函式：`admin_*` 函式逐一確認存在 admin guard；兩個例外有 SQL NULL 比較漏洞：`admin_delete_growth_reward` 與 `admin_upsert_growth_reward` 原本使用 `caller_role <> 'admin'`，當沒有 `auth.uid()` 時比較結果可能是 NULL 而不進入拒絕分支。
+- 成長內部寫入：`award_growth_points` 可依參數修改任意會員積分，不能作為一般 anon/authenticated RPC；其正式 ACL 原本有 anon 與 service_role，沒有 authenticated。候選方案撤銷 anon/authenticated，保留 service_role 供受信任內部呼叫。
+- 成長等級 helper：`refresh_growth_level(uuid)` 原本可更新任意指定會員等級；候選方案改為本人或 admin 才能呼叫，並把內部計算搬至 `_refresh_growth_level_internal(uuid)`，內部 helper 不授予任何 API role。
+- 成就與徽章：`check_growth_achievements(uuid)`、`check_activity_badges(uuid)` 都會寫入指定會員的解鎖資料；候選方案限制本人或 admin，並明確拒絕缺少 `auth.uid()` 的呼叫。
+- 下載計數：`increment_download_count(uuid)` 只增加已發布檔案計數；正式前端在下載時帶 visitor JWT。候選方案撤銷 anon/PUBLIC，保留 authenticated。仍可由登入會員對已發布檔案重複呼叫，屬於計數濫用／rate-limit 待辦，不是會員資料越權。
+- 會員自助函式：`close_my_support_ticket` 以 `user_id=auth.uid()` 限定本人；`complete_growth_task`、`create_cash_order`、`checkin_competition`、`join_competition_waitlist`、`record_growth_activity`、`redeem_growth_reward`、`use_growth_coupon` 均有登入身分或本人資源限制。
+- Trigger functions：`assign_member_no_and_nickname`、`check_competition_registration_rules`、`ensure_visitor_profile`、`growth_registration_reward`、`growth_result_reward` 僅由 trigger 觸發，不需 API roles 直接 EXECUTE。另需獨立確認 `ensure_visitor_profile` 的 `ON CONFLICT ... role='visitor'` 是否可能覆寫既有角色；此點列為資料完整性待辦，不在本次 ACL 修補中改動。
+
+**功能分支候選 Migration**
+- `supabase/migrations/202611160001_growth_function_authorization_hardening.sql` 已擴充為對 public schema 所有 SECURITY DEFINER routines 執行逐項 ACL 收斂：
+  - 一般函式撤銷 PUBLIC/anon；除內部積分與內部等級 helper 外，authenticated 取得明確 EXECUTE。
+  - `award_growth_points` 撤銷 authenticated 直接執行，保留 service_role。
+  - 內部 `_refresh_growth_level_internal` 撤銷 PUBLIC/anon/authenticated/service_role。
+  - trigger functions 撤銷 PUBLIC/anon/authenticated/service_role 直接 EXECUTE，但 trigger 本身仍可運作。
+  - `is_admin()` 是唯一 anon allowlist，以相容正式 PUBLIC RLS policies。
+- 修正兩個管理獎勵函式的 NULL identity：admin role 必須明確 `IS NOT DISTINCT FROM 'admin'`，並且 `auth.uid()` 不可為 NULL。
+- 活動徽章與成就函式限制本人/admin，防止空身分或跨帳號寫入。
+- 測試額外模擬正式既有 GRANT，驗證舊 ACL 不會在 CREATE OR REPLACE 後殘留；驗證匿名呼叫受限、缺少 JWT 的 admin 呼叫遭拒、一般會員跨帳號遭拒、管理員可執行授權操作、trigger 在撤銷 API EXECUTE 後仍可觸發，以及 anon 的 `is_admin()` 回傳 false。
+
+**最新 CI**
+- 測試 branch HEAD：`c23c84da1ae05d11ac7a74dc5411e569fc1abc94`
+- run `43907518012`：`completed / success`，SHA 與當時 branch HEAD 完全一致。
+- Deno type-check/tests：success。
+- PostgreSQL 17 isolated RPC/RLS + 全量 SECURITY DEFINER ACL regression：success。
+- GoTrue-issued JWT / PostgREST integration：success。
+- [查看 CI](https://github.com/johnjohn114/smart-class/actions/runs/43907518012)
+
+**未完成／不授權項目**
+- 本 Migration 仍是功能分支候選，未套用正式 Supabase；沒有執行正式 REVOKE、GRANT、ALTER DEFAULT PRIVILEGES、Migration repair 或部署。
+- default privileges、`increment_download_count` rate limiting、`ensure_visitor_profile` 角色覆寫風險、Migration baseline、Data API exposed schemas、Edge Function secrets/CORS/runtime smoke test 仍需分別處理。
+- 不得因本次隔離 CI 成功就直接部署或 merge；正式變更仍需完整相容性審核、回復計畫與明確授權。
