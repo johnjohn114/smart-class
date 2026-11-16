@@ -1,0 +1,44 @@
+name: Maintenance Edge Function Checks
+
+on:
+  push:
+    branches:
+      - feature/maintenance-system
+    paths:
+      - "supabase/functions/**"
+      - "supabase/tests/functions/**"
+      - ".github/workflows/maintenance-edge-functions.yml"
+  pull_request:
+    paths:
+      - "supabase/functions/**"
+      - "supabase/tests/functions/**"
+      - ".github/workflows/maintenance-edge-functions.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  maintenance-edge-functions:
+    name: Deno type check and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check maintenance Edge Functions and tests
+        run: |
+          deno check \
+            supabase/functions/maintenance-status/index.ts \
+            supabase/functions/maintenance-admin-list/index.ts \
+            supabase/functions/maintenance-event-create/index.ts \
+            supabase/functions/maintenance-event-update/index.ts \
+            supabase/functions/maintenance-event-action/index.ts \
+            supabase/tests/functions/maintenance-validation.test.ts
+
+      - name: Run maintenance validation tests
+        run: deno test supabase/tests/functions/maintenance-validation.test.ts
