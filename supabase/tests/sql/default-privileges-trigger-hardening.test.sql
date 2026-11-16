@@ -187,6 +187,8 @@ GRANT EXECUTE ON FUNCTION public.growth_result_reward() TO anon, authenticated, 
 CREATE TABLE public.default_acl_probe(id integer);
 CREATE SEQUENCE public.default_acl_probe_seq;
 CREATE FUNCTION public.default_acl_probe_fn() RETURNS integer LANGUAGE sql AS 'SELECT 1';
+-- The PUBLIC EXECUTE default is global, so verify it is closed outside public too.
+CREATE FUNCTION auth.default_acl_probe_fn() RETURNS integer LANGUAGE sql AS 'SELECT 1';
 DO $default_acl$
 BEGIN
   IF has_table_privilege('anon','public.default_acl_probe','SELECT')
@@ -201,8 +203,9 @@ BEGIN
   END IF;
   IF has_function_privilege('anon','public.default_acl_probe_fn()','EXECUTE')
      OR has_function_privilege('authenticated','public.default_acl_probe_fn()','EXECUTE')
-     OR has_function_privilege('service_role','public.default_acl_probe_fn()','EXECUTE') THEN
-    RAISE EXCEPTION 'FAIL: new function inherited API-role EXECUTE';
+     OR has_function_privilege('service_role','public.default_acl_probe_fn()','EXECUTE')
+     OR has_function_privilege('anon','auth.default_acl_probe_fn()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: new function inherited PUBLIC/API-role EXECUTE';
   END IF;
 END
 $default_acl$;
@@ -219,7 +222,9 @@ END
 $profile_conflict$;
 
 -- New visitor account still creates a visitor profile.
-INSERT INTO auth.users(id,email) VALUES('00000000-0000-4000-8000-000000000002','new.member@example.test');
+INSERT INTO auth.users(id,email) VALUES
+('00000000-0000-4000-8000-000000000002','new.member@example.test'),
+('00000000-0000-4000-8000-000000000003','member.three@example.test');
 INSERT INTO public.visitor_accounts(id) VALUES('00000000-0000-4000-8000-000000000002');
 DO $profile_create$
 BEGIN
@@ -235,6 +240,9 @@ DO $member_number$
 BEGIN
   IF (SELECT member_no FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 100 THEN
     RAISE EXCEPTION 'FAIL: member number trigger did not assign expected number';
+  END IF;
+  IF (SELECT nickname FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 'member.three' THEN
+    RAISE EXCEPTION 'FAIL: member nickname was not derived from Auth email';
   END IF;
 END
 $member_number$;
@@ -261,6 +269,22 @@ BEGIN
   END IF;
 END
 $registration_state$;
+
+-- Expired registration windows must also be rejected.
+INSERT INTO public.competitions(id,registration_deadline,registration_capacity,registration_approval)
+VALUES('00000000-0000-4000-8000-000000000015',now()-interval '1 day',5,false);
+DO $registration_deadline$
+DECLARE denied boolean:=false;
+BEGIN
+  BEGIN
+    INSERT INTO public.competition_registrations(id,competition_id,user_id,status)
+    VALUES('00000000-0000-4000-8000-000000000016','00000000-0000-4000-8000-000000000015','00000000-0000-4000-8000-000000000017','active');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='報名已截止' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: expired registration deadline was not enforced'; END IF;
+END
+$registration_deadline$;
 
 DO $registration_capacity$
 DECLARE denied boolean:=false;
@@ -306,6 +330,9 @@ BEGIN
   IF has_function_privilege('anon','public.assign_member_no_and_nickname()','EXECUTE')
      OR has_function_privilege('authenticated','public.assign_member_no_and_nickname()','EXECUTE')
      OR has_function_privilege('service_role','public.assign_member_no_and_nickname()','EXECUTE')
+     OR has_function_privilege('anon','public.check_competition_registration_rules()','EXECUTE')
+     OR has_function_privilege('authenticated','public.check_competition_registration_rules()','EXECUTE')
+     OR has_function_privilege('service_role','public.check_competition_registration_rules()','EXECUTE')
      OR has_function_privilege('anon','public.ensure_visitor_profile()','EXECUTE')
      OR has_function_privilege('authenticated','public.ensure_visitor_profile()','EXECUTE')
      OR has_function_privilege('service_role','public.ensure_visitor_profile()','EXECUTE')
