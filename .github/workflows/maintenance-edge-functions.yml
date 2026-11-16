@@ -102,8 +102,21 @@ jobs:
             --env GOTRUE_MAILER_AUTOCONFIRM=true \
             supabase/gotrue:v2.197.0
 
-      - name: Apply GoTrue database migrations
-        run: docker exec maintenance-gotrue auth migrate
+      - name: Wait for GoTrue schema migrations to finish
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          for attempt in $(seq 1 60); do
+            ready=$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('auth.identities') IS NOT NULL AND to_regclass('auth.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM auth.schema_migrations WHERE version = '20260831180000')" 2>/dev/null || true)
+            if [ "$ready" = "t" ]; then
+              echo 'GoTrue schema migrations are complete'
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs maintenance-gotrue
+          echo 'GoTrue schema migrations did not complete' >&2
+          exit 1
 
       - name: Wait for GoTrue migrations and API
         run: |
