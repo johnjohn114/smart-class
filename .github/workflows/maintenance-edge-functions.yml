@@ -99,6 +99,7 @@ jobs:
             --env GOTRUE_JWT_SECRET=maintenance-gotrue-ci-secret-at-least-32-bytes-long \
             --env GOTRUE_JWT_EXP=3600 \
             --env GOTRUE_JWT_AUD=authenticated \
+            --env GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated \\
             --env GOTRUE_EXTERNAL_EMAIL_ENABLED=true \
             --env GOTRUE_MAILER_AUTOCONFIRM=true \
             supabase/gotrue:v2.197.0
