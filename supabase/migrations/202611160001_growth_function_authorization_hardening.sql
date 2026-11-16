@@ -39,7 +39,7 @@ begin
   end if;
   return jsonb_build_object('success', true, 'action', 'deleted', 'redemptions', 0);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.admin_upsert_growth_reward(p_reward_id uuid, p_code text, p_title text, p_description text, p_icon text, p_category text, p_point_cost integer, p_min_level text, p_required_achievement_id uuid, p_user_limit integer, p_total_limit integer, p_coupon_title text, p_coupon_description text, p_coupon_discount text, p_coupon_expires_days integer, p_available_from timestamp with time zone, p_available_until timestamp with time zone, p_sort_order integer, p_enabled boolean)
@@ -73,7 +73,7 @@ begin
   end if;
   return jsonb_build_object('success',true,'id',row_data.id,'action',case when p_reward_id is null then 'created' else 'updated' end);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public._refresh_growth_level_internal(p_user_id uuid)
@@ -88,7 +88,7 @@ begin
  if lvl.code is null then lvl.code:='newbie'; end if;
  update public.profiles set growth_level=lvl.code where id=p_user_id;
  return lvl.code;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
@@ -154,7 +154,7 @@ begin
     values(p_user_id,'🎉 會員等級升級！','恭喜你從「'||coalesce((select name from public.growth_levels where code=old_level),'新手')||'」升級為「'||coalesce(level_name,new_level)||'」！','成長');
   end if;
   return new_points;
-end; $function$
+end; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.check_growth_achievements(p_user_id uuid DEFAULT auth.uid())
