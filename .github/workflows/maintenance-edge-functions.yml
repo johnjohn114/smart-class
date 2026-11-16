@@ -12,6 +12,8 @@ on:
       - "tests/test_verify_maintenance_sql_draft.py"
       - "scripts/verify_maintenance_sql_draft.py"
       - "supabase/sql/**"
+      - "supabase/migrations/**"
+      - "supabase/tests/sql/growth-function-authorization.test.sql"
       - ".github/workflows/maintenance-edge-functions.yml"
   pull_request:
     paths:
@@ -19,6 +21,8 @@ on:
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
       - "supabase/sql/**"
+      - "supabase/migrations/**"
+      - "supabase/tests/sql/growth-function-authorization.test.sql"
       - ".github/workflows/maintenance-edge-functions.yml"
 
 permissions:
@@ -207,6 +211,15 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-postgres-isolated.test.sql
+
+      - name: Run growth function authorization regression tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE growth_function_authorization_test"
+          psql postgresql://postgres:postgres@localhost:5432/growth_function_authorization_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/growth-function-authorization.test.sql
 
       - name: Start PostgREST after database roles are provisioned
         run: |
