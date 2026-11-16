@@ -189,6 +189,26 @@ FOR EACH ROW EXECUTE FUNCTION public.ci_security_definer_trigger();
 
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
 
+-- is_admin() is the one safe SECURITY DEFINER helper exposed to anon because
+-- several PUBLIC RLS policies call it; it must return false without a JWT.
+DO $anon_is_admin$
+BEGIN
+  IF NOT has_function_privilege('anon','public.is_admin()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: anon cannot evaluate public RLS policies using is_admin()';
+  END IF;
+END
+$anon_is_admin$;
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE anon;
+DO $anon_is_admin_result$
+BEGIN
+  IF public.is_admin() IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'FAIL: is_admin() did not return false for anon';
+  END IF;
+END
+$anon_is_admin_result$;
+RESET ROLE;
+
 -- Anonymous callers cannot execute privileged RPCs or internal helpers.
 DO $anon_acl$
 BEGIN
