@@ -43,9 +43,11 @@
    if(typeof SUPABASE_URL==='undefined'||typeof SUPABASE_ANON_KEY==='undefined'){
      registration.textContent='❌ Supabase 設定缺失';saveState('❌ 無法登記：Supabase 設定尚未載入。',false);return;
    }
+   const accessToken=localStorage.getItem('visitor_access_token');
+   if(!accessToken){registration.textContent='請先登入會員再註冊推播裝置。';saveState('❌ 請先登入會員，再註冊推播裝置。',false);return;}
    fetch(SUPABASE_URL+'/rest/v1/device_push_tokens?on_conflict=token',{
      method:'POST',
-     headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(localStorage.getItem('visitor_access_token')||SUPABASE_ANON_KEY),'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
+     headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+accessToken,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
      body:JSON.stringify({token:token,platform:'android',updated_at:new Date().toISOString()})
    }).then(response=>{
      if(response.ok){registration.textContent='✅ 已成功登記';saveState('✅ 推播診斷完成：已取得識別碼，且裝置已成功登記。',true)}
