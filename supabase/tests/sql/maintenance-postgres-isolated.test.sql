@@ -109,7 +109,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: same idempotency key with different payload was accepted';
   END IF;
 END
-$;
+$$;
 RESET ROLE;
 
 -- Anonymous public visibility is limited to the active event. The private note
