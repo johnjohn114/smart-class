@@ -164,7 +164,7 @@ CREATE FUNCTION public.award_growth_points(
 )
 RETURNS integer
 LANGUAGE sql
-AS $ SELECT 0 $;
+AS $body$ SELECT 0 $body$;
 GRANT EXECUTE ON FUNCTION public.award_growth_points(uuid,integer,text,text,text,text,uuid)
   TO anon, authenticated, service_role;
 
