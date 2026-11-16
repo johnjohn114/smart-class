@@ -220,6 +220,14 @@ jobs:
           psql postgresql://postgres:postgres@localhost:5432/growth_function_authorization_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-function-authorization.test.sql
+      - name: Run default privileges and trigger side-effect regression tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE default_privileges_trigger_test"
+          psql postgresql://postgres:postgres@localhost:5432/default_privileges_trigger_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/default-privileges-trigger-hardening.test.sql
 
       - name: Start PostgREST after database roles are provisioned
         run: |
