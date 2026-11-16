@@ -242,7 +242,7 @@ end $function$
 
 REVOKE EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean) FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION public.award_growth_points(uuid, integer, text, text, text, text, uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.award_growth_points(uuid, integer, text, text, text, text, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.check_growth_achievements(uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.refresh_growth_level(uuid) FROM PUBLIC, anon;
 REVOKE ALL PRIVILEGES ON FUNCTION public._refresh_growth_level_internal(uuid) FROM PUBLIC, anon, authenticated, service_role;
