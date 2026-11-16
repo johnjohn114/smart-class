@@ -526,8 +526,22 @@ BEGIN
   END IF;
 
   PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
-  v_payload := p_request || pg_catalog.jsonb_build_object('_operation','create');
-  -- jsonb::text provides deterministic key ordering; the digest is calculated server-side.
+  -- Hash the server-normalized semantic request, not the caller's raw JSON representation.
+  -- Text is trimmed, scopes are sorted/deduplicated, UUIDs are canonical, and timestamps
+  -- are rendered in UTC so equivalent offsets produce the same idempotency hash.
+  v_payload := pg_catalog.jsonb_build_object(
+    '_operation','create',
+    'title',v_title,
+    'message',v_message,
+    'internal_note',NULLIF(pg_catalog.btrim(v_note),''),
+    'is_global',v_global,
+    'scope_codes',pg_catalog.to_jsonb(v_codes),
+    'starts_at',pg_catalog.to_char(v_start AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z',
+    'ends_at',pg_catalog.to_char(v_end AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z',
+    'status',v_status,
+    'reason',v_reason,
+    'idempotency_key',v_key
+  );
   v_request_hash := pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
   SELECT request_hash,response_json INTO v_old_request_hash,v_old_response
     FROM private.maintenance_idempotency
@@ -641,8 +655,41 @@ BEGIN
   END IF;
 
   PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
-  v_payload := p_request || pg_catalog.jsonb_build_object('_operation','update');
-  -- jsonb::text provides deterministic key ordering; the digest is calculated server-side.
+  -- Build a canonical payload from validated values. Preserve omission of optional
+  -- fields, while normalizing every supplied value before hashing.
+  v_payload := pg_catalog.jsonb_build_object(
+    '_operation','update',
+    'event_id',(p_request->>'event_id')::uuid,
+    'expected_version',(p_request->>'expected_version')::bigint,
+    'reason',v_reason,
+    'idempotency_key',v_key
+  );
+  IF p_request ? 'title' THEN
+    v_payload := v_payload || pg_catalog.jsonb_build_object('title',pg_catalog.btrim(p_request->>'title'));
+  END IF;
+  IF p_request ? 'message' THEN
+    v_payload := v_payload || pg_catalog.jsonb_build_object('message',pg_catalog.btrim(p_request->>'message'));
+  END IF;
+  IF p_request ? 'internal_note' THEN
+    v_payload := v_payload || pg_catalog.jsonb_build_object(
+      'internal_note',NULLIF(pg_catalog.btrim(p_request->>'internal_note'),''));
+  END IF;
+  IF p_request ? 'is_global' THEN
+    v_payload := v_payload || pg_catalog.jsonb_build_object('is_global',(p_request->>'is_global')::boolean);
+  END IF;
+  IF p_request ? 'scope_codes' THEN
+    SELECT COALESCE(pg_catalog.array_agg(DISTINCT x ORDER BY x),ARRAY[]::text[])
+      INTO v_codes FROM pg_catalog.jsonb_array_elements_text(p_request->'scope_codes') x;
+    v_payload := v_payload || pg_catalog.jsonb_build_object('scope_codes',pg_catalog.to_jsonb(v_codes));
+  END IF;
+  IF p_request ? 'starts_at' THEN
+    v_payload := v_payload || pg_catalog.jsonb_build_object(
+      'starts_at',pg_catalog.to_char((p_request->>'starts_at')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z');
+  END IF;
+  IF p_request ? 'ends_at' THEN
+    v_payload := v_payload || pg_catalog.jsonb_build_object(
+      'ends_at',pg_catalog.to_char((p_request->>'ends_at')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z');
+  END IF;
   v_request_hash := pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
   SELECT request_hash,response_json INTO v_old_request_hash,v_old_response
     FROM private.maintenance_idempotency WHERE actor_id=v_actor AND idempotency_key=v_key;
@@ -801,8 +848,14 @@ BEGIN
   END IF;
 
   PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
-  v_payload := p_request || pg_catalog.jsonb_build_object('_operation','action');
-  -- jsonb::text provides deterministic key ordering; the digest is calculated server-side.
+  v_payload := pg_catalog.jsonb_build_object(
+    '_operation','action',
+    'event_id',(p_request->>'event_id')::uuid,
+    'expected_version',(p_request->>'expected_version')::bigint,
+    'action',v_action,
+    'reason',v_reason,
+    'idempotency_key',v_key
+  );
   v_request_hash := pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
   SELECT request_hash,response_json INTO v_old_request_hash,v_old_response
     FROM private.maintenance_idempotency WHERE actor_id=v_actor AND idempotency_key=v_key;
