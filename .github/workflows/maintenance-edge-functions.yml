@@ -7,6 +7,7 @@ on:
     paths:
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
+      - "supabase/tests/sql/**"
       - "tests/test_verify_maintenance_sql_draft.py"
       - "scripts/verify_maintenance_sql_draft.py"
       - "supabase/sql/**"
@@ -15,6 +16,8 @@ on:
     paths:
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
+      - "supabase/tests/sql/**"
+      - "supabase/sql/**"
       - ".github/workflows/maintenance-edge-functions.yml"
 
 permissions:
@@ -51,3 +54,31 @@ jobs:
 
       - name: Test maintenance SQL static guardrails
         run: python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py'
+
+  maintenance-postgres-integration:
+    name: Isolated PostgreSQL RPC and RLS tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: maintenance_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d maintenance_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Apply draft and run isolated PostgreSQL integration checks
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/maintenance-postgres-isolated.test.sql
