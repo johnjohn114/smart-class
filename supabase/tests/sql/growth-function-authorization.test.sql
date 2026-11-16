@@ -142,11 +142,12 @@ VALUES ('00000000-0000-4000-8000-000000000002','checked_in',2,0);
 CREATE FUNCTION public.increment_download_count(p_file_id uuid)
 RETURNS void
 LANGUAGE sql
-AS $
+SECURITY DEFINER
+AS $body$
   UPDATE public.download_files
   SET download_count=coalesce(download_count,0)+1, updated_at=now()
   WHERE id=p_file_id AND published=true
-$;
+$body$;
 GRANT EXECUTE ON FUNCTION public.increment_download_count(uuid) TO anon, authenticated;
 
 -- Simulate the live project's explicit grants on the pre-existing function.
