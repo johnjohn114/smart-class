@@ -99,6 +99,23 @@ CREATE TABLE public.growth_rewards (
 CREATE TABLE public.growth_reward_redemptions (
   reward_id uuid NOT NULL
 );
+CREATE TABLE public.competition_attendance (
+  user_id uuid NOT NULL,
+  status text NOT NULL,
+  points_awarded integer NOT NULL DEFAULT 0,
+  completion_points_awarded integer NOT NULL DEFAULT 0
+);
+CREATE TABLE public.activity_badges (
+  id uuid PRIMARY KEY,
+  active boolean NOT NULL,
+  requirement_type text NOT NULL,
+  requirement_value integer NOT NULL
+);
+CREATE TABLE public.user_activity_badges (
+  user_id uuid NOT NULL,
+  badge_id uuid NOT NULL,
+  UNIQUE(user_id,badge_id)
+);
 
 GRANT SELECT ON public.profiles TO authenticated;
 
@@ -110,6 +127,10 @@ INSERT INTO public.profiles(id,role,growth_points,growth_level) VALUES
  ('00000000-0000-4000-8000-000000000003','visitor',0,'newbie');
 INSERT INTO public.growth_achievements(id,active,achievement_type,requirement_count,reward_points,title)
 VALUES ('00000000-0000-4000-8000-000000000010',true,'points',1,5,'CI points achievement');
+INSERT INTO public.activity_badges(id,active,requirement_type,requirement_value)
+VALUES ('00000000-0000-4000-8000-000000000020',true,'first_activity',1);
+INSERT INTO public.competition_attendance(user_id,status,points_awarded,completion_points_awarded)
+VALUES ('00000000-0000-4000-8000-000000000002','checked_in',2,0);
 
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
 
@@ -121,6 +142,7 @@ BEGIN
   IF has_function_privilege('anon','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute award_growth_points'; END IF;
   IF has_function_privilege('anon','public.check_growth_achievements(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute check_growth_achievements'; END IF;
   IF has_function_privilege('anon','public.refresh_growth_level(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute refresh_growth_level'; END IF;
+  IF has_function_privilege('anon','public.check_activity_badges(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute check_activity_badges'; END IF;
   IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points directly'; END IF;
   IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute internal helper'; END IF;
 END
@@ -139,6 +161,7 @@ BEGIN
   IF unlocked <> 1 THEN RAISE EXCEPTION 'FAIL: member own achievement check did not unlock expected achievement'; END IF;
   SELECT growth_points INTO points FROM public.profiles WHERE id=auth.uid();
   IF points <> 15 THEN RAISE EXCEPTION 'FAIL: internal award helper did not award expected points'; END IF;
+  IF (public.check_activity_badges(auth.uid())->>'success')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL: member could not check own activity badges'; END IF;
   level_code := public.refresh_growth_level(auth.uid());
   IF level_code <> 'sprout' THEN RAISE EXCEPTION 'FAIL: own growth level refresh returned unexpected level'; END IF;
 END
@@ -156,6 +179,13 @@ BEGIN
     IF SQLERRM = '沒有權限檢查此會員成就' THEN denied := true; ELSE RAISE; END IF;
   END;
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: member inspected another member achievements'; END IF;
+  denied := false;
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: member checked another member activity badges'; END IF;
 
   denied := false;
   BEGIN
@@ -187,6 +217,7 @@ BEGIN
   IF result->>'action' <> 'deleted' THEN
     RAISE EXCEPTION 'FAIL: admin reward delete did not return deleted action';
   END IF;
+  IF (public.check_activity_badges('00000000-0000-4000-8000-000000000003')->>'success')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL: admin could not check another member badges'; END IF;
   level_code := public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
   IF level_code <> 'newbie' THEN RAISE EXCEPTION 'FAIL: admin could not refresh another member level'; END IF;
 END
