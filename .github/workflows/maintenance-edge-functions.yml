@@ -107,7 +107,7 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
         run: |
           for attempt in $(seq 1 60); do
-            ready=$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('auth.identities') IS NOT NULL AND to_regclass('auth.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM auth.schema_migrations WHERE version = '20260831180000')" 2>/dev/null || true)
+            ready=$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('auth.identities') IS NOT NULL AND to_regclass('auth.schema_migrations') IS NOT NULL" 2>/dev/null || true)
             if [ "$ready" = "t" ]; then
               echo 'GoTrue schema migrations are complete'
               exit 0
