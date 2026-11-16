@@ -151,3 +151,53 @@ Deno.test("admin list: rejects explicitly blank status, scope, from, and to", ()
     }
   }
 });
+
+Deno.test("date validation: rejects impossible calendar dates", async () => {
+  const req = new Request("https://local.test/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "系統維護",
+      message: "服務將進行維護",
+      internal_note: null,
+      is_global: true,
+      scope_codes: [],
+      starts_at: "2026-02-30T10:00:00+08:00",
+      ends_at: "2026-03-03T11:00:00+08:00",
+      status: "draft",
+      reason: "排定例行維護",
+      idempotency_key: uuid,
+    }),
+  });
+  let rejected = false;
+  try {
+    await parseCreateRequest(req);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("impossible calendar date must be rejected");
+});
+
+Deno.test("date validation: accepts leap day in a leap year", async () => {
+  const req = new Request("https://local.test/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "系統維護",
+      message: "服務將進行維護",
+      internal_note: null,
+      is_global: true,
+      scope_codes: [],
+      starts_at: "2028-02-29T10:00:00+08:00",
+      ends_at: "2028-03-01T11:00:00+08:00",
+      status: "draft",
+      reason: "排定例行維護",
+      idempotency_key: uuid,
+    }),
+  });
+  const result = await parseCreateRequest(req);
+  if (result.starts_at !== "2028-02-29T10:00:00+08:00") {
+    throw new Error("valid leap day must be preserved");
+  }
+});
+
