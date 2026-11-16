@@ -83,6 +83,7 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           CREATE EXTENSION IF NOT EXISTS pgcrypto;
           CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          CREATE SCHEMA IF NOT EXISTS auth;
           SQL
 
       - name: Start Supabase GoTrue with automatic migrations
