@@ -294,4 +294,36 @@ END
 $member_admin_denied$;
 RESET ROLE;
 
+
+-- All fixture SECURITY DEFINER RPCs must be unavailable to anon.
+DO $all_anon_denied$
+DECLARE
+  sig text;
+BEGIN
+  FOREACH sig IN ARRAY ARRAY[
+    'public.award_growth_points(uuid,integer,text,text,text,text,uuid)',
+    'public.increment_download_count(uuid)',
+    'public.admin_delete_growth_reward(uuid)',
+    'public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)',
+    'public._refresh_growth_level_internal(uuid)',
+    'public.refresh_growth_level(uuid)',
+    'public.check_growth_achievements(uuid)',
+    'public.check_activity_badges(uuid)'
+  ] LOOP
+    IF has_function_privilege('anon', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: anon retains EXECUTE on %', sig;
+    END IF;
+  END LOOP;
+  IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can directly execute internal award_growth_points';
+  END IF;
+  IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can execute internal level helper';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.increment_download_count(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated lost download counter access';
+  END IF;
+END
+$all_anon_denied$;
+
 \echo 'PASS: growth function authorization regression tests'
