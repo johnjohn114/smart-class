@@ -222,3 +222,23 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 **正式環境狀態**
 - 候選 Migration 尚未套用；沒有執行 `db push`、`migration repair`、`REVOKE`、`CREATE OR REPLACE FUNCTION` 或任何正式資料庫寫入。
 - 不得因隔離 CI 通過而直接部署。正式修補仍須先完成完整呼叫端/權限相容性複核、Migration baseline 決策、備份與回復方案，並取得明確正式環境授權。
+
+
+### 6.13 生產環境 ACL 相容性測試補強與下載計數 API（2026-11-17）
+
+第二輪測試進一步模擬正式資料庫既有函式的直接 GRANT，避免只在全新 PostgreSQL 中測試而漏掉舊 ACL：
+
+- 正式 `award_growth_points(uuid,integer,text,text,text,text,uuid)` 原本明確授予 `authenticated` EXECUTE；單純撤銷 `PUBLIC, anon` 不會移除這筆直接授權。
+- 候選 Migration 已改為同時撤銷 `PUBLIC, anon, authenticated` 對 `award_growth_points` 的直接 EXECUTE；保留 `service_role`，供受信任的內部流程使用。內部 SECURITY DEFINER 函式仍可由 owner 呼叫，不需讓一般會員直接呼叫。
+- 回歸測試在 Migration 前先建立同簽章函式，明確授予 `anon, authenticated, service_role`，模擬正式 ACL；Migration 後驗證 anon 與 authenticated 均無直接執行權，防止 CREATE OR REPLACE 保留舊 ACL 的問題。
+- 正式前端 `app.js` 的下載計數呼叫帶有登入會員 token。候選 Migration 因此將 `increment_download_count(uuid)` 限制為 authenticated 可執行，撤銷 PUBLIC/anon；函式仍只對 `published=true` 的下載項目增加計數。
+- 新增測試確認 anon 無法執行下載計數，authenticated 可以執行，且未發布項目的計數不會增加。
+- 這些都是功能分支候選修補；沒有對正式 Supabase 執行任何 REVOKE 或其他寫入。
+
+**最終驗證**
+- branch HEAD：`f9226b1abce34e892945909f9ceea9eebcd1cbf9`
+- run `43905317681`：`completed / success`，測試 SHA 與 branch HEAD 完全一致。
+- Deno type-check/tests、PostgreSQL 17 ACL/回歸測試、GoTrue-issued JWT/PostgREST 整合測試均通過。
+- [查看最終 CI 紀錄](https://github.com/johnjohn114/smart-class/actions/runs/43905317681)
+
+本輪仍不代表正式環境已修補。Migration baseline、正式 Data API exposed schemas、其他 SECURITY DEFINER 函式完整逐項授權矩陣、Edge Function 部署設定/CORS、限流及 retention 政策仍是後續阻擋項目。
