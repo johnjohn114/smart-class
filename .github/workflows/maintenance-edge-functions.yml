@@ -72,16 +72,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-      postgrest:
-        image: postgrest/postgrest:v12.2.3
-        env:
-          PGRST_DB_URI: postgres://authenticator:authenticator@postgres:5432/maintenance_test
-          PGRST_DB_SCHEMAS: public
-          PGRST_DB_ANON_ROLE: anon
-          PGRST_JWT_SECRET: maintenance-ci-only-secret-key-at-least-32-bytes-long
-          PGRST_SERVER_PORT: 3000
-        ports:
-          - 3000:3000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -92,6 +82,16 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-postgres-isolated.test.sql
+
+      - name: Start PostgREST after database roles are provisioned
+        run: |
+          docker run --detach --network host --name maintenance-postgrest \
+            --env PGRST_DB_URI=postgres://authenticator:authenticator@127.0.0.1:5432/maintenance_test \
+            --env PGRST_DB_SCHEMAS=public \
+            --env PGRST_DB_ANON_ROLE=anon \
+            --env PGRST_JWT_SECRET=maintenance-ci-only-secret-key-at-least-32-bytes-long \
+            --env PGRST_SERVER_PORT=3000 \
+            postgrest/postgrest:v12.2.3
 
       - name: Wait for PostgREST
         run: |
