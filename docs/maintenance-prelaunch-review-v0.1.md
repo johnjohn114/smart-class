@@ -316,3 +316,27 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 - 本輪只執行正式資料庫 catalog/ACL/RLS/trigger 的唯讀查詢，並查閱 Supabase 官方 Securing your API 文件；沒有執行正式 REVOKE、GRANT、ALTER DEFAULT PRIVILEGES、資料寫入、Migration、部署或 merge。
 - Default Privileges 與實際 trigger 副作用仍未達可核准狀態；尤其 ensure_visitor_profile 的 role overwrite 必須先修正並通過隔離測試。
 - 現有 202611160001_growth_function_authorization_hardening.sql 仍是候選草案，不可視為可直接套用正式環境的最終版本。
+
+
+### 6.16 Default Privileges 與五個 Trigger 副作用候選修補（2026-11-17）
+
+**功能分支新增候選檔案**
+- Migration：supabase/migrations/202611170001_default_privileges_and_trigger_hardening.sql
+- 隔離測試：supabase/tests/sql/default-privileges-trigger-hardening.test.sql
+- 本次只新增到 feature/maintenance-system；未套用正式資料庫。
+
+**候選修補內容**
+- 只收斂應用 migration owner postgres 在 public schema 的新物件 default privileges：未來 tables、sequences、functions 不再自動授予 anon/authenticated/service_role；supabase_admin 預設 ACL 完全不動。
+- ensure_visitor_profile() 改為 ON CONFLICT(id) DO NOTHING，避免 visitor_accounts 新增時將既有 profiles.role 覆寫成 visitor。
+- 五個 SECURITY DEFINER trigger functions 撤銷 PUBLIC、anon、authenticated、service_role 的直接 EXECUTE；現有 trigger 綁定不因此移除。函式定義保留原有業務行為，ensure_visitor_profile 改用空 search_path 並 schema-qualified references。
+- 測試涵蓋新建 table/sequence/function 的預設權限、既有 admin profile 不降級、新 visitor profile 建立、member_no 遞增、報名截止/容量/審核狀態、報名積分、已公布成績積分、未公布成績不發點及 source_key 冪等性。
+
+**驗證限制與待辦**
+- 本環境沒有 psql/docker，故尚未能本機執行 SQL regression test；必須等待 GitHub Actions 的 PostgreSQL 17 disposable database workflow 實際結果。
+- 測試使用簡化 award_growth_points fixture 來驗證 trigger 呼叫與 source_key 冪等，並非正式積分函式的完整整合測試；應與既有 growth authorization regression test 一起執行。
+- default privileges 測試只驗證 postgres owner 的新物件預設權限；supabase_admin 物件仍保持現狀。
+- 本 migration 不應與既有 growth hardening migration 合併成正式 release，直到兩份 migration 在完整 production schema snapshot 上通過重播、權限差異及功能回歸檢查。
+
+**安全界線**
+- 未執行正式 ALTER DEFAULT PRIVILEGES、REVOKE、GRANT、DML、Migration、Edge Function deployment 或 merge。
+- CI 成功僅代表 disposable PostgreSQL 17 測試通過，不代表正式 Supabase 設定或整站行為已驗證。
