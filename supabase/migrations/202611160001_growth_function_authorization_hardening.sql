@@ -284,6 +284,14 @@ BEGIN
         r.signature
       );
 
+      -- Public RLS policies call is_admin(); anon needs this safe false-for-anon helper.
+      IF r.proname = 'is_admin' THEN
+        EXECUTE format(
+          'GRANT EXECUTE ON FUNCTION %s TO anon',
+          r.signature
+        );
+      END IF;
+
       IF r.proname IN ('award_growth_points', '_refresh_growth_level_internal') THEN
         EXECUTE format(
           'REVOKE EXECUTE ON FUNCTION %s FROM authenticated',
