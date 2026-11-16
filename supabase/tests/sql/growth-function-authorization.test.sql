@@ -100,6 +100,8 @@ CREATE TABLE public.growth_reward_redemptions (
   reward_id uuid NOT NULL
 );
 
+GRANT SELECT ON public.profiles TO authenticated;
+
 INSERT INTO public.growth_levels(code,name,min_points,sort_order)
 VALUES ('newbie','新手',0,0),('sprout','萌芽',10,1);
 INSERT INTO public.profiles(id,role,growth_points,growth_level) VALUES
