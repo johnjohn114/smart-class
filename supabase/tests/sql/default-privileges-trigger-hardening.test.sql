@@ -231,6 +231,9 @@ BEGIN
   IF (SELECT role FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002') <> 'visitor' THEN
     RAISE EXCEPTION 'FAIL: visitor profile was not created';
   END IF;
+  IF (SELECT member_no FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002') <> 100 THEN
+    RAISE EXCEPTION 'FAIL: visitor-account trigger did not allocate the first member number';
+  END IF;
 END
 $profile_create$;
 
@@ -238,7 +241,7 @@ $profile_create$;
 INSERT INTO public.profiles(id,role) VALUES('00000000-0000-4000-8000-000000000003','visitor');
 DO $member_number$
 BEGIN
-  IF (SELECT member_no FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 100 THEN
+  IF (SELECT member_no FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 101 THEN
     RAISE EXCEPTION 'FAIL: member number trigger did not assign expected number';
   END IF;
   IF (SELECT nickname FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 'member.three' THEN
@@ -250,7 +253,7 @@ $member_number$;
 INSERT INTO public.profiles(id,role) VALUES('00000000-0000-4000-8000-000000000004','visitor');
 DO $member_number_second$
 BEGIN
-  IF (SELECT member_no FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000004') <> 101 THEN
+  IF (SELECT member_no FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000004') <> 102 THEN
     RAISE EXCEPTION 'FAIL: member number counter did not increment';
   END IF;
 END
