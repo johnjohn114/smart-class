@@ -33,7 +33,7 @@ def token(sub: str | None, role: str = "anon", expired: bool = False) -> str:
         "aud": "authenticated" if role == "authenticated" else "anon",
         "role": role,
         "iat": now - 5,
-        "exp": now - 1 if expired else now + 300,
+        "exp": now - 3600 if expired else now + 300,
     }
     if sub:
         claims["sub"] = sub
