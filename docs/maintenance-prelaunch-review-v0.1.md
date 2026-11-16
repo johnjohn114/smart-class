@@ -340,3 +340,17 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 **安全界線**
 - 未執行正式 ALTER DEFAULT PRIVILEGES、REVOKE、GRANT、DML、Migration、Edge Function deployment 或 merge。
 - CI 成功僅代表 disposable PostgreSQL 17 測試通過，不代表正式 Supabase 設定或整站行為已驗證。
+
+
+### 6.17 Default function EXECUTE CI failure and candidate correction（2026-11-17）
+
+**CI failure diagnosis**
+- Run `43909917781` tested branch SHA `e807ae48b14a3fedeb5bb45af9401a9c264bc3c0`; Deno checks and GoTrue-issued JWT/PostgREST integration passed.
+- PostgreSQL job failed in the new default-privileges regression test: a function created after the candidate migration still had effective EXECUTE for API roles.
+- Root cause: PostgreSQL grants EXECUTE to PUBLIC by a global default. A schema-scoped `ALTER DEFAULT PRIVILEGES ... IN SCHEMA public REVOKE ... FROM PUBLIC` cannot cancel that global default. The earlier test correctly detected the inherited privilege; the migration was incomplete.
+
+**Feature-branch candidate correction**
+- Candidate migration now adds a global default-privilege revoke for PUBLIC EXECUTE for functions created by role `postgres`, then separately revokes schema-specific default EXECUTE for anon/authenticated/service_role in public.
+- The global statement affects future functions created by postgres in every schema, not only public. Future callers—including helper functions used by RLS policies—must receive explicit EXECUTE grants in the relevant migrations. Existing function ACLs are not changed by ALTER DEFAULT PRIVILEGES.
+- This scope is broader than the original candidate and requires a full compatibility review of all schemas/functions created by postgres before any production application.
+- No production SQL, migration, deployment, merge, or paid resource was used.
