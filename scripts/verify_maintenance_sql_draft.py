@@ -94,6 +94,17 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["audit_update_delete_guard"] = "BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs" in sql
     checks["audit_truncate_guard"] = "BEFORE TRUNCATE ON private.maintenance_audit_logs" in sql
     checks["idempotency_unique_actor_key"] = "PRIMARY KEY(actor_id, idempotency_key)" in sql
+    checks["idempotency_server_sha256"] = (
+        "request_hash bytea NOT NULL" in sql
+        and "pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'))" in sql
+        and sql.count("pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'))") == 3
+        and "request_payload jsonb" not in sql
+        and "request_payload" not in sql
+    )
+    checks["idempotency_replay_hash_comparison"] = (
+        sql.count("v_old_request_hash IS DISTINCT FROM v_request_hash") == 3
+        and sql.count("IDEMPOTENCY_KEY_REUSED") == 3
+    )
     checks["transaction_lock_present"] = "pg_advisory_xact_lock(20261108,1)" in sql
     # The frontend checks site_core on every page, so site_core overlaps every local scope.
     checks["site_core_conflicts_with_all_scopes"] = all(
