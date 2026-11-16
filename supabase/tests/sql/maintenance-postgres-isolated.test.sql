@@ -77,6 +77,7 @@ DECLARE
   request_payload jsonb;
   first_result jsonb;
   replay_result jsonb;
+  conflict_seen boolean := false;
 BEGIN
   request_payload := jsonb_build_object(
     'title', 'CI isolated maintenance event',
@@ -95,8 +96,20 @@ BEGIN
   IF first_result IS DISTINCT FROM replay_result THEN
     RAISE EXCEPTION 'FAIL: idempotent replay did not return the original response';
   END IF;
+
+  request_payload := pg_catalog.jsonb_set(
+    request_payload, '{title}', pg_catalog.to_jsonb('Changed title'::text), false
+  );
+  BEGIN
+    PERFORM public.maintenance_event_create(request_payload);
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    conflict_seen := SQLERRM = 'IDEMPOTENCY_KEY_REUSED';
+  END;
+  IF NOT conflict_seen THEN
+    RAISE EXCEPTION 'FAIL: same idempotency key with different payload was accepted';
+  END IF;
 END
-$$;
+$;
 RESET ROLE;
 
 -- Anonymous public visibility is limited to the active event. The private note
