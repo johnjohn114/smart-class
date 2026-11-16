@@ -132,6 +132,24 @@ VALUES ('00000000-0000-4000-8000-000000000020',true,'first_activity',1);
 INSERT INTO public.competition_attendance(user_id,status,points_awarded,completion_points_awarded)
 VALUES ('00000000-0000-4000-8000-000000000002','checked_in',2,0);
 
+-- Simulate the live project's explicit grants on the pre-existing function.
+-- CREATE OR REPLACE preserves function ACLs, so the migration must revoke
+-- authenticated's direct EXECUTE grant as well as anon/PUBLIC.
+CREATE FUNCTION public.award_growth_points(
+  p_user_id uuid,
+  p_amount integer,
+  p_reason text,
+  p_source_type text DEFAULT 'manual',
+  p_source_id text DEFAULT NULL,
+  p_source_key text DEFAULT NULL,
+  p_admin_user_id uuid DEFAULT NULL
+)
+RETURNS integer
+LANGUAGE sql
+AS $ SELECT 0 $;
+GRANT EXECUTE ON FUNCTION public.award_growth_points(uuid,integer,text,text,text,text,uuid)
+  TO anon, authenticated, service_role;
+
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
 
 -- Anonymous callers cannot execute privileged RPCs or internal helpers.
