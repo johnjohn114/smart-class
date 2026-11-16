@@ -87,6 +87,12 @@ def main():
     assert_true(status == 200 and body.get("ok") is True,
                 "request without a bearer token maps to anon and public status RPC succeeds")
 
+    for rpc_name in ("maintenance_admin_list", "maintenance_event_create",
+                     "maintenance_event_update", "maintenance_event_action"):
+        status, _ = rpc(rpc_name, {}, None)
+        assert_true(status in (401, 403, 404),
+                    f"anonymous caller cannot execute {rpc_name} (HTTP {status})")
+
     status, body = rpc("maintenance_status_public", {}, member)
     assert_true(status == 200 and body.get("ok") is True,
                 f"GoTrue-issued member JWT can call the public status RPC (HTTP {status}; body={body!r})")
@@ -148,6 +154,77 @@ def main():
         len(successes) == 1 and len(conflicts) == 1,
         "GoTrue admin tokens preserve the overlapping global schedule concurrency guard",
     )
+
+    # Local-scope overlap must conflict; adjacent half-open windows must not.
+    scope_start = datetime.now(timezone.utc) + timedelta(days=4)
+    scope_end = scope_start + timedelta(minutes=40)
+
+    def create_scope_draft(title, starts_at, ends_at, scope_codes):
+        payload = {
+            "title": title,
+            "message": "Scope conflict integration test",
+            "is_global": False,
+            "scope_codes": scope_codes,
+            "starts_at": iso(starts_at),
+            "ends_at": iso(ends_at),
+            "status": "draft",
+            "reason": "local scope conflict test",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        status, result = rpc("maintenance_event_create", payload, admin)
+        assert_true(status == 200 and result.get("ok") is True,
+                    f"created local-scope draft: {title}")
+        return result["data"]["event_id"]
+
+    def run_action(event_id, action, version=1):
+        payload = {
+            "event_id": event_id,
+            "expected_version": version,
+            "action": action,
+            "reason": f"local scope {action} test",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        return rpc("maintenance_event_action", payload, admin)
+
+    first_local_id = create_scope_draft(
+        "Local scope primary", scope_start, scope_end, ["events_competitions"])
+    status, first_local = run_action(first_local_id, "schedule")
+    assert_true(status == 200 and first_local.get("data", {}).get("status") == "scheduled",
+                "first local-scope schedule succeeds")
+
+    overlapping_local_id = create_scope_draft(
+        "Local scope overlap", scope_start + timedelta(minutes=10),
+        scope_end + timedelta(minutes=10), ["events_competitions"])
+    status, overlap_result = run_action(overlapping_local_id, "schedule")
+    assert_true(status == 400 and isinstance(overlap_result, dict)
+                and overlap_result.get("message") == "CONFLICT",
+                "overlapping events in the same local scope are rejected")
+
+    adjacent_local_id = create_scope_draft(
+        "Local scope adjacent", scope_end, scope_end + timedelta(minutes=20),
+        ["events_competitions"])
+    status, adjacent_result = run_action(adjacent_local_id, "schedule")
+    assert_true(status == 200 and adjacent_result.get("data", {}).get("status") == "scheduled",
+                "half-open adjacent local-scope windows do not conflict")
+
+    global_overlap_id = create_scope_draft(
+        "Global overlaps local", scope_start + timedelta(minutes=5),
+        scope_end - timedelta(minutes=5), [])
+    # Convert this draft to global before scheduling; scope_codes remains empty.
+    global_update = {
+        "event_id": global_overlap_id,
+        "expected_version": 1,
+        "is_global": True,
+        "reason": "global scope conflict test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, global_updated = rpc("maintenance_event_update", global_update, admin)
+    assert_true(status == 200 and global_updated.get("data", {}).get("version") == 2,
+                "global conflict fixture is updated")
+    status, global_conflict = run_action(global_overlap_id, "schedule", version=2)
+    assert_true(status == 400 and isinstance(global_conflict, dict)
+                and global_conflict.get("message") == "CONFLICT",
+                "global schedule conflicts with an overlapping local-scope event")
 
     # A draft create isolates idempotency behavior from schedule conflict checks.
     idem_start = datetime.now(timezone.utc) + timedelta(days=2)
