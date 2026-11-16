@@ -124,7 +124,7 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 **本輪整合審核：完成唯讀核對；正式發布核准：未通過。**
 
 明確阻擋項目：
-1. Migration baseline 未釐清，且 repo 存在兩份內容不同的 app_releases migration。
+1. Migration history 仍為空；唯讀 schema 比對已確認正式 app_releases 與 `202610310001_app_releases.sql` 相符、行事曆欄位/約束/索引與 `26.11.3_calendar_fields.sql` 相符，但仍需整理可重現的歷史 baseline，不能據此直接 repair 或重跑。
 2. 正式 Data API Exposed schemas 無法由目前管理介面讀取，必須人工確認 private 未暴露。
 3. PostgreSQL 17 CI 已通過；仍須保留正式環境部署後驗收。
 4. 正式 Edge Function secrets/CORS 與部署後 smoke test 尚未驗證。
@@ -153,3 +153,14 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 - 這次已將兩個 migration 家族的現況核對從「未知」縮小為「正式 schema 與 repo 中指定 SQL 的物件定義相符」。
 - 仍需完成其餘正式 schema、函式、觸發器、GRANT/RLS、索引及 extension 的完整唯讀盤點，才能決定 migration baseline 的唯一重建方式。
 - Migration history 仍為空；不得因 schema 相符就執行 `migration repair`、`db push`、套用 migration 或改動正式資料庫。
+
+
+### 6.9 正式 public schema 安全目錄盤點（2026-11-16，唯讀）
+
+- `public` schema 共 44 張資料表；44 張均已啟用 RLS，未發現 RLS disabled 的 public table。
+- `member_no_counter`、`visitor_profiles` 兩張表目前沒有任何 RLS policy。RLS 開啟但沒有 policy 時，API roles 的一般 row access 會被拒絕；仍需確認這兩張表的預期存取路徑（例如受控 trigger/function），不能直接補上寬鬆 policy。
+- 目前盤點到 38 個 public functions，其中 36 個為 `SECURITY DEFINER`；其中 34 個可由 `anon` 執行，34 個可由 `authenticated` 執行（依 `has_function_privilege` 檢查，包含透過 PUBLIC 權限繼承的可執行性）。這是既有網站安全審查項目，不代表 34 個函式均可被未授權利用；必須逐一檢查函式內容、ACL、呼叫端及身分驗證條件。不得在本維護系統工作中批次撤權。
+- public schema 目前有 7 個非內部 trigger；啟用 extension 包含 `pg_stat_statements`、`pgcrypto`、`plpgsql`、`supabase_vault`、`uuid-ossp`。
+- catalog 結果顯示多張 public tables 對 API roles 存在廣泛 table-level grants。RLS 是 row-level 邊界，不等於 table privilege；需後續按表與操作（SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER）對照 policies、前端實際呼叫及 service_role 使用方式，先建立權限矩陣，不進行批次 revoke。
+
+此盤點是 preliminary catalog inventory，並非完整安全滲透測試或正式發布核准。所有查詢均為唯讀，沒有變更正式資料庫。
