@@ -218,6 +218,9 @@ BEGIN
   IF (SELECT role FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 'admin' THEN
     RAISE EXCEPTION 'FAIL: visitor account insert downgraded existing admin profile';
   END IF;
+  IF (SELECT next_no FROM public.member_no_counter WHERE id=true) <> 100 THEN
+    RAISE EXCEPTION 'FAIL: conflicting profile insert consumed a member number';
+  END IF;
 END
 $profile_conflict$;
 
