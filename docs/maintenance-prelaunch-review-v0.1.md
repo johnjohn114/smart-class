@@ -288,3 +288,31 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 - 本 Migration 仍是功能分支候選，未套用正式 Supabase；沒有執行正式 REVOKE、GRANT、ALTER DEFAULT PRIVILEGES、Migration repair 或部署。
 - default privileges、`increment_download_count` rate limiting、`ensure_visitor_profile` 角色覆寫風險、Migration baseline、Data API exposed schemas、Edge Function secrets/CORS/runtime smoke test 仍需分別處理。
 - 不得因本次隔離 CI 成功就直接部署或 merge；正式變更仍需完整相容性審核、回復計畫與明確授權。
+
+
+### 6.15 Default Privileges 與實際 Trigger 副作用唯讀複核（2026-11-17）
+
+**正式環境重新查詢結果（本節以本次 catalog 查詢為準）**
+- public schema 目前有 36 個 SECURITY DEFINER routines：31 個非 trigger 函式、5 個 trigger functions；36 個 owner 均為 postgres。
+- 以 has_function_privilege 檢查實際有效權限：anon 可執行 34/36，authenticated 可執行 34/36，service_role 可執行 36/36。這是包含 PUBLIC 繼承權限後的有效權限數，與 6.14 先前記錄的 30/30 不一致；6.14 的數字應視為舊盤點值，後續 ACL migration 必須以本次完整函式清單與有效權限重新驗證。
+- 34 個 public SECURITY DEFINER 函式設定 search_path=public；只有 is_admin() 與 assign_member_no_and_nickname() 使用空 search_path。API roles 對 public 沒有 CREATE 權限，降低了使用者在 public schema 注入物件的可能性，但 SECURITY DEFINER 函式仍應逐一確認物件引用是否完整 schema-qualified；後續可評估收斂為固定可信 search_path。
+- PostgreSQL pg_default_acl 顯示 public schema 中，物件 owner 為 postgres 及 supabase_admin 的預設 ACL，對新建 tables、functions、sequences 都授予 anon/authenticated/service_role 權限。這會使未來物件繼承較寬鬆的初始權限；RLS 仍是資料列層保護，但新函式 EXECUTE 權限尤其需要明確收斂。
+- 建議候選 policy 優先針對應用 migration owner postgres 在 public schema 的 default privileges，把 table/function/sequence 權限改為 opt-in，再於每份 migration 明確 GRANT 最小必要權限。supabase_admin 的平台/儀表板物件預設權限不應在未確認 owner 用途前一併更動。此項目前只列為候選設計，未執行 ALTER DEFAULT PRIVILEGES。
+
+**五個 SECURITY DEFINER trigger functions 與副作用**
+- assign_member_no_and_nickname()：profiles BEFORE INSERT；訪客 profile 缺少會員編號時遞增 member_no_counter，並從 Auth email 推導預設暱稱。此函式使用空 search_path 並以 schema-qualified table references 操作。
+- check_competition_registration_rules()：competition_registrations BEFORE INSERT/UPDATE；檢查活動存在、報名截止與名額，並依活動設定調整新報名狀態。
+- growth_registration_reward()：competition_registrations AFTER INSERT；符合 active/pending/approved 狀態時呼叫 award_growth_points 發放報名積分。
+- growth_result_reward()：competition_results AFTER INSERT；僅在活動已公布時依名次發放積分。
+- ensure_visitor_profile()：visitor_accounts AFTER INSERT；若 profile id 衝突，現行 ON CONFLICT(id) DO UPDATE SET role='visitor' 會把既有 profile 的 role 改成 visitor。這是資料完整性風險，必須修正為不覆寫既有 role 的衝突處理（例如只 DO NOTHING，再確認 visitor profile 建立流程）。
+- visitor_accounts 已啟用 RLS；目前只查到 authenticated 管理員 SELECT policy，沒有 anon/authenticated INSERT policy。因此雖然 table ACL 有 INSERT，RLS 會阻擋一般 API role 的直接新增；service_role 可繞過 RLS，故 ensure_visitor_profile 的角色覆寫仍是可信後端資料流程的風險，而非本次證實的匿名直接利用路徑。
+
+**Trigger 權限相容性**
+- 已有 CI 測試建立獨立 trigger fixture，確認撤銷 API roles 的 EXECUTE 後，已建立 trigger 仍能執行。這證明 PostgreSQL trigger runtime 與直接 RPC EXECUTE 權限可分開控制。
+- 但該測試是合成 fixture，尚未驗證上述五個正式 trigger functions 的真實副作用。下一輪隔離測試需加入：訪客 profile insert 不降級既有 admin；會員編號遞增；報名截止/名額與狀態轉換；報名積分冪等；已公布/未公布成績積分；並確認撤銷 API EXECUTE 後五個既有 triggers 仍正常運作。
+- Default privileges 的隔離測試亦需在 postgres owner context 驗證新建 table/function/sequence 不會自動授予 API roles；再驗證每份 migration 的明確 GRANT 可以恢復必要功能。
+
+**本輪界線與結論**
+- 本輪只執行正式資料庫 catalog/ACL/RLS/trigger 的唯讀查詢，並查閱 Supabase 官方 Securing your API 文件；沒有執行正式 REVOKE、GRANT、ALTER DEFAULT PRIVILEGES、資料寫入、Migration、部署或 merge。
+- Default Privileges 與實際 trigger 副作用仍未達可核准狀態；尤其 ensure_visitor_profile 的 role overwrite 必須先修正並通過隔離測試。
+- 現有 202611160001_growth_function_authorization_hardening.sql 仍是候選草案，不可視為可直接套用正式環境的最終版本。
