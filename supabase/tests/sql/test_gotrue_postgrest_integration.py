@@ -183,6 +183,64 @@ def main():
         f"same actor and key with a different payload is rejected (HTTP {status}; body={conflict!r})",
     )
 
+    event_id = first["data"]["event_id"]
+    update_request = {
+        "event_id": event_id,
+        "expected_version": 1,
+        "title": "Updated idempotency baseline",
+        "reason": "GoTrue update integration test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, updated = rpc("maintenance_event_update", update_request, admin)
+    assert_true(status == 200 and updated.get("data", {}).get("version") == 2,
+                "admin can update an event with the expected version")
+    status, update_replay = rpc("maintenance_event_update", update_request, admin)
+    assert_true(status == 200 and update_replay == updated,
+                "same update key replays the original update response")
+
+    changed_update = dict(update_request)
+    changed_update["title"] = "Different update payload"
+    status, update_conflict = rpc("maintenance_event_update", changed_update, admin)
+    assert_true(status == 400 and isinstance(update_conflict, dict)
+                and update_conflict.get("message") == "IDEMPOTENCY_KEY_REUSED",
+                "update idempotency key cannot be reused with changed content")
+
+    stale_update = dict(update_request)
+    stale_update["expected_version"] = 1
+    stale_update["title"] = "Stale version update"
+    stale_update["idempotency_key"] = str(uuid.uuid4())
+    status, version_conflict = rpc("maintenance_event_update", stale_update, admin)
+    assert_true(status == 400 and isinstance(version_conflict, dict)
+                and version_conflict.get("message") == "VERSION_CONFLICT",
+                "stale expected_version is rejected")
+
+    schedule_request = {
+        "event_id": event_id,
+        "expected_version": 2,
+        "action": "schedule",
+        "reason": "GoTrue schedule action test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, scheduled = rpc("maintenance_event_action", schedule_request, admin)
+    assert_true(status == 200 and scheduled.get("data", {}).get("status") == "scheduled"
+                and scheduled.get("data", {}).get("version") == 3,
+                "draft event can be scheduled through the lifecycle action RPC")
+    status, schedule_replay = rpc("maintenance_event_action", schedule_request, admin)
+    assert_true(status == 200 and schedule_replay == scheduled,
+                "same lifecycle action key replays the original response")
+
+    cancel_request = {
+        "event_id": event_id,
+        "expected_version": 3,
+        "action": "cancel",
+        "reason": "GoTrue cancel action test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, cancelled = rpc("maintenance_event_action", cancel_request, admin)
+    assert_true(status == 200 and cancelled.get("data", {}).get("status") == "cancelled"
+                and cancelled.get("data", {}).get("version") == 4,
+                "scheduled event can be cancelled through the lifecycle action RPC")
+
     print("PASS: GoTrue-issued JWT / PostgREST / RPC / role / concurrency / idempotency suite")
 
 
