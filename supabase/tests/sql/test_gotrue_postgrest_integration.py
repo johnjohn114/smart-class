@@ -99,9 +99,11 @@ def main():
     assert_true(body.get("data", {}).get("admin_bypass") is True,
                 "admin_bypass is derived from the database profile role")
 
-    status, _ = rpc("maintenance_admin_list", {}, member)
-    assert_true(status in (401, 403),
-                "GoTrue-issued non-admin token cannot execute the admin list RPC")
+    for rpc_name in ("maintenance_admin_list", "maintenance_event_create",
+                     "maintenance_event_update", "maintenance_event_action"):
+        status, _ = rpc(rpc_name, {}, member)
+        assert_true(status in (400, 401, 403),
+                    f"GoTrue-issued non-admin token cannot execute {rpc_name}")
 
     status, body = rpc("maintenance_admin_list", {}, admin)
     assert_true(status == 200 and body.get("ok") is True,
@@ -161,6 +163,12 @@ def main():
         "reason": "  isolated GoTrue/PostgREST idempotency integration test  ",
         "idempotency_key": str(uuid.uuid4()),
     }
+    spoofed_create = dict(idem_request)
+    spoofed_create["actor_id"] = os.environ["TEST_MEMBER_ID"]
+    status, spoofed_body = rpc("maintenance_event_create", spoofed_create, admin)
+    assert_true(status == 400,
+                f"create RPC rejects caller-supplied actor_id (HTTP {status}; body={spoofed_body!r})")
+
     status, first = rpc("maintenance_event_create", idem_request, admin)
     assert_true(status == 200 and first and first.get("ok") is True,
                 "GoTrue admin can create a draft for idempotency validation")
@@ -191,6 +199,12 @@ def main():
         "reason": "GoTrue update integration test",
         "idempotency_key": str(uuid.uuid4()),
     }
+    spoofed_update = dict(update_request)
+    spoofed_update["actor_id"] = os.environ["TEST_MEMBER_ID"]
+    status, spoofed_body = rpc("maintenance_event_update", spoofed_update, admin)
+    assert_true(status == 400,
+                f"update RPC rejects caller-supplied actor_id (HTTP {status}; body={spoofed_body!r})")
+
     status, updated = rpc("maintenance_event_update", update_request, admin)
     assert_true(status == 200 and updated.get("data", {}).get("version") == 2,
                 "admin can update an event with the expected version")
@@ -221,6 +235,12 @@ def main():
         "reason": "GoTrue schedule action test",
         "idempotency_key": str(uuid.uuid4()),
     }
+    spoofed_action = dict(schedule_request)
+    spoofed_action["actor_id"] = os.environ["TEST_MEMBER_ID"]
+    status, spoofed_body = rpc("maintenance_event_action", spoofed_action, admin)
+    assert_true(status == 400,
+                f"action RPC rejects caller-supplied actor_id (HTTP {status}; body={spoofed_body!r})")
+
     status, scheduled = rpc("maintenance_event_action", schedule_request, admin)
     assert_true(status == 200 and scheduled.get("data", {}).get("status") == "scheduled"
                 and scheduled.get("data", {}).get("version") == 3,
@@ -228,6 +248,18 @@ def main():
     status, schedule_replay = rpc("maintenance_event_action", schedule_request, admin)
     assert_true(status == 200 and schedule_replay == scheduled,
                 "same lifecycle action key replays the original response")
+
+    early_complete_request = {
+        "event_id": event_id,
+        "expected_version": 3,
+        "action": "complete",
+        "reason": "early completion must be rejected",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, early_complete = rpc("maintenance_event_action", early_complete_request, admin)
+    assert_true(status == 400 and isinstance(early_complete, dict)
+                and early_complete.get("message") == "VALIDATION_ERROR",
+                "scheduled event cannot be completed before its end time")
 
     cancel_request = {
         "event_id": event_id,
