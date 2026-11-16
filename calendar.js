@@ -9,7 +9,7 @@ async function load(){
  if(!configured()){$('calendarEvents').innerHTML='<div class="empty">尚未設定資料庫。</div>';return}
  try{
   const url=SUPABASE_URL+'/rest/v1/announcements?select=id,title,content,event_date,event_end_date,category,published_at&published=eq.true&event_date=not.is.null&event_date_confirmed=eq.true&order=event_date.asc';
-  const r=await fetch(url,{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY}});
+  const r=await fetch(url,{headers:{apikey:SUPABASE_ANON_KEY}});
   if(!r.ok)throw new Error('HTTP '+r.status);
   events=await r.json();render();
  }catch(e){$('calendarEvents').innerHTML='<div class="empty">行事曆載入失敗，請稍後再試。</div>';console.warn(e)}

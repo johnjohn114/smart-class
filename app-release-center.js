@@ -3,7 +3,7 @@
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function loadReleases(){
  if(typeof SUPABASE_URL==='undefined'||typeof SUPABASE_ANON_KEY==='undefined')return [];
- const r=await fetch(SUPABASE_URL+'/rest/v1/app_releases?select=id,version_code,version_name,release_notes,apk_url,published,published_at,created_at&published=eq.true&order=version_code.desc',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY}});
+ const r=await fetch(SUPABASE_URL+'/rest/v1/app_releases?select=id,version_code,version_name,release_notes,apk_url,published,published_at,created_at&published=eq.true&order=version_code.desc',{headers:{apikey:SUPABASE_ANON_KEY}});
  if(!r.ok)throw new Error('無法讀取更新紀錄（HTTP '+r.status+'）。');
  return await r.json();
 }

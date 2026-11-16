@@ -2,7 +2,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function headers(){return {apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(localStorage.getItem('access_token')||''),'Content-Type':'application/json',Prefer:'return=representation'}}
+function headers(){const h={apikey:SUPABASE_ANON_KEY,'Content-Type':'application/json',Prefer:'return=representation'};const token=localStorage.getItem('access_token');if(token)h.Authorization='Bearer '+token;return h}
 function msg(t){$('appReleaseMsg').textContent=t}
 async function load(){
  const r=await fetch(SUPABASE_URL+'/rest/v1/app_releases?select=*&order=version_code.desc',{headers:headers()});

@@ -2,7 +2,7 @@
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const $=id=>document.getElementById(id);
 function configured(){return typeof SUPABASE_URL!=='undefined'&&typeof SUPABASE_ANON_KEY!=='undefined'&&SUPABASE_URL&&SUPABASE_ANON_KEY&&!String(SUPABASE_URL).includes('你的')&&!String(SUPABASE_URL).includes('請填入')&&!String(SUPABASE_ANON_KEY).includes('你的');}
-function auth(){const t=localStorage.getItem('visitor_access_token');return {apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(t||SUPABASE_ANON_KEY),'Content-Type':'application/json'};}
+function auth(){const t=localStorage.getItem('visitor_access_token');const h={apikey:SUPABASE_ANON_KEY,'Content-Type':'application/json'};if(t)h.Authorization='Bearer '+t;return h;}
 function visitorToken(){return localStorage.getItem('visitor_access_token');}
 async function refreshVisitorSession(){
   const rt=localStorage.getItem('visitor_refresh_token');
@@ -76,7 +76,7 @@ async function loadPopupAnnouncement(){
   if(!configured())return;
   try{
     const now=new Date().toISOString();
-    const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+    const h=auth();
     const url=SUPABASE_URL+'/rest/v1/announcements?select=id,title,content,link_url,link_label,popup_mode,popup_start_at,popup_end_at,published_at&published=eq.true&popup_enabled=eq.true&popup_start_at=lte.'+encodeURIComponent(now)+'&or=(popup_end_at.is.null,popup_end_at.gte.'+encodeURIComponent(now)+')&order=pinned.desc,published_at.desc,created_at.desc&limit=5';
     const r=await fetch(url,{headers:h});
     if(!r.ok)return;
@@ -114,7 +114,7 @@ function showPopupAnnouncement(x){
   $('announcementPopupConfirm')?.addEventListener('click',close);
   document.addEventListener('keydown',function escPopup(e){if(e.key==='Escape'){close();document.removeEventListener('keydown',escPopup)}});
 }
-async function loadSite(){if(!configured())return;try{const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};const s=await fetch(SUPABASE_URL+'/rest/v1/site_settings?select=*&id=eq.1',{headers:h});if(s.ok){const a=await s.json();if(a[0])apply(a[0])}const n=await fetch(SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc&limit=3',{headers:h});if(n.ok){const rows=await n.json();$('newsList')&&($('newsList').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前還沒有公告。</div>')}await loadPopupAnnouncement()}catch(e){console.error(e);$('newsList')&&($('newsList').innerHTML='<div class="empty">目前無法載入公告。</div>')}}
+async function loadSite(){if(!configured())return;try{const h=auth();const s=await fetch(SUPABASE_URL+'/rest/v1/site_settings?select=*&id=eq.1',{headers:h});if(s.ok){const a=await s.json();if(a[0])apply(a[0])}const n=await fetch(SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc&limit=3',{headers:h});if(n.ok){const rows=await n.json();$('newsList')&&($('newsList').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前還沒有公告。</div>')}await loadPopupAnnouncement()}catch(e){console.error(e);$('newsList')&&($('newsList').innerHTML='<div class="empty">目前無法載入公告。</div>')}}
 function card(x){
   const link=x.link_url?'<p><a class="btn secondary" href="'+esc(x.link_url)+'" target="_blank" rel="noopener noreferrer">🔗 '+esc(x.link_label||'查看連結')+'</a></p>':'';
   const content=String(x.content||'');
@@ -131,8 +131,8 @@ function toggleNotice(button){
   button.setAttribute('aria-expanded',String(expanded));
 }
 function apply(s){const ids=['siteName','heroTitle','heroText','aboutTitle','aboutSubtitle','about1Title','about1Text','about2Title','about2Text','featuresTitle','featuresSubtitle','f1Title','f1Text','f2Title','f2Text','f3Title','f3Text','f4Title','f4Text','contact1','contact2','contact3'];const keys=['site_name','hero_title','hero_text','about_title','about_subtitle','about1_title','about1_text','about2_title','about2_text','features_title','features_subtitle','f1_title','f1_text','f2_title','f2_text','f3_title','f3_text','f4_title','f4_text','contact1','contact2','contact3'];ids.forEach((id,i)=>{const e=$(id);if(e&&s[keys[i]]!=null)e.textContent=s[keys[i]]});if(s.hero_image&&$('heroImage'))$('heroImage').src=s.hero_image;if(s.site_name){document.title=s.site_name;if($('footerName'))$('footerName').textContent=s.site_name;if($('footerText'))$('footerText').textContent='© 2026 '+s.site_name+'｜私人網站'}}
-async function loadAllNews(category='all'){if(!configured())return;const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};let url=SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc';if(category!=='all')url+='&category=eq.'+encodeURIComponent(category);const r=await fetch(url,{headers:h});const rows=r.ok?await r.json():[];if($('allNews'))$('allNews').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前沒有符合條件的公告。</div>';const target=location.hash.match(/^#announcement-(.+)$/);if(target){const item=document.querySelector('[data-announcement-id="'+CSS.escape(decodeURIComponent(target[1]))+'"]');if(item)setTimeout(()=>item.scrollIntoView({behavior:'smooth',block:'center'}),150)}document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');loadAllNews(b.dataset.category)})}
-async function loadProducts(){if(!configured())return;const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};const r=await fetch(SUPABASE_URL+'/rest/v1/products?select=*&active=eq.true&order=created_at.desc',{headers:h});const rows=r.ok?await r.json():[];if($('productGrid'))$('productGrid').innerHTML=rows.length?rows.map(productCard).join(''):'<div class="empty">目前沒有上架商品。</div>'}
+async function loadAllNews(category='all'){if(!configured())return;const h=auth();let url=SUPABASE_URL+'/rest/v1/announcements?select=*&published=eq.true&published_at=lte.'+encodeURIComponent(new Date().toISOString())+'&order=pinned.desc,published_at.desc,created_at.desc';if(category!=='all')url+='&category=eq.'+encodeURIComponent(category);const r=await fetch(url,{headers:h});const rows=r.ok?await r.json():[];if($('allNews'))$('allNews').innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">目前沒有符合條件的公告。</div>';const target=location.hash.match(/^#announcement-(.+)$/);if(target){const item=document.querySelector('[data-announcement-id="'+CSS.escape(decodeURIComponent(target[1]))+'"]');if(item)setTimeout(()=>item.scrollIntoView({behavior:'smooth',block:'center'}),150)}document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');loadAllNews(b.dataset.category)})}
+async function loadProducts(){if(!configured())return;const grid=$('productGrid');if(!grid)return;grid.innerHTML='<div class="loading">正在載入商品…</div>';try{const r=await fetch(SUPABASE_URL+'/rest/v1/products?select=*&active=eq.true&order=created_at.desc',{headers:auth()});if(!r.ok){const detail=await r.text().catch(()=> '');console.error('商品讀取失敗',r.status,detail);grid.innerHTML='<div class="empty">商品載入失敗（HTTP '+r.status+'），請稍後重新整理。</div>';return;}const rows=await r.json();grid.innerHTML=rows.length?rows.map(productCard).join(''):'<div class="empty">目前沒有上架商品。</div>';}catch(e){console.error('商品讀取失敗',e);grid.innerHTML='<div class="empty">目前無法連線載入商品，請稍後再試。</div>';}}
 function productCard(p){return '<article class="productCard">'+(p.image_url?'<img src="'+esc(p.image_url)+'" alt="'+esc(p.name)+'">':'<div class="productImage">📦</div>')+'<div class="productBody"><div class="date">'+esc(p.category||'商品')+'</div><h3>'+esc(p.name)+'</h3><p>'+esc(p.description||'')+'</p><strong>NT$ '+Number(p.price||0).toLocaleString()+'</strong><div class="productBuyRow"><a class="btn" href="checkout.html?product_id='+encodeURIComponent(p.id)+'">🛒 立即購買</a></div></div></article>'}
 async function sendTicket(){if(!visitorToken()){show('ticketMsg','請先登入訪客帳號。');return}const subject=$('ticketSubject').value.trim(),message=$('ticketMessage').value.trim();if(!subject||!message){show('ticketMsg','請填寫主旨與內容。');return}const r=await fetch(SUPABASE_URL+'/rest/v1/support_tickets',{method:'POST',headers:auth(),body:JSON.stringify({subject,message})});show('ticketMsg',r.ok?'✅ 已送出，管理員會處理。':'❌ 送出失敗，請稍後再試。');if(r.ok){$('ticketSubject').value='';$('ticketMessage').value='';await loadMyTickets()}}
 function supportStatusText(s){return s==='closed'?'⚪ 已結案':s==='answered'?'🟢 已回覆':'🟠 處理中'}
@@ -217,7 +217,7 @@ async function loadCompetitionMenu(){
       }
     }
   }catch(e){}
-  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const h=auth();
   try{
     const [cr,gr]=await Promise.all([
       fetch(SUPABASE_URL+'/rest/v1/competitions?select=id,name,category&published=eq.true&order=event_date.desc,created_at.desc&limit=200',{headers:h}),
@@ -265,7 +265,7 @@ async function loadQuickLinks(){
   const panel=$('quickLinksPanel');
   const list=$('quickLinksList');
   if(!panel||!list||!configured()){if(panel)panel.classList.add('hidden');return}
-  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const h=auth();
   try{
     const r=await fetch(SUPABASE_URL+'/rest/v1/quick_links?select=id,name,url,icon,sort_order&visible=eq.true&order=sort_order.asc,created_at.asc',{headers:h});
     if(!r.ok){panel.classList.add('hidden');return}
@@ -335,7 +335,7 @@ async function loadLeaderboard(category){
   if(!box||!configured())return;
   box.innerHTML='<div class="loading">正在整理達人榜…</div>';
   if(summary)summary.innerHTML='';
-  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const h=auth();
   try{
     const cr=await fetch(SUPABASE_URL+'/rest/v1/competitions?select=id,name,category,event_date&published=eq.true&order=event_date.desc,created_at.desc&limit=2000',{headers:h});
     if(!cr.ok){throw new Error('competitions '+cr.status)}
@@ -499,7 +499,7 @@ async function cancelRegistration(c,box){
 async function loadCompetitionPage(){
   const box=$('competitionList');
   if(!box||!configured())return;
-  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const h=auth();
   const params=new URLSearchParams(location.search);
   const id=params.get('id');
   const category=params.get('category');
@@ -734,7 +734,7 @@ async function loadMyActivityHistory(){
 }
 async function loadActivityLeaderboard(){
   const box=$('activityLeaderboardList'),summary=$('activityLeaderboardSummary'); if(!box||!configured())return; box.innerHTML='<div class="loading">正在整理活動達人榜…</div>';
-  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?select=user_id,nickname,attended_count,late_count,no_show_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY}}); const rows=r.ok?await r.json():[];
+  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?select=user_id,nickname,attended_count,late_count,no_show_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY}}); const rows=r.ok?await r.json():[];
   if(summary)summary.innerHTML='<div class="leaderboardStat"><b>'+rows.length+'</b><span>活動會員</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.attended_count||0),0)+'</b><span>累計出席</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.activity_points||0),0)+'</b><span>活動積分</span></div>';
   box.innerHTML=rows.length?rows.slice(0,20).map((x,i)=>'<article class="leaderboardRow'+(i<3?' topRank':'')+'"><div class="leaderboardRank">'+(i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅')+' <b>#'+(i+1)+'</b></div><div class="leaderboardPlayer"><h3>'+esc(x.nickname||'會員')+'</h3><div class="leaderboardMeta">活動積分 <b>'+Number(x.activity_points||0)+'</b> · 出席 '+Number(x.attended_count||0)+' 場 · 遲到 '+Number(x.late_count||0)+' · 未到 '+Number(x.no_show_count||0)+'</div></div></article>').join(''):'<div class="empty">目前還沒有活動達人榜資料。</div>';
 }
@@ -815,7 +815,7 @@ async function runSiteSearch(){
   const q=input.value.trim();
   if(!q){box.innerHTML='<div class="empty">請輸入關鍵字開始搜尋。</div>';if(count)count.textContent='';return}
   box.innerHTML='<div class="loading">正在搜尋全站內容…</div>'; if(count)count.textContent='';
-  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const h=auth();
   const now=encodeURIComponent(new Date().toISOString());
   const urls={
     news:SUPABASE_URL+'/rest/v1/announcements?select=id,title,content,date,category,link_url,published_at&published=eq.true&published_at=lte.'+now+'&order=pinned.desc,published_at.desc,created_at.desc&limit=1000',
@@ -861,7 +861,7 @@ function initMyAppSettings(){
 function showMySection(id){const target=$(id);if(!target||!target.classList.contains('myPanel'))return;document.querySelectorAll('.myPanel').forEach(x=>x.classList.add('hidden'));target.classList.remove('hidden');document.querySelectorAll('.mySubnav a').forEach(a=>a.classList.toggle('active',a.dataset.target===id));if(id==='myOverviewPanel')loadMyOverview();if(id==='myOrdersPanel')loadMyOrders();if(id==='myGrowthPanel')loadMyGrowth();if(id==='myRewardsPanel')loadMyRewards();if(id==='myAppSettingsPanel')initMyAppSettings();}
 
 const escD=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function loadDownloadFilesPublic(){const el=$('downloadList');if(!el)return;el.innerHTML='<div class="loading">正在載入…</div>';try{const r=await fetch(SUPABASE_URL+'/rest/v1/download_files?select=*&published=eq.true&order=created_at.desc',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(visitorToken()||SUPABASE_ANON_KEY)}});const rows=r.ok?await r.json():[];el.innerHTML=rows.length?rows.map(x=>'<article class="notice"><div class="date">📦 '+escD(x.file_size?formatFileSizePublic(x.file_size):'檔案')+(x.version?' · v'+escD(x.version):'')+'</div><h3>📎 '+escD(x.title)+'</h3>'+(x.description?'<p>'+escD(x.description)+'</p>':'')+'<div class="competitionActions"><button class="btn" type="button" data-download-file="'+escD(x.id)+'">⬇️ 下載檔案</button></div></article>').join(''):'<div class="empty">目前沒有可下載的檔案。</div>';document.querySelectorAll('[data-download-file]').forEach(btn=>btn.onclick=async()=>{const id=btn.dataset.downloadFile;if(!visitorToken()){alert('請先登入會員。');return}btn.disabled=true;btn.textContent='⏳ 準備下載…';try{const row=rows.find(x=>String(x.id)===String(id));if(row?.storage_provider==='github'&&row?.file_url){await fetch(SUPABASE_URL+'/rest/v1/rpc/increment_download_count',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+visitorToken()},body:JSON.stringify({p_file_id:id})}).catch(()=>{});window.location.href=row.file_url;return}const t=visitorToken();const rr=await fetch(SUPABASE_URL+'/functions/v1/r2-downloads',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+t},body:JSON.stringify({action:'download-url',id})});const d=await rr.json().catch(()=>({}));if(!rr.ok||!d.url)throw new Error(d.error||'無法取得下載連結。');window.location.href=d.url;btn.textContent='⬇️ 下載檔案'}catch(e){alert(e.message);btn.textContent='⬇️ 下載檔案';btn.disabled=false}})}catch(e){el.innerHTML='<div class="empty">載入失敗，請稍後再試。</div>'}}
+async function loadDownloadFilesPublic(){const el=$('downloadList');if(!el)return;el.innerHTML='<div class="loading">正在載入…</div>';try{const r=await fetch(SUPABASE_URL+'/rest/v1/download_files?select=*&published=eq.true&order=created_at.desc',{headers:{apikey:SUPABASE_ANON_KEY}});const rows=r.ok?await r.json():[];el.innerHTML=rows.length?rows.map(x=>'<article class="notice"><div class="date">📦 '+escD(x.file_size?formatFileSizePublic(x.file_size):'檔案')+(x.version?' · v'+escD(x.version):'')+'</div><h3>📎 '+escD(x.title)+'</h3>'+(x.description?'<p>'+escD(x.description)+'</p>':'')+'<div class="competitionActions"><button class="btn" type="button" data-download-file="'+escD(x.id)+'">⬇️ 下載檔案</button></div></article>').join(''):'<div class="empty">目前沒有可下載的檔案。</div>';document.querySelectorAll('[data-download-file]').forEach(btn=>btn.onclick=async()=>{const id=btn.dataset.downloadFile;if(!visitorToken()){alert('請先登入會員。');return}btn.disabled=true;btn.textContent='⏳ 準備下載…';try{const row=rows.find(x=>String(x.id)===String(id));if(row?.storage_provider==='github'&&row?.file_url){await fetch(SUPABASE_URL+'/rest/v1/rpc/increment_download_count',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+visitorToken()},body:JSON.stringify({p_file_id:id})}).catch(()=>{});window.location.href=row.file_url;return}const t=visitorToken();const rr=await fetch(SUPABASE_URL+'/functions/v1/r2-downloads',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+t},body:JSON.stringify({action:'download-url',id})});const d=await rr.json().catch(()=>({}));if(!rr.ok||!d.url)throw new Error(d.error||'無法取得下載連結。');window.location.href=d.url;btn.textContent='⬇️ 下載檔案'}catch(e){alert(e.message);btn.textContent='⬇️ 下載檔案';btn.disabled=false}})}catch(e){el.innerHTML='<div class="empty">載入失敗，請稍後再試。</div>'}}
 function formatFileSizePublic(n){const v=Number(n||0);if(!v)return '';const units=['B','KB','MB','GB','TB'];let i=0,x=v;while(x>=1024&&i<units.length-1){x/=1024;i++;}return x.toFixed(i?1:0)+' '+units[i]}
 window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden');requestNativePushToken()}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();loadDownloadFilesPublic();if($('competitionList')){loadCompetitionPage();loadActivityLeaderboard();}if($('myProfile')&&sessionOk){initMyAppSettings();loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();loadMyOrders();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
 window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id&&$(id))showMySection(id);});
