@@ -89,7 +89,7 @@ def main():
 
     status, body = rpc("maintenance_status_public", {}, member)
     assert_true(status == 200 and body.get("ok") is True,
-                "GoTrue-issued member JWT can call the public status RPC")
+                f"GoTrue-issued member JWT can call the public status RPC (HTTP {status}; body={body!r})")
     assert_true("admin_bypass" not in body.get("data", {}),
                 "ordinary member does not receive admin_bypass")
 
