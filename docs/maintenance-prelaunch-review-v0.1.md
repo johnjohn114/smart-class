@@ -354,3 +354,17 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 - The global statement affects future functions created by postgres in every schema, not only public. Future callers—including helper functions used by RLS policies—must receive explicit EXECUTE grants in the relevant migrations. Existing function ACLs are not changed by ALTER DEFAULT PRIVILEGES.
 - This scope is broader than the original candidate and requires a full compatibility review of all schemas/functions created by postgres before any production application.
 - No production SQL, migration, deployment, merge, or paid resource was used.
+
+
+### 6.18 Member-number side effect discovered in duplicate profile trigger path（2026-11-17）
+
+**CI failure diagnosis**
+- Latest verified run at the time, 43910997425, matched branch HEAD e82196e385e6d6ba0ca7a1d60bb3ff9dfa88692c; Deno and GoTrue/PostgREST jobs passed, while the PostgreSQL regression test failed because the first new visitor received a member number greater than 100.
+- Cause: PostgreSQL executes the target table's BEFORE INSERT trigger before resolving ON CONFLICT DO NOTHING. The existing admin profile caused ensure_visitor_profile() to attempt a conflicting visitor-profile insert; assign_member_no_and_nickname() therefore advanced member_no_counter before the conflict was ignored.
+- This is a real side effect in the candidate path, not a reason to weaken the expected member number.
+
+**Feature-branch candidate correction**
+- ensure_visitor_profile() now checks whether profiles.id = NEW.id already exists before attempting the insert. This prevents the known-existing admin/profile conflict from firing the member-number trigger and preserves the existing role.
+- The disposable regression test now asserts the counter remains at 100 immediately after the existing-admin conflict, then checks the first genuinely new visitor receives 100.
+- A concurrent first-time insert race can still produce an unused counter value if two independent transactions attempt the same previously absent profile simultaneously; this candidate test does not claim to prove that race impossible. Review whether member numbers require gap-free allocation before production approval.
+- Changes remain on feature/maintenance-system; CI must be rerun against the new commit. No production database writes, migration, deployment, merge, or paid resources.
