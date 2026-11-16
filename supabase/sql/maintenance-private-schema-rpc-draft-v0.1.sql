@@ -87,7 +87,7 @@ CREATE TABLE private.maintenance_audit_logs (
 CREATE TABLE private.maintenance_idempotency (
   actor_id uuid NOT NULL DEFAULT auth.uid(),
   idempotency_key uuid NOT NULL,
-  request_payload jsonb NOT NULL,
+  request_hash bytea NOT NULL CHECK (pg_catalog.octet_length(request_hash) = 32),
   response_json jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
   PRIMARY KEY(actor_id, idempotency_key)
@@ -201,7 +201,7 @@ GRANT SELECT ON private.maintenance_audit_logs TO authenticated;
 GRANT INSERT (event_id,action,reason,before_data,after_data)
   ON private.maintenance_audit_logs TO authenticated;
 GRANT SELECT ON private.maintenance_idempotency TO authenticated;
-GRANT INSERT (idempotency_key,request_payload,response_json)
+GRANT INSERT (idempotency_key,request_hash,response_json)
   ON private.maintenance_idempotency TO authenticated;
 
 CREATE FUNCTION private.maintenance_set_updated_at()
@@ -460,7 +460,8 @@ DECLARE
   v_actor uuid := auth.uid();
   v_key uuid;
   v_payload jsonb;
-  v_old_payload jsonb;
+  v_request_hash bytea;
+  v_old_request_hash bytea;
   v_old_response jsonb;
   v_title text;
   v_message text;
@@ -526,11 +527,13 @@ BEGIN
 
   PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
   v_payload := p_request || pg_catalog.jsonb_build_object('_operation','create');
-  SELECT request_payload,response_json INTO v_old_payload,v_old_response
+  -- jsonb::text provides deterministic key ordering; the digest is calculated server-side.
+  v_request_hash := pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
+  SELECT request_hash,response_json INTO v_old_request_hash,v_old_response
     FROM private.maintenance_idempotency
    WHERE actor_id=v_actor AND idempotency_key=v_key;
   IF FOUND THEN
-    IF v_old_payload<>v_payload THEN
+    IF v_old_request_hash IS DISTINCT FROM v_request_hash THEN
       RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='IDEMPOTENCY_KEY_REUSED';
     END IF;
     RETURN v_old_response;
@@ -564,8 +567,8 @@ BEGIN
   INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
   VALUES(v_event.id,'create',v_reason,NULL,
     pg_catalog.to_jsonb(v_event) || pg_catalog.jsonb_build_object('scope_codes',v_codes,'internal_note',v_note));
-  INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
-  VALUES(v_key,v_payload,v_response);
+  INSERT INTO private.maintenance_idempotency(idempotency_key,request_hash,response_json)
+  VALUES(v_key,v_request_hash,v_response);
   RETURN v_response;
 EXCEPTION
   WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
@@ -586,7 +589,8 @@ DECLARE
   v_actor uuid := auth.uid();
   v_key uuid;
   v_payload jsonb;
-  v_old_payload jsonb;
+  v_request_hash bytea;
+  v_old_request_hash bytea;
   v_old_response jsonb;
   v_event private.maintenance_events%ROWTYPE;
   v_title text;
@@ -638,10 +642,12 @@ BEGIN
 
   PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
   v_payload := p_request || pg_catalog.jsonb_build_object('_operation','update');
-  SELECT request_payload,response_json INTO v_old_payload,v_old_response
+  -- jsonb::text provides deterministic key ordering; the digest is calculated server-side.
+  v_request_hash := pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
+  SELECT request_hash,response_json INTO v_old_request_hash,v_old_response
     FROM private.maintenance_idempotency WHERE actor_id=v_actor AND idempotency_key=v_key;
   IF FOUND THEN
-    IF v_old_payload<>v_payload THEN
+    IF v_old_request_hash IS DISTINCT FROM v_request_hash THEN
       RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='IDEMPOTENCY_KEY_REUSED';
     END IF;
     RETURN v_old_response;
@@ -736,8 +742,8 @@ BEGIN
       'status',v_event.status,'title',v_event.title));
   INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
   VALUES(v_event.id,'update',v_reason,v_before_data,v_after_data);
-  INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
-  VALUES(v_key,v_payload,v_response);
+  INSERT INTO private.maintenance_idempotency(idempotency_key,request_hash,response_json)
+  VALUES(v_key,v_request_hash,v_response);
   RETURN v_response;
 EXCEPTION
   WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
@@ -758,7 +764,8 @@ DECLARE
   v_actor uuid := auth.uid();
   v_key uuid;
   v_payload jsonb;
-  v_old_payload jsonb;
+  v_request_hash bytea;
+  v_old_request_hash bytea;
   v_old_response jsonb;
   v_event private.maintenance_events%ROWTYPE;
   v_reason text;
@@ -795,10 +802,12 @@ BEGIN
 
   PERFORM pg_catalog.pg_advisory_xact_lock(20261108,1);
   v_payload := p_request || pg_catalog.jsonb_build_object('_operation','action');
-  SELECT request_payload,response_json INTO v_old_payload,v_old_response
+  -- jsonb::text provides deterministic key ordering; the digest is calculated server-side.
+  v_request_hash := pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
+  SELECT request_hash,response_json INTO v_old_request_hash,v_old_response
     FROM private.maintenance_idempotency WHERE actor_id=v_actor AND idempotency_key=v_key;
   IF FOUND THEN
-    IF v_old_payload<>v_payload THEN
+    IF v_old_request_hash IS DISTINCT FROM v_request_hash THEN
       RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='IDEMPOTENCY_KEY_REUSED';
     END IF;
     RETURN v_old_response;
@@ -855,8 +864,8 @@ BEGIN
       'status',v_event.status,'action',v_action));
   INSERT INTO private.maintenance_audit_logs(event_id,action,reason,before_data,after_data)
   VALUES(v_event.id,v_action,v_reason,v_before_data,v_after_data);
-  INSERT INTO private.maintenance_idempotency(idempotency_key,request_payload,response_json)
-  VALUES(v_key,v_payload,v_response);
+  INSERT INTO private.maintenance_idempotency(idempotency_key,request_hash,response_json)
+  VALUES(v_key,v_request_hash,v_response);
   RETURN v_response;
 EXCEPTION
   WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
