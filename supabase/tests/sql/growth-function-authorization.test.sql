@@ -21,6 +21,12 @@ $$;
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
 
+CREATE TABLE public.download_files (
+  id uuid PRIMARY KEY,
+  published boolean NOT NULL,
+  download_count integer NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE public.profiles (
   id uuid PRIMARY KEY,
   role text,
@@ -132,6 +138,17 @@ VALUES ('00000000-0000-4000-8000-000000000020',true,'first_activity',1);
 INSERT INTO public.competition_attendance(user_id,status,points_awarded,completion_points_awarded)
 VALUES ('00000000-0000-4000-8000-000000000002','checked_in',2,0);
 
+-- Simulate the live project's public download counter and explicit grants.
+CREATE FUNCTION public.increment_download_count(p_file_id uuid)
+RETURNS void
+LANGUAGE sql
+AS $
+  UPDATE public.download_files
+  SET download_count=coalesce(download_count,0)+1, updated_at=now()
+  WHERE id=p_file_id AND published=true
+$;
+GRANT EXECUTE ON FUNCTION public.increment_download_count(uuid) TO anon, authenticated;
+
 -- Simulate the live project's explicit grants on the pre-existing function.
 -- CREATE OR REPLACE preserves function ACLs, so the migration must revoke
 -- authenticated's direct EXECUTE grant as well as anon/PUBLIC.
@@ -161,10 +178,28 @@ BEGIN
   IF has_function_privilege('anon','public.check_growth_achievements(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute check_growth_achievements'; END IF;
   IF has_function_privilege('anon','public.refresh_growth_level(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute refresh_growth_level'; END IF;
   IF has_function_privilege('anon','public.check_activity_badges(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute check_activity_badges'; END IF;
+  IF has_function_privilege('anon','public.increment_download_count(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute increment_download_count'; END IF;
+  IF NOT has_function_privilege('authenticated','public.increment_download_count(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute increment_download_count'; END IF;
   IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points directly'; END IF;
   IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute internal helper'; END IF;
 END
 $anon_acl$;
+
+-- The authenticated-only download counter still updates published files.
+INSERT INTO public.download_files(id,published,download_count) VALUES
+ ('00000000-0000-4000-8000-000000000030',true,0),
+ ('00000000-0000-4000-8000-000000000031',false,0);
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+SELECT public.increment_download_count('00000000-0000-4000-8000-000000000030');
+SELECT public.increment_download_count('00000000-0000-4000-8000-000000000031');
+RESET ROLE;
+DO $download_counter$
+BEGIN
+  IF (SELECT download_count FROM public.download_files WHERE id='00000000-0000-4000-8000-000000000030') <> 1 THEN RAISE EXCEPTION 'FAIL: authenticated published download count did not increment'; END IF;
+  IF (SELECT download_count FROM public.download_files WHERE id='00000000-0000-4000-8000-000000000031') <> 0 THEN RAISE EXCEPTION 'FAIL: unpublished download count should not increment'; END IF;
+END
+$download_counter$;
 
 -- Authenticated member can inspect own achievements and refresh own level.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
