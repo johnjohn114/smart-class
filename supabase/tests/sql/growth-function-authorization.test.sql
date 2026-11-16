@@ -168,6 +168,25 @@ AS $body$ SELECT 0 $body$;
 GRANT EXECUTE ON FUNCTION public.award_growth_points(uuid,integer,text,text,text,text,uuid)
   TO anon, authenticated, service_role;
 
+-- Trigger functions need no API-role EXECUTE grant once the trigger exists.
+CREATE TABLE public.ci_trigger_source(id integer PRIMARY KEY);
+CREATE TABLE public.ci_trigger_log(id integer NOT NULL);
+CREATE FUNCTION public.ci_security_definer_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $trigger$
+BEGIN
+  INSERT INTO public.ci_trigger_log(id) VALUES(NEW.id);
+  RETURN NEW;
+END;
+$trigger$;
+GRANT EXECUTE ON FUNCTION public.ci_security_definer_trigger() TO anon, authenticated, service_role;
+CREATE TRIGGER ci_security_definer_trigger
+AFTER INSERT ON public.ci_trigger_source
+FOR EACH ROW EXECUTE FUNCTION public.ci_security_definer_trigger();
+
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
 
 -- Anonymous callers cannot execute privileged RPCs or internal helpers.
@@ -321,6 +340,25 @@ END
 $member_admin_denied$;
 RESET ROLE;
 
+
+-- Revoking API-role EXECUTE does not disable an already-created trigger.
+DO $trigger_acl$
+BEGIN
+  IF has_function_privilege('anon','public.ci_security_definer_trigger()','EXECUTE')
+     OR has_function_privilege('authenticated','public.ci_security_definer_trigger()','EXECUTE')
+     OR has_function_privilege('service_role','public.ci_security_definer_trigger()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: trigger function still has API-role EXECUTE';
+  END IF;
+END
+$trigger_acl$;
+INSERT INTO public.ci_trigger_source(id) VALUES (7);
+DO $trigger_runtime$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.ci_trigger_log WHERE id=7) THEN
+    RAISE EXCEPTION 'FAIL: trigger stopped running after EXECUTE revoke';
+  END IF;
+END
+$trigger_runtime$;
 
 -- All fixture SECURITY DEFINER RPCs must be unavailable to anon.
 DO $all_anon_denied$
