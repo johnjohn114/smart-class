@@ -4,6 +4,7 @@ import {
   parseCreateRequest,
   parseStatusRequest,
   parseUpdateRequest,
+  createMaintenanceHandler,
 } from "../../functions/_shared/maintenance.ts";
 
 const uuid = "9f4c7a2e-1d63-4a80-9b21-7c6e5d4f3a20";
@@ -344,6 +345,79 @@ Deno.test("date validation: rejects out-of-range time and timezone", async () =>
       rejected = true;
     }
     if (!rejected) throw new Error(`invalid time zone/date must be rejected: ${value}`);
+  }
+});
+
+Deno.test("handler: rejects missing bearer token on protected endpoints", async () => {
+  const handler = createMaintenanceHandler({
+    method: "POST",
+    auth: "required",
+    rpc: "maintenance_event_create",
+    parse: async () => ({ should_not_parse: true }),
+  });
+  const response = await handler(new Request("https://local.test/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  }));
+  const body = await response.json();
+  if (response.status !== 401 || body.error?.code !== "UNAUTHENTICATED") {
+    throw new Error("protected endpoint must reject missing bearer token");
+  }
+});
+
+Deno.test("handler: rejects incorrect HTTP method", async () => {
+  const handler = createMaintenanceHandler({
+    method: "POST",
+    auth: "required",
+    rpc: "maintenance_event_create",
+    parse: async () => ({}),
+  });
+  const response = await handler(new Request("https://local.test/create", {
+    method: "GET",
+  }));
+  const body = await response.json();
+  if (response.status !== 405 || body.error?.code !== "INVALID_REQUEST") {
+    throw new Error("incorrect method must return 405");
+  }
+});
+
+Deno.test("handler: answers allowed CORS preflight without calling RPC", async () => {
+  const handler = createMaintenanceHandler({
+    method: "GET",
+    auth: "optional",
+    rpc: "maintenance_status_public",
+    parse: () => ({}),
+  });
+  const response = await handler(new Request("https://local.test/status", {
+    method: "OPTIONS",
+    headers: { Origin: "https://johnjohn114.github.io" },
+  }));
+  if (
+    response.status !== 204 ||
+    response.headers.get("Access-Control-Allow-Origin") !== "https://johnjohn114.github.io"
+  ) {
+    throw new Error("allowed CORS preflight must return 204 and allow origin");
+  }
+});
+
+Deno.test("handler: blocks unapproved origins", async () => {
+  const handler = createMaintenanceHandler({
+    method: "GET",
+    auth: "optional",
+    rpc: "maintenance_status_public",
+    parse: () => ({}),
+  });
+  const response = await handler(new Request("https://local.test/status", {
+    method: "GET",
+    headers: { Origin: "https://untrusted.example" },
+  }));
+  const body = await response.json();
+  if (response.status !== 403 || body.error?.code !== "FORBIDDEN") {
+    throw new Error("unapproved origin must be blocked");
+  }
+  if (response.headers.has("Access-Control-Allow-Origin")) {
+    throw new Error("unapproved origin must not receive CORS permission");
   }
 });
 
