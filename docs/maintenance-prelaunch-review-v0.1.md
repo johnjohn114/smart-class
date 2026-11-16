@@ -198,3 +198,27 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 **安全界線**
 - 上述只記錄為正式環境發現與功能分支修補建議。本輪沒有執行 REVOKE、ALTER DEFAULT PRIVILEGES、CREATE OR REPLACE FUNCTION、資料寫入、Migration、部署或 merge。
 - 在修補及隔離測試完成前，正式環境不可視為已通過安全審查；maintenance system 發布仍需獨立核准。
+
+
+### 6.11 成長功能 RPC 授權修補候選與隔離 CI（2026-11-16）
+
+針對 6.10 的 P0/P1 發現，已在功能分支新增候選 Migration：
+- `supabase/migrations/202611160001_growth_function_authorization_hardening.sql`
+- 以正式 catalog 擷取的函式定義為基礎，修正兩個管理員獎勵函式的 NULL 身分判斷，必須存在登入身分且 profile role 明確為 admin。
+- `check_growth_achievements(p_user_id)` 增加本人或管理員目標範圍檢查。
+- `refresh_growth_level(p_user_id)` 改成公開 wrapper，限制本人或管理員；將原等級計算搬至內部 helper，helper 不授予 PUBLIC、anon、authenticated、service_role 執行。
+- `award_growth_points` 不再授予 PUBLIC/anon 直接執行，內部積分流程由 SECURITY DEFINER owner 呼叫等級 helper；已保留 authenticated 對本人/管理員受限函式的 EXECUTE 權限。
+- 加入 `supabase/tests/sql/growth-function-authorization.test.sql`，驗證匿名拒絕、會員本人成功、會員跨帳號拒絕、管理員成功、會員不能執行管理員操作，以及成就發點的內部 helper 呼叫。
+- Workflow 已納入該 Migration 與測試檔，於隔離 PostgreSQL 17 資料庫執行，不觸碰正式 Supabase。
+
+**CI 結果**
+- run `43903513826`，測試 HEAD `6eec35cc7bb6a6fa879095af132db1197e2ccb57`。
+- Deno type check/tests：success。
+- Isolated PostgreSQL RPC/RLS + growth authorization regression：success。
+- GoTrue-issued JWT/PostgREST integration：success。
+- 查詢時三個 job 均已完成並成功；Actions run 當時仍在收尾狀態。
+- 此結果只驗證隔離 PostgreSQL 17 測試資料庫及 CI 流程，不代表正式 Supabase 已修補或完成 runtime 驗收。
+
+**正式環境狀態**
+- 候選 Migration 尚未套用；沒有執行 `db push`、`migration repair`、`REVOKE`、`CREATE OR REPLACE FUNCTION` 或任何正式資料庫寫入。
+- 不得因隔離 CI 通過而直接部署。正式修補仍須先完成完整呼叫端/權限相容性複核、Migration baseline 決策、備份與回復方案，並取得明確正式環境授權。
