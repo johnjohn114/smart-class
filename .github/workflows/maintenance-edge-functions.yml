@@ -1,4 +1,5 @@
 name: Maintenance Edge Function Checks
+# Includes disposable PostgreSQL 17 checks for default ACLs and trigger side effects.
 
 on:
   workflow_dispatch:
