@@ -10,8 +10,16 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM anon, authenticated, service_role;
+-- PostgreSQL's default PUBLIC EXECUTE grant is global and cannot be
+-- overridden by a schema-specific REVOKE. This therefore applies to every
+-- future function created by postgres in every schema; callers must receive
+-- explicit per-function GRANTs in their migrations.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
+-- Remove the app API roles' schema-specific default function grants in public.
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated, service_role;
+  REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated, service_role;
 
 -- Preserve existing visitor/admin profiles on auth-account insert conflicts.
 CREATE OR REPLACE FUNCTION public.ensure_visitor_profile()
