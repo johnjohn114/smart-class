@@ -84,6 +84,7 @@ jobs:
           CREATE EXTENSION IF NOT EXISTS pgcrypto;
           CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
           CREATE SCHEMA IF NOT EXISTS auth;
+          ALTER ROLE postgres IN DATABASE maintenance_gotrue_test SET search_path = auth, public;
           SQL
 
       - name: Start Supabase GoTrue with automatic migrations
@@ -94,7 +95,7 @@ jobs:
             --env PORT=9999 \
             --env API_EXTERNAL_URL=http://localhost:9999 \
             --env GOTRUE_DB_DRIVER=postgres \
-            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/maintenance_gotrue_test?sslmode=disable%26search_path=auth \
+            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/maintenance_gotrue_test?sslmode=disable \
             --env GOTRUE_JWT_SECRET=maintenance-gotrue-ci-secret-at-least-32-bytes-long \
             --env GOTRUE_JWT_EXP=3600 \
             --env GOTRUE_JWT_AUD=authenticated \
