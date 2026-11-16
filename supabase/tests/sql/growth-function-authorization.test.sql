@@ -33,6 +33,20 @@ CREATE TABLE public.profiles (
   growth_points integer NOT NULL DEFAULT 0,
   growth_level text NOT NULL DEFAULT 'newbie'
 );
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $is_admin$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id=auth.uid() AND role='admin'
+  )
+$is_admin$;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO PUBLIC, anon, authenticated, service_role;
+
 CREATE TABLE public.growth_levels (
   code text PRIMARY KEY,
   name text NOT NULL,
