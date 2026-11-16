@@ -102,6 +102,9 @@ jobs:
             --env GOTRUE_MAILER_AUTOCONFIRM=true \
             supabase/gotrue:v2.197.0
 
+      - name: Apply GoTrue database migrations
+        run: docker exec maintenance-gotrue auth migrate
+
       - name: Wait for GoTrue migrations and API
         run: |
           for attempt in $(seq 1 60); do
@@ -117,8 +120,6 @@ jobs:
       - name: Provision isolated users through GoTrue signup
         env:
           GOTRUE_URL: http://localhost:9999
-          GITHUB_RUN_ID: \${{ github.run_id }}
-          GITHUB_RUN_ATTEMPT: \${{ github.run_attempt }}
         run: python supabase/tests/sql/provision_gotrue_users.py
 
       - name: Create isolated profiles and admin helper
