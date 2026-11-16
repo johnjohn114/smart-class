@@ -159,11 +159,11 @@ def main():
     scope_start = datetime.now(timezone.utc) + timedelta(days=4)
     scope_end = scope_start + timedelta(minutes=40)
 
-    def create_scope_draft(title, starts_at, ends_at, scope_codes):
+    def create_scope_draft(title, starts_at, ends_at, scope_codes, is_global=False):
         payload = {
             "title": title,
             "message": "Scope conflict integration test",
-            "is_global": False,
+            "is_global": is_global,
             "scope_codes": scope_codes,
             "starts_at": iso(starts_at),
             "ends_at": iso(ends_at),
@@ -209,7 +209,7 @@ def main():
 
     global_overlap_id = create_scope_draft(
         "Global overlaps local", scope_start + timedelta(minutes=5),
-        scope_end - timedelta(minutes=5), [])
+        scope_end - timedelta(minutes=5), [], is_global=True)
     # Convert this draft to global before scheduling; scope_codes remains empty.
     global_update = {
         "event_id": global_overlap_id,
