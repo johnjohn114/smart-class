@@ -97,9 +97,9 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 
 這些結果表示維護功能尚未部署，並非正式資料庫出錯。正式資料庫沒有執行任何 DDL/DML、Migration 或部署。
 
-### 6.3 PostgreSQL 版本相容性 — 尚待補強
+### 6.3 PostgreSQL 版本相容性 — CI 已補強通過
 
-目前 CI 的隔離 PostgreSQL services 使用 PostgreSQL 16；正式專案為 PostgreSQL 17.11。GoTrue/PostgREST 測試也以 PostgreSQL 16 為基礎。雖然現有測試通過，但不能稱為與正式 PostgreSQL 17 完全同版本驗收。建議將 CI 至少一組資料庫測試升至 PostgreSQL 17，並保留必要的跨版本測試。
+2026-11-16 已將兩組隔離 PostgreSQL services 更新為 `postgres:17`。最新 CI run `43899555108` 對應 branch HEAD `761b37b2b3f5b47a2d17ea5d0399c1f8e309ed6e`，Deno、isolated PostgreSQL RPC/RLS、GoTrue/PostgREST JWT/RLS 三項工作全部成功。這確認 CI 已在 PostgreSQL 17 測試路徑通過；仍不等同正式 Supabase 部署後驗收。
 
 ### 6.4 Data API Exposed schemas — 無法由目前唯讀介面確認
 
@@ -126,9 +126,30 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 明確阻擋項目：
 1. Migration baseline 未釐清，且 repo 存在兩份內容不同的 app_releases migration。
 2. 正式 Data API Exposed schemas 無法由目前管理介面讀取，必須人工確認 private 未暴露。
-3. CI PostgreSQL 版本為 16，正式為 17.11，需補 PostgreSQL 17 測試。
+3. PostgreSQL 17 CI 已通過；仍須保留正式環境部署後驗收。
 4. 正式 Edge Function secrets/CORS 與部署後 smoke test 尚未驗證。
 5. API 規格有 429 rate-limit response，但現有共用 Edge Function 程式碼尚無應用層 rate limiter；需定稿限流方案或調整契約。
 6. audit/idempotency retention 與清理政策仍未定稿。
 
 在上述阻擋解除前，不執行正式 Migration、不部署、不合併 main、不新增付費資源。這份整合複核不構成正式環境變更授權。
+
+
+### 6.8 Migration baseline 唯讀比對補充（2026-11-16）
+
+本輪直接對正式 Supabase 執行唯讀 catalog 查詢，未修改任何資料：
+
+**`public.app_releases`**
+- 正式表欄位為 `id, version_code, version_name, release_notes, apk_url, published, created_at, published_at, created_by`；預設值、nullable、`version_code > 0`、唯一約束及 `created_by -> auth.users(id)` 外鍵，均與 `202610310001_app_releases.sql` 的建表設計相符。
+- 正式 RLS policies 的名稱及條件亦與 `202610310001_app_releases.sql` 相符：公開讀取已發布版本、管理員讀取全部、管理員新增（created_by 必須為 null 或 auth.uid()）、管理員更新及刪除。
+- 正式索引為主鍵及 version_code 唯一索引；未發現第二份 `20261031_app_releases.sql` 所定義的 `is_latest` 欄位、`is_app_release_admin()` helper 或複合 published index。
+- 因此，兩份候選 SQL 中，第一份與目前正式 app_releases schema/policies 相符；第二份不相符。這是現況結構比對結果，不是 migration history 證明，也不代表可將 migration 標記 applied 或重跑。
+
+**`public.announcements` 行事曆欄位**
+- 正式表已有 `event_date`, `event_end_date`, `event_date_source`, `event_date_confirmed`，型別及 nullable/default 與 `26.11.3_calendar_fields.sql` 相符。
+- `announcements_event_date_source_check`、`announcements_event_date_range_check` 兩項 CHECK constraint 的定義與 migration 相符。
+- `announcements_calendar_event_date_idx` 的 partial index 定義亦與 migration 相符（`published = true AND event_date_confirmed = true`）。
+
+**結論與限制**
+- 這次已將兩個 migration 家族的現況核對從「未知」縮小為「正式 schema 與 repo 中指定 SQL 的物件定義相符」。
+- 仍需完成其餘正式 schema、函式、觸發器、GRANT/RLS、索引及 extension 的完整唯讀盤點，才能決定 migration baseline 的唯一重建方式。
+- Migration history 仍為空；不得因 schema 相符就執行 `migration repair`、`db push`、套用 migration 或改動正式資料庫。
