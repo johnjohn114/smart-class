@@ -80,18 +80,27 @@ DECLARE
   conflict_seen boolean := false;
 BEGIN
   request_payload := jsonb_build_object(
-    'title', 'CI isolated maintenance event',
-    'message', 'Public maintenance notice',
-    'internal_note', 'CI_PRIVATE_NOTE_DO_NOT_EXPOSE',
+    'title', '  CI isolated maintenance event  ', 
+    'message', '  Public maintenance notice  ', 
+    'internal_note', '  CI_PRIVATE_NOTE_DO_NOT_EXPOSE  ', 
     'is_global', true,
     'scope_codes', '[]'::jsonb,
     'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '1 hour') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
-    'reason', 'isolated PostgreSQL integration test',
+    'reason', '  isolated PostgreSQL integration test  ', 
     'idempotency_key', '00000000-0000-4000-8000-000000000011'
   );
   first_result := public.maintenance_event_create(request_payload);
+  -- Equivalent semantic payload: trimmed text and UTC Z timestamps instead of +00:00.
+  request_payload := pg_catalog.jsonb_set(request_payload, '{title}', pg_catalog.to_jsonb('CI isolated maintenance event'::text), false);
+  request_payload := pg_catalog.jsonb_set(request_payload, '{message}', pg_catalog.to_jsonb('Public maintenance notice'::text), false);
+  request_payload := pg_catalog.jsonb_set(request_payload, '{internal_note}', pg_catalog.to_jsonb('CI_PRIVATE_NOTE_DO_NOT_EXPOSE'::text), false);
+  request_payload := pg_catalog.jsonb_set(request_payload, '{reason}', pg_catalog.to_jsonb('isolated PostgreSQL integration test'::text), false);
+  request_payload := pg_catalog.jsonb_set(request_payload, '{starts_at}',
+    pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
+  request_payload := pg_catalog.jsonb_set(request_payload, '{ends_at}',
+    pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() + interval '1 hour') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
   replay_result := public.maintenance_event_create(request_payload);
   IF first_result IS DISTINCT FROM replay_result THEN
     RAISE EXCEPTION 'FAIL: idempotent replay did not return the original response';
