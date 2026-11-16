@@ -128,9 +128,10 @@ $anon_acl$;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
 SET ROLE authenticated;
 DO $member_self$
-DECLARE unlocked integer;
-DECLARE level_code text;
-DECLARE points integer;
+DECLARE
+  unlocked integer;
+  level_code text;
+  points integer;
 BEGIN
   unlocked := public.check_growth_achievements(auth.uid());
   IF unlocked <> 1 THEN RAISE EXCEPTION 'FAIL: member own achievement check did not unlock expected achievement'; END IF;
@@ -169,9 +170,10 @@ RESET ROLE;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
 SET ROLE authenticated;
 DO $admin_allowed$
-DECLARE result jsonb;
-DECLARE level_code text;
-DECLARE reward_id uuid;
+DECLARE
+  result jsonb;
+  level_code text;
+  reward_id uuid;
 BEGIN
   result := public.admin_upsert_growth_reward(
     NULL,'ci-reward','CI Reward',NULL,'star','test',5,NULL,NULL,NULL,NULL,
