@@ -55,6 +55,113 @@ jobs:
       - name: Test maintenance SQL static guardrails
         run: python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py'
 
+  maintenance-gotrue-postgrest-integration:
+    name: GoTrue-issued JWT and PostgREST integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: maintenance_gotrue_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d maintenance_gotrue_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare disposable PostgreSQL extensions for GoTrue
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          SQL
+
+      - name: Start Supabase GoTrue with automatic migrations
+        run: |
+          docker run --detach --network host --name maintenance-gotrue \
+            --env GOTRUE_SITE_URL=http://localhost:3000 \
+            --env GOTRUE_API_HOST=127.0.0.1 \
+            --env PORT=9999 \
+            --env API_EXTERNAL_URL=http://localhost:9999 \
+            --env GOTRUE_DB_DRIVER=postgres \
+            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/maintenance_gotrue_test?sslmode=disable \
+            --env GOTRUE_JWT_SECRET=maintenance-gotrue-ci-secret-at-least-32-bytes-long \
+            --env GOTRUE_JWT_EXP=3600 \
+            --env GOTRUE_JWT_AUD=authenticated \
+            --env GOTRUE_EXTERNAL_EMAIL_ENABLED=true \
+            --env GOTRUE_MAILER_AUTOCONFIRM=true \
+            supabase/gotrue:v2.197.0
+
+      - name: Wait for GoTrue migrations and API
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://localhost:9999/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs maintenance-gotrue
+          echo 'GoTrue did not become healthy' >&2
+          exit 1
+
+      - name: Provision isolated users through GoTrue signup
+        env:
+          GOTRUE_URL: http://localhost:9999
+          GITHUB_RUN_ID: \${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: \${{ github.run_attempt }}
+        run: python supabase/tests/sql/provision_gotrue_users.py
+
+      - name: Create isolated profiles and admin helper
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -v admin_id="$TEST_ADMIN_ID" \
+            -v member_id="$TEST_MEMBER_ID" \
+            -f supabase/tests/sql/maintenance-gotrue-bootstrap.sql
+
+      - name: Apply maintenance SQL draft to disposable GoTrue database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql
+
+      - name: Start PostgREST against GoTrue database
+        run: |
+          docker run --detach --network host --name maintenance-gotrue-postgrest \
+            --env PGRST_DB_URI=postgres://authenticator:authenticator@127.0.0.1:5432/maintenance_gotrue_test \
+            --env PGRST_DB_SCHEMAS=public \
+            --env PGRST_DB_ANON_ROLE=anon \
+            --env PGRST_JWT_SECRET=maintenance-gotrue-ci-secret-at-least-32-bytes-long \
+            --env PGRST_SERVER_PORT=3000 \
+            postgrest/postgrest:v12.2.3
+
+      - name: Wait for PostgREST schema cache
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3000/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs maintenance-gotrue-postgrest
+          echo 'PostgREST did not become ready' >&2
+          exit 1
+
+      - name: Verify GoTrue-issued JWT, roles, RPC, RLS and concurrency
+        env:
+          GOTRUE_URL: http://localhost:9999
+          POSTGREST_URL: http://localhost:3000
+        run: python supabase/tests/sql/test_gotrue_postgrest_integration.py
+
   maintenance-postgres-integration:
     name: Isolated PostgreSQL RPC and RLS tests
     runs-on: ubuntu-latest
