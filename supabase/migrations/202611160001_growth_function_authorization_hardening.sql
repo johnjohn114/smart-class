@@ -255,4 +255,49 @@ REVOKE EXECUTE ON FUNCTION public.increment_download_count(uuid) FROM PUBLIC, an
 GRANT EXECUTE ON FUNCTION public.increment_download_count(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO authenticated;
 
+
+-- Apply least-privilege EXECUTE grants to every public SECURITY DEFINER routine.
+-- Trigger functions are invoked by their table triggers, not directly by API roles.
+DO $acl_hardening$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid,
+           p.oid::regprocedure AS signature,
+           p.proname,
+           p.prorettype = 'trigger'::regtype AS is_trigger
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef = true
+      AND p.prokind = 'f'
+  LOOP
+    IF r.is_trigger THEN
+      EXECUTE format(
+        'REVOKE ALL PRIVILEGES ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role',
+        r.signature
+      );
+    ELSE
+      EXECUTE format(
+        'REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon',
+        r.signature
+      );
+
+      IF r.proname IN ('award_growth_points', '_refresh_growth_level_internal') THEN
+        EXECUTE format(
+          'REVOKE EXECUTE ON FUNCTION %s FROM authenticated',
+          r.signature
+        );
+      ELSE
+        EXECUTE format(
+          'GRANT EXECUTE ON FUNCTION %s TO authenticated',
+          r.signature
+        );
+      END IF;
+    END IF;
+  END LOOP;
+END;
+$acl_hardening$;
+
 COMMIT;
