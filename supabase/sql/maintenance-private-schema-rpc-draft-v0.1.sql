@@ -187,7 +187,11 @@ GRANT SELECT (event_id,scope_code) ON private.maintenance_event_scopes TO anon;
 
 GRANT SELECT ON private.maintenance_events, private.maintenance_event_scopes,
   private.maintenance_scopes TO authenticated;
-GRANT SELECT, INSERT, UPDATE ON private.maintenance_event_private_notes TO authenticated;
+GRANT SELECT ON private.maintenance_event_private_notes TO authenticated;
+GRANT INSERT (event_id,internal_note)
+  ON private.maintenance_event_private_notes TO authenticated;
+GRANT UPDATE (internal_note,updated_at)
+  ON private.maintenance_event_private_notes TO authenticated;
 GRANT INSERT (title,message,is_global,status,starts_at,ends_at)
   ON private.maintenance_events TO authenticated;
 GRANT UPDATE (title,message,is_global,status,starts_at,ends_at,version,updated_at)

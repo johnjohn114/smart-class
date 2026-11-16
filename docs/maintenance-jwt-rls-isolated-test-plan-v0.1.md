@@ -1,7 +1,7 @@
 # Maintenance JWT / RLS 隔離整合測試計畫 v0.1
 
 > 狀態：測試案例已整理；尚未建立隔離環境、尚未執行。  
-> 測試目標：五表 private schema + user JWT + SECURITY INVOKER RPC。  
+> 測試目標：六張 private tables + user JWT + SECURITY INVOKER RPC。  
 > 禁止：不得使用正式 Supabase project 執行測試，不建立付費 branch/project。
 
 ## 1. 測試環境前提

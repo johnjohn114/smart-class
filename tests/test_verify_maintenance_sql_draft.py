@@ -59,6 +59,11 @@ GOOD = (
     + rpc("maintenance_event_action",
           "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'; 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);")
     + """
+GRANT SELECT ON private.maintenance_event_private_notes TO authenticated;
+GRANT INSERT (event_id,internal_note)
+  ON private.maintenance_event_private_notes TO authenticated;
+GRANT UPDATE (internal_note,updated_at)
+  ON private.maintenance_event_private_notes TO authenticated;
 CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_insert ON private.maintenance_event_private_notes FOR INSERT TO authenticated WITH CHECK (public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_update ON private.maintenance_event_private_notes FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
@@ -102,6 +107,18 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         )
         result = inspect_sql(broken)
         self.assertFalse(result["creator_id_not_exposed_on_events"])
+
+    def test_private_notes_grants_are_column_scoped(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["notes_column_scoped_insert"])
+        self.assertTrue(result["notes_column_scoped_update"])
+
+        broad = GOOD.replace(
+            "GRANT UPDATE (internal_note,updated_at)\\n  ON private.maintenance_event_private_notes TO authenticated;",
+            "GRANT SELECT, INSERT, UPDATE ON private.maintenance_event_private_notes TO authenticated;",
+        )
+        result = inspect_sql(broad)
+        self.assertFalse(result["notes_column_scoped_update"])
 
     def test_missing_notes_admin_policy_is_detected(self):
         result = inspect_sql(GOOD.replace(

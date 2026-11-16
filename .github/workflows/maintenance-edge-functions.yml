@@ -7,6 +7,9 @@ on:
     paths:
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
+      - "tests/test_verify_maintenance_sql_draft.py"
+      - "scripts/verify_maintenance_sql_draft.py"
+      - "supabase/sql/**"
       - ".github/workflows/maintenance-edge-functions.yml"
   pull_request:
     paths:
@@ -42,3 +45,9 @@ jobs:
 
       - name: Run maintenance validation tests
         run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS supabase/tests/functions/maintenance-validation.test.ts
+
+      - name: Run maintenance SQL static guardrails
+        run: python scripts/verify_maintenance_sql_draft.py
+
+      - name: Test maintenance SQL static guardrails
+        run: python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py'
