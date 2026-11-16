@@ -72,6 +72,13 @@ FOR EACH ROW EXECUTE FUNCTION private.block_audit();
 CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON private.maintenance_audit_logs
 FOR EACH STATEMENT EXECUTE FUNCTION private.block_audit();
 PRIMARY KEY(actor_id, idempotency_key);
+request_hash bytea NOT NULL CHECK (pg_catalog.octet_length(request_hash) = 32);
+pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
+pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
+pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));
+v_old_request_hash IS DISTINCT FROM v_request_hash; IDEMPOTENCY_KEY_REUSED
+v_old_request_hash IS DISTINCT FROM v_request_hash; IDEMPOTENCY_KEY_REUSED
+v_old_request_hash IS DISTINCT FROM v_request_hash; IDEMPOTENCY_KEY_REUSED
 SELECT pg_advisory_xact_lock(20261108,1);
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
@@ -194,6 +201,23 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
             ""
         ))
         self.assertFalse(result["private_object_privileges_reset"])
+
+    def test_server_side_idempotency_hash_is_required(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["idempotency_server_sha256"])
+        self.assertTrue(result["idempotency_replay_hash_comparison"])
+
+        broken = GOOD.replace(
+            "pg_catalog.sha256(pg_catalog.convert_to(v_payload::text,'UTF8'));", "", 1
+        )
+        result = inspect_sql(broken)
+        self.assertFalse(result["idempotency_server_sha256"])
+
+        broken = GOOD.replace(
+            "v_old_request_hash IS DISTINCT FROM v_request_hash;", "true", 1
+        )
+        result = inspect_sql(broken)
+        self.assertFalse(result["idempotency_replay_hash_comparison"])
 
     def test_duplicate_public_rpc_is_detected(self):
         duplicate = GOOD + "\nCREATE FUNCTION public.maintenance_event_create(p_request jsonb) RETURNS jsonb;"
