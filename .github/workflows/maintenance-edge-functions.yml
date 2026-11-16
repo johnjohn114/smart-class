@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_DB: maintenance_gotrue_test
           POSTGRES_USER: postgres
@@ -185,7 +185,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_DB: maintenance_test
           POSTGRES_USER: postgres
