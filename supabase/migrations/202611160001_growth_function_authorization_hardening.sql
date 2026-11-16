@@ -251,6 +251,8 @@ GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(uuid, text, text, te
 GRANT EXECUTE ON FUNCTION public.check_growth_achievements(uuid) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.check_activity_badges(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.check_activity_badges(uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.increment_download_count(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.increment_download_count(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO authenticated;
 
 COMMIT;
