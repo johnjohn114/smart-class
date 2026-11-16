@@ -147,7 +147,36 @@ def main():
         "GoTrue admin tokens preserve the overlapping global schedule concurrency guard",
     )
 
-    print("PASS: GoTrue-issued JWT / PostgREST / RPC / role / concurrency suite")
+    # A draft create isolates idempotency behavior from schedule conflict checks.
+    idem_start = datetime.now(timezone.utc) + timedelta(days=2)
+    idem_end = idem_start + timedelta(minutes=45)
+    idem_request = {
+        "title": "GoTrue CI idempotency baseline",
+        "message": "Idempotency replay test",
+        "is_global": True,
+        "scope_codes": [],
+        "starts_at": iso(idem_start),
+        "ends_at": iso(idem_end),
+        "status": "draft",
+        "reason": "isolated GoTrue/PostgREST idempotency integration test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, first = rpc("maintenance_event_create", idem_request, admin)
+    assert_true(status == 200 and first and first.get("ok") is True,
+                "GoTrue admin can create a draft for idempotency validation")
+    status, replay = rpc("maintenance_event_create", idem_request, admin)
+    assert_true(status == 200 and replay == first,
+                "same actor, key and payload returns the original idempotent response")
+    changed_request = dict(idem_request)
+    changed_request["title"] = "GoTrue CI changed title"
+    status, conflict = rpc("maintenance_event_create", changed_request, admin)
+    assert_true(
+        status == 400 and isinstance(conflict, dict)
+        and conflict.get("message") == "IDEMPOTENCY_KEY_REUSED",
+        f"same actor and key with a different payload is rejected (HTTP {status}; body={conflict!r})",
+    )
+
+    print("PASS: GoTrue-issued JWT / PostgREST / RPC / role / concurrency / idempotency suite")
 
 
 if __name__ == "__main__":
