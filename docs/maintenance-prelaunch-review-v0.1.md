@@ -164,3 +164,37 @@ Supabase CLI v3（2026-11-04）改為預設 local-first 並在 hosted 變更前�
 - catalog 結果顯示多張 public tables 對 API roles 存在廣泛 table-level grants。RLS 是 row-level 邊界，不等於 table privilege；需後續按表與操作（SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER）對照 policies、前端實際呼叫及 service_role 使用方式，先建立權限矩陣，不進行批次 revoke。
 
 此盤點是 preliminary catalog inventory，並非完整安全滲透測試或正式發布核准。所有查詢均為唯讀，沒有變更正式資料庫。
+
+
+### 6.10 高優先級既有 SECURITY DEFINER / ACL 發現（2026-11-16，唯讀靜態審查）
+
+本節為正式資料庫 catalog 與函式定義的唯讀審查，未呼叫這些函式、未測試修改資料，也未變更權限。
+
+**A. 管理員判斷存在 NULL 比較漏洞**
+- public.admin_delete_growth_reward(uuid) 與 public.admin_upsert_growth_reward(...) 均為 SECURITY DEFINER，且 ACL 明確允許 anon 與 authenticated 執行。
+- 兩者以 caller_role <> 'admin' 作為拒絕條件。未登入時 auth.uid() 查不到 profile，caller_role 為 NULL；SQL 的 NULL <> 'admin' 結果仍是 NULL，PL/pgSQL 的 IF NULL 不會進入拒絕分支。因此管理員檢查並未可靠地拒絕未登入呼叫。
+- 這兩個函式分別包含停用/刪除成長獎勵，以及新增/更新成長獎勵的寫入邏輯。列為 P0 / 緊急待修。這是由正式函式定義與 ACL 推導出的可達風險；本輪沒有實際呼叫驗證，也沒有執行任何寫入。
+
+**B. 成長積分與成就函式的身分限制不足**
+- public.award_growth_points(...) 是 SECURITY DEFINER，ACL 允許 anon 執行，函式本體未檢查呼叫者身分或管理員資格，且可更新指定 p_user_id 的成長積分。列為 P0 / 緊急待修。
+- public.check_growth_achievements(p_user_id) ACL 允許 anon 與 authenticated 執行；函式本體未確認 p_user_id 是否等於 auth.uid() 或管理員，並會寫入指定會員的成就及可能呼叫積分發放。列為 P1 / 高優先。
+- public.refresh_growth_level(p_user_id) ACL 允許 anon 與 authenticated 執行；函式本體未確認呼叫者與目標會員的關係，並會更新指定會員的 growth_level。列為 P1 / 高優先。
+- 前端 app.js 目前會以登入會員自己的 u.id 呼叫 check_growth_achievements 及 refresh_growth_level。修補時須保留此合法使用情境，加入 auth.uid() IS NOT NULL 且（目標非本人時）明確管理員授權檢查；不可只撤銷 authenticated EXECUTE 而破壞既有流程。
+
+**C. 其他觀察與權限背景**
+- public schema 對 postgres 與 supabase_admin 的 table default privileges 均包含 anon=arwdDxt（含 INSERT/UPDATE/DELETE/TRUNCATE 等）。因此新建 public table 可能自動取得過寬的 anon table privileges。
+- 本輪確認沒有任何 anon 角色的 public table write RLS policy；所以單靠這些 table grants 並不代表 anon 可直接寫入受 RLS 保護的列。但它仍違反 least privilege，且不能防止具有缺陷的 SECURITY DEFINER RPC 繞過一般 table RLS。
+- 多個 admin_* SECURITY DEFINER 函式也授予 anon EXECUTE；其中不少函式本體有明確 auth.uid()/admin 檢查，不能把所有 34 個函式一概視為可未授權寫入。必須逐個依函式本體、呼叫者、trigger 用途及前端呼叫確認。
+- public.increment_download_count(uuid) 目前允許 anon 執行，函式只對已發布下載項目增加計數；初步視為預期公開計數功能，仍需納入濫用/速率限制審查。
+- 部分 trigger function 在 catalog 中也顯示 anon EXECUTE，但 trigger-returning function 不能當作一般 RPC 直接呼叫；應從 default ACL 清理策略中獨立處理，不可誤判為一般 API callable function。
+
+**建議修補順序（僅供功能分支設計，尚未執行）**
+1. 先修正兩個管理員函式的 guard，使用 auth.uid() IS NULL OR caller_role IS DISTINCT FROM 'admin'，並限制 anon EXECUTE；保留 authenticated 呼叫，由函式本體再做管理員驗證。
+2. award_growth_points 移除 anon EXECUTE，並確認只由受信任 trigger/SECURITY DEFINER 流程或 service_role 呼叫。
+3. check_growth_achievements、refresh_growth_level 加入本人/管理員授權檢查，保留前端本人呼叫；匿名 EXECUTE 應移除。
+4. 調整 public schema default privileges，停止未來新表自動向 anon 授予寫入權限；先確認新表建立者與既有 API 使用情境。
+5. 建立完整函式 ACL 清單及每個 function 的用途矩陣，再在隔離 PostgreSQL/GoTrue/PostgREST CI 加入匿名拒絕、會員本人允許、會員跨帳號拒絕、管理員允許測試。
+
+**安全界線**
+- 上述只記錄為正式環境發現與功能分支修補建議。本輪沒有執行 REVOKE、ALTER DEFAULT PRIVILEGES、CREATE OR REPLACE FUNCTION、資料寫入、Migration、部署或 merge。
+- 在修補及隔離測試完成前，正式環境不可視為已通過安全審查；maintenance system 發布仍需獨立核准。
