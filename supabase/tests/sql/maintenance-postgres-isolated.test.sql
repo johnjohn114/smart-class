@@ -4,6 +4,8 @@
 -- The auth.uid() and public.is_admin() functions below are test stubs only.
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
+CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD 'authenticator';
+GRANT anon, authenticated TO authenticator;
 
 CREATE SCHEMA auth;
 CREATE FUNCTION auth.uid()

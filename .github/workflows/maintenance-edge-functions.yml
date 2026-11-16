@@ -72,6 +72,16 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      postgrest:
+        image: postgrest/postgrest:v12.2.3
+        env:
+          PGRST_DB_URI: postgres://authenticator:authenticator@postgres:5432/maintenance_test
+          PGRST_DB_SCHEMAS: public
+          PGRST_DB_ANON_ROLE: anon
+          PGRST_JWT_SECRET: maintenance-ci-only-secret-key-at-least-32-bytes-long
+          PGRST_SERVER_PORT: 3000
+        ports:
+          - 3000:3000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
