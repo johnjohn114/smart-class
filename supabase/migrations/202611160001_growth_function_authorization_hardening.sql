@@ -209,7 +209,7 @@ begin
    end if;
  end loop;
  return unlocked;
-end; $function$
+end; $function$;
 
 
 REVOKE EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid) FROM PUBLIC, anon;
