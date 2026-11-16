@@ -104,12 +104,12 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         )
     ) and sql.count("es.scope_code='site_core' OR es.scope_code=ANY(v_codes)") >= 3
     checks["notes_column_scoped_insert"] = (
-        "GRANT INSERT (event_id,internal_note)\\n  ON private.maintenance_event_private_notes TO authenticated;" in sql
+        "GRANT INSERT (event_id,internal_note)\n  ON private.maintenance_event_private_notes TO authenticated;" in sql
     )
     checks["notes_column_scoped_update"] = (
-        "GRANT UPDATE (internal_note,updated_at)\\n  ON private.maintenance_event_private_notes TO authenticated;" in sql
+        "GRANT UPDATE (internal_note,updated_at)\n  ON private.maintenance_event_private_notes TO authenticated;" in sql
         and not bool(re.search(
-            r"GRANT\\s+[^;]*\\bUPDATE\\b[^;]*ON\\s+private\\.maintenance_event_private_notes",
+            r"GRANT\s+[^;]*\bUPDATE\b[^;]*ON\s+private\\.maintenance_event_private_notes",
             sql, re.I | re.S
         ))
     )

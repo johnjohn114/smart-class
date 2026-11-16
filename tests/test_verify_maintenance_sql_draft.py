@@ -114,7 +114,7 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         self.assertTrue(result["notes_column_scoped_update"])
 
         broad = GOOD.replace(
-            "GRANT UPDATE (internal_note,updated_at)\\n  ON private.maintenance_event_private_notes TO authenticated;",
+            "GRANT UPDATE (internal_note,updated_at)\n  ON private.maintenance_event_private_notes TO authenticated;",
             "GRANT SELECT, INSERT, UPDATE ON private.maintenance_event_private_notes TO authenticated;",
         )
         result = inspect_sql(broad)
