@@ -1,0 +1,208 @@
+-- Disposable regression test for growth-function authorization hardening.
+-- Run in a fresh PostgreSQL 17 database as postgres:
+-- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f this-file.sql
+
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+END
+$roles$;
+
+CREATE SCHEMA auth;
+CREATE OR REPLACE FUNCTION auth.uid()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
+GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
+
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY,
+  role text,
+  growth_points integer NOT NULL DEFAULT 0,
+  growth_level text NOT NULL DEFAULT 'newbie'
+);
+CREATE TABLE public.growth_levels (
+  code text PRIMARY KEY,
+  name text NOT NULL,
+  min_points integer NOT NULL,
+  sort_order integer NOT NULL DEFAULT 0
+);
+CREATE TABLE public.growth_achievements (
+  id uuid PRIMARY KEY,
+  active boolean NOT NULL,
+  achievement_type text NOT NULL,
+  requirement_count integer NOT NULL,
+  reward_points integer NOT NULL DEFAULT 0,
+  title text NOT NULL
+);
+CREATE TABLE public.growth_activity_days (
+  user_id uuid NOT NULL,
+  activity_date date NOT NULL
+);
+CREATE TABLE public.growth_user_achievements (
+  user_id uuid NOT NULL,
+  achievement_id uuid NOT NULL,
+  UNIQUE(user_id, achievement_id)
+);
+CREATE TABLE public.competition_registrations (
+  user_id uuid NOT NULL,
+  status text NOT NULL
+);
+CREATE TABLE public.competition_results (
+  user_id uuid NOT NULL,
+  place integer
+);
+CREATE TABLE public.notifications (
+  user_id uuid NOT NULL,
+  title text NOT NULL,
+  content text NOT NULL,
+  type text NOT NULL
+);
+CREATE TABLE public.growth_point_transactions (
+  user_id uuid NOT NULL,
+  amount integer NOT NULL,
+  reason text,
+  source_type text,
+  source_id text,
+  source_key text,
+  admin_user_id uuid
+);
+CREATE TABLE public.growth_rewards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code text NOT NULL,
+  title text NOT NULL,
+  description text,
+  icon text,
+  category text,
+  reward_type text NOT NULL,
+  point_cost integer NOT NULL,
+  min_level text,
+  required_achievement_id uuid,
+  user_limit integer,
+  total_limit integer,
+  coupon_title text,
+  coupon_description text,
+  coupon_discount text,
+  coupon_expires_days integer,
+  available_from timestamptz,
+  available_until timestamptz,
+  sort_order integer,
+  enabled boolean NOT NULL DEFAULT true,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE public.growth_reward_redemptions (
+  reward_id uuid NOT NULL
+);
+
+INSERT INTO public.growth_levels(code,name,min_points,sort_order)
+VALUES ('newbie','新手',0,0),('sprout','萌芽',10,1);
+INSERT INTO public.profiles(id,role,growth_points,growth_level) VALUES
+ ('00000000-0000-4000-8000-000000000001','admin',0,'newbie'),
+ ('00000000-0000-4000-8000-000000000002','visitor',10,'newbie'),
+ ('00000000-0000-4000-8000-000000000003','visitor',0,'newbie');
+INSERT INTO public.growth_achievements(id,active,achievement_type,requirement_count,reward_points,title)
+VALUES ('00000000-0000-4000-8000-000000000010',true,'points',1,5,'CI points achievement');
+
+\ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
+
+-- Anonymous callers cannot execute privileged RPCs or internal helpers.
+DO $anon_acl$
+BEGIN
+  IF has_function_privilege('anon','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute admin_delete_growth_reward'; END IF;
+  IF has_function_privilege('anon','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute admin_upsert_growth_reward'; END IF;
+  IF has_function_privilege('anon','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute award_growth_points'; END IF;
+  IF has_function_privilege('anon','public.check_growth_achievements(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute check_growth_achievements'; END IF;
+  IF has_function_privilege('anon','public.refresh_growth_level(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute refresh_growth_level'; END IF;
+  IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points directly'; END IF;
+  IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute internal helper'; END IF;
+END
+$anon_acl$;
+
+-- Authenticated member can inspect own achievements and refresh own level.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $member_self$
+DECLARE unlocked integer;
+DECLARE level_code text;
+DECLARE points integer;
+BEGIN
+  unlocked := public.check_growth_achievements(auth.uid());
+  IF unlocked <> 1 THEN RAISE EXCEPTION 'FAIL: member own achievement check did not unlock expected achievement'; END IF;
+  SELECT growth_points INTO points FROM public.profiles WHERE id=auth.uid();
+  IF points <> 15 THEN RAISE EXCEPTION 'FAIL: internal award helper did not award expected points'; END IF;
+  level_code := public.refresh_growth_level(auth.uid());
+  IF level_code <> 'sprout' THEN RAISE EXCEPTION 'FAIL: own growth level refresh returned unexpected level'; END IF;
+END
+$member_self$;
+RESET ROLE;
+
+-- Authenticated member cannot inspect or refresh another member's records.
+SET ROLE authenticated;
+DO $member_cross_account$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限檢查此會員成就' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: member inspected another member achievements'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限更新此會員等級' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: member refreshed another member level'; END IF;
+END
+$member_cross_account$;
+RESET ROLE;
+
+-- Admin may manage rewards and refresh another member's level.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
+SET ROLE authenticated;
+DO $admin_allowed$
+DECLARE result jsonb;
+DECLARE level_code text;
+DECLARE reward_id uuid;
+BEGIN
+  result := public.admin_upsert_growth_reward(
+    NULL,'ci-reward','CI Reward',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,1,true
+  );
+  IF result->>'action' <> 'created' THEN RAISE EXCEPTION 'FAIL: admin could not create reward'; END IF;
+  reward_id := (result->>'id')::uuid;
+  PERFORM public.admin_delete_growth_reward(reward_id);
+  IF EXISTS(SELECT 1 FROM public.growth_rewards WHERE id=reward_id) THEN
+    RAISE EXCEPTION 'FAIL: admin reward delete did not remove reward';
+  END IF;
+  level_code := public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  IF level_code <> 'newbie' THEN RAISE EXCEPTION 'FAIL: admin could not refresh another member level'; END IF;
+END
+$admin_allowed$;
+RESET ROLE;
+
+-- A normal authenticated member cannot use admin reward RPCs.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $member_admin_denied$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000010');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '只有管理員可以刪除獎勵' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: non-admin member executed admin delete'; END IF;
+END
+$member_admin_denied$;
+RESET ROLE;
+
+\echo 'PASS: growth function authorization regression tests'
