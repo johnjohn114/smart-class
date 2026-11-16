@@ -1,6 +1,7 @@
 name: Maintenance Edge Function Checks
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/maintenance-system
