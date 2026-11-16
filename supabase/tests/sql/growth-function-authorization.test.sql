@@ -183,9 +183,9 @@ BEGIN
   );
   IF result->>'action' <> 'created' THEN RAISE EXCEPTION 'FAIL: admin could not create reward'; END IF;
   reward_id := (result->>'id')::uuid;
-  PERFORM public.admin_delete_growth_reward(reward_id);
-  IF EXISTS(SELECT 1 FROM public.growth_rewards WHERE id=reward_id) THEN
-    RAISE EXCEPTION 'FAIL: admin reward delete did not remove reward';
+  result := public.admin_delete_growth_reward(reward_id);
+  IF result->>'action' <> 'deleted' THEN
+    RAISE EXCEPTION 'FAIL: admin reward delete did not return deleted action';
   END IF;
   level_code := public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
   IF level_code <> 'newbie' THEN RAISE EXCEPTION 'FAIL: admin could not refresh another member level'; END IF;
