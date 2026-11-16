@@ -156,7 +156,7 @@ function requireIsoDate(value: unknown, name: string): string {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/i.test(result!)) {
     throw new HttpError(422, "VALIDATION_ERROR", `${name} 必須是含時區的 ISO 8601 時間`);
   }
-  const parts = /^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$/i.exec(result!);
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/i.exec(result!);
   if (!parts) {
     throw new HttpError(422, "VALIDATION_ERROR", `${name} 時間無效`);
   }

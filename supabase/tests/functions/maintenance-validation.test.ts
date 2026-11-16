@@ -201,3 +201,47 @@ Deno.test("date validation: accepts leap day in a leap year", async () => {
   }
 });
 
+Deno.test("date validation: rejects invalid dates in admin filters", () => {
+  for (const value of [
+    "2026-02-30T10:00:00+08:00",
+    "2026-13-01T10:00:00+08:00",
+    "2026-11-16T25:00:00+08:00",
+  ]) {
+    let rejected = false;
+    try {
+      parseAdminListRequest(
+        new Request("https://local.test/list?from=" + encodeURIComponent(value)),
+      );
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) throw new Error(`invalid date must be rejected: ${value}`);
+  }
+});
+
+Deno.test("date validation: rejects non-leap-year February 29", async () => {
+  const req = new Request("https://local.test/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "系統維護",
+      message: "服務將進行維護",
+      internal_note: null,
+      is_global: true,
+      scope_codes: [],
+      starts_at: "2027-02-29T10:00:00+08:00",
+      ends_at: "2027-03-01T11:00:00+08:00",
+      status: "draft",
+      reason: "排定例行維護",
+      idempotency_key: uuid,
+    }),
+  });
+  let rejected = false;
+  try {
+    await parseCreateRequest(req);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("non-leap-year February 29 must be rejected");
+});
+
