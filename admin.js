@@ -994,3 +994,323 @@ function bind(){
   if($('competitionSearch'))$('competitionSearch').addEventListener('input',renderAdminCompetitions); if($('competitionStatusFilter'))$('competitionStatusFilter').addEventListener('change',renderAdminCompetitions); if($('competitionCategoryFilter'))$('competitionCategoryFilter').addEventListener('change',renderAdminCompetitions); if($('registrationSearch'))$('registrationSearch').addEventListener('input',renderCompetitionRegistrations); if($('exportCompetitionRegistrations'))$('exportCompetitionRegistrations').onclick=exportCompetitionRegistrations; if($('registrationStatusFilter'))$('registrationStatusFilter').addEventListener('change',renderCompetitionRegistrations);if($('attendanceStatusFilter'))$('attendanceStatusFilter').addEventListener('change',renderCompetitionAttendance); if($('loadActivityAnalytics'))$('loadActivityAnalytics').onclick=loadActivityAnalytics; if($('loadActivityBadges'))$('loadActivityBadges').onclick=loadActivityBadgesAdmin; if($('addActivityReward'))$('addActivityReward').onclick=addActivityReward;
   if($('detectEventDate'))$('detectEventDate').onclick=detectAnnouncementEventDate; if($('eventDate'))$('eventDate').addEventListener('change',()=>{let src=$('eventDateSource');if(src)src.value='manual';if($('eventDateConfirmed'))$('eventDateConfirmed').checked=false;}); if($('loginButton'))$('loginButton').onclick=login;if($('refreshDashboard'))$('refreshDashboard').onclick=dashboard;if($('logoutButton'))$('logoutButton').onclick=logout;if($('saveContent'))$('saveContent').onclick=save;if($('publishButton'))$('publishButton').onclick=publish;if($('saveProduct'))$('saveProduct').onclick=saveProduct;if($('clearProduct'))$('clearProduct').onclick=clearProduct;if($('createVisitor'))$('createVisitor').onclick=createVisitor;if($('refreshGrowthAdmin'))$('refreshGrowthAdmin').onclick=growthAdmin;if($('refreshRewardsAdmin'))$('refreshRewardsAdmin').onclick=loadRewardManagers;if($('saveReward'))$('saveReward').onclick=saveGrowthReward;if($('clearReward'))$('clearReward').onclick=clearReward;if($('adjustGrowthPoints'))$('adjustGrowthPoints').onclick=adjustGrowthPoints;if($('saveGrowthTask'))$('saveGrowthTask').onclick=saveGrowthTask;if($('clearGrowthTask'))$('clearGrowthTask').onclick=clearGrowthTask;if($('saveGrowthAchievement'))$('saveGrowthAchievement').onclick=saveGrowthAchievement;if($('clearGrowthAchievement'))$('clearGrowthAchievement').onclick=clearGrowthAchievement;if($('growthMemberSearch'))$('growthMemberSearch').addEventListener('input',growthAdmin);if($('resetGrowthMember'))$('resetGrowthMember').onclick=resetGrowthMember;if($('growthResetMemberSelect'))$('growthResetMemberSelect').addEventListener('change',e=>loadGrowthResetHistory(e.target.value));if($('growthLogSearch'))$('growthLogSearch').addEventListener('input',renderGrowthLogs);if($('growthLogFilter'))$('growthLogFilter').addEventListener('change',renderGrowthLogs);if($('orderSearch'))$('orderSearch').addEventListener('input',renderAdminOrders);if($('orderStatusFilter'))$('orderStatusFilter').addEventListener('change',renderAdminOrders);if($('refreshOrdersAdmin'))$('refreshOrdersAdmin').onclick=ordersAdmin;if($('attendanceStatusFilter'))$('attendanceStatusFilter').addEventListener('change',renderCompetitionAttendance);if($('registrationSearch'))$('registrationSearch').addEventListener('input',renderCompetitionRegistrations);if($('registrationStatusFilter'))$('registrationStatusFilter').addEventListener('change',renderCompetitionRegistrations);if($('setSharedVisitorPassword'))$('setSharedVisitorPassword').onclick=setSharedVisitorPassword;if($('createCoupon'))$('createCoupon').onclick=createCoupon;if($('createNotification'))$('createNotification').onclick=createNotification;if($('generateAiAnnouncement'))$('generateAiAnnouncement').onclick=generateAiAnnouncement;if($('clearAiAnnouncement'))$('clearAiAnnouncement').onclick=clearAiAnnouncement;if($('applyAiAnnouncement'))$('applyAiAnnouncement').onclick=applyAiAnnouncement;if($('addCompetitionResult'))$('addCompetitionResult').onclick=()=>addCompetitionResult();if($('saveCompetition'))$('saveCompetition').onclick=saveCompetition;if($('showCompetitionQr'))$('showCompetitionQr').onclick=showCompetitionQr;if($('copyCompetitionQr'))$('copyCompetitionQr').onclick=copyCompetitionQr;if($('settleCompetition'))$('settleCompetition').onclick=settleCompetition;if($('publishCompetition'))$('publishCompetition').onclick=async()=>{const ok=await saveCompetition();const id=$('competitionId').value;if(ok&&id)await setCompetitionPublished(id,true)};if($('unpublishCompetition'))$('unpublishCompetition').onclick=async()=>{const id=$('competitionId').value;if(id)await setCompetitionPublished(id,false)};if($('clearCompetition'))$('clearCompetition').onclick=clearCompetition;if($('addCompetitionCategory'))$('addCompetitionCategory').onclick=addCompetitionCategory;if($('saveQuickLink'))$('saveQuickLink').onclick=saveQuickLink;if($('clearQuickLink'))$('clearQuickLink').onclick=clearQuickLink;if($('saveVideo'))$('saveVideo').onclick=saveVideo;if($('clearVideo'))$('clearVideo').onclick=clearVideo;if($('refreshVideosAdmin'))$('refreshVideosAdmin').onclick=loadVideosAdmin;if($('uploadDownloadFile'))$('uploadDownloadFile').onclick=uploadDownloadFile;if($('saveGithubDownload'))$('saveGithubDownload').onclick=saveGithubDownload;if($('refreshDownloadFiles'))$('refreshDownloadFiles').onclick=loadDownloadFilesAdmin;if($('videoUrl'))$('videoUrl').addEventListener('input',previewVideo);if($('videoAdminSearch'))$('videoAdminSearch').addEventListener('input',renderAdminVideos);document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabPanel').forEach(x=>x.classList.add('hidden'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));$(b.dataset.tab).classList.remove('hidden');b.classList.add('active');if(b.dataset.tab==='dashboardTab')dashboard();if(b.dataset.tab==='newsTab')news();if(b.dataset.tab==='productTab')products();if(b.dataset.tab==='orderTab')ordersAdmin();if(b.dataset.tab==='visitorTab')visitors();if(b.dataset.tab==='growthTab')growthAdmin();if(b.dataset.tab==='rewardTab')loadRewardManagers();if(b.dataset.tab==='couponTab')coupons();if(b.dataset.tab==='competitionTab'){competitionCategories();competitions();if(!$('competitionResults').children.length)addCompetitionResult()}if(b.dataset.tab==='quickLinkTab')quickLinks();if(b.dataset.tab==='videoTab')loadVideosAdmin();if(b.dataset.tab==='downloadTab')loadDownloadFilesAdmin();if(b.dataset.tab==='supportTab')tickets();if(b.dataset.tab==='notificationTab')notifications()})}
 document.addEventListener('DOMContentLoaded',()=>{bindMobileAdminNav();bind();const session=recoverStoredSession();if(session.access){localStorage.setItem('access_token',session.access);if(session.refresh)localStorage.setItem('refresh_token',session.refresh);$('login').classList.add('hidden');$('dashboard').classList.remove('hidden');load()}else if(!configured())msg('loginError','請把你原本可用的 config.js 放回來。')});
+
+// ===== 維護管理：所有寫入操作均由 Edge Function 與資料庫再次驗證管理員權限 =====
+let maintenanceEventsCache = [];
+let maintenanceEditingScheduleLocked = false;
+
+function maintenanceUuid() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = [...bytes].map(v => v.toString(16).padStart(2, '0')).join('');
+  return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' +
+    hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+}
+
+async function maintenanceAdminRequest(path, options = {}) {
+  const session = recoverStoredSession();
+  const token = session.access || localStorage.getItem('access_token') ||
+    sessionStorage.getItem('access_token');
+  if (!token) throw new Error('管理員登入狀態不存在，請重新登入。');
+
+  const requestOptions = {
+    method: options.method || 'GET',
+    headers: { ...auth(), Accept: 'application/json' }
+  };
+  if (options.body !== undefined) {
+    requestOptions.body = JSON.stringify(options.body);
+  }
+
+  const response = await fetch(
+    SUPABASE_URL + '/functions/v1/' + path,
+    requestOptions
+  );
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok || !payload || payload.ok !== true) {
+    throw new Error(
+      payload?.error?.message ||
+      payload?.message ||
+      ('維護管理 API 發生錯誤（HTTP ' + response.status + '）')
+    );
+  }
+  return payload.data;
+}
+
+function maintenanceStatusLabel(status) {
+  return ({
+    draft: '草稿',
+    scheduled: '已排程',
+    cancelled: '已取消',
+    completed: '已完成'
+  })[status] || status || '未知';
+}
+
+function maintenanceScopeLabel(code) {
+  return ({
+    site_core: '網站核心',
+    announcements_info: '公告資訊',
+    events_competitions: '活動與比賽',
+    video_content: '影片內容',
+    membership_growth: '會員成長',
+    store_support: '商店與客服',
+    downloads_app: '下載與 App'
+  })[code] || code;
+}
+
+function maintenanceFormatTime(value) {
+  if (!value) return '未設定';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '時間格式錯誤';
+  return new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).format(date);
+}
+
+function renderMaintenanceEvents() {
+  const host = $('maintenanceEventList');
+  if (!host) return;
+
+  host.innerHTML = maintenanceEventsCache.map(event => {
+    const scopes = event.is_global
+      ? '全站'
+      : (Array.isArray(event.scopes) ? event.scopes.map(maintenanceScopeLabel).join('、') : '未指定');
+    const canEdit = event.status === 'draft' || event.status === 'scheduled';
+    let actions = '';
+
+    if (event.status === 'draft') {
+      actions += '<button class="btn" data-maintenance-action="schedule" data-maintenance-id="' + esc(event.id) + '">🗓️ 安排維護</button> ';
+    }
+    if (event.status === 'scheduled') {
+      actions += '<button class="btn secondary" data-maintenance-action="cancel" data-maintenance-id="' + esc(event.id) + '">取消排程</button> ';
+      if (Date.now() >= Date.parse(event.ends_at)) {
+        actions += '<button class="btn" data-maintenance-action="complete" data-maintenance-id="' + esc(event.id) + '">完成維護</button> ';
+      }
+    }
+    if (canEdit) {
+      actions += '<button class="btn secondary" data-maintenance-edit="' + esc(event.id) + '">✏️ 編輯</button>';
+    }
+
+    return '<article class="notice">' +
+      '<div class="date">' + esc(maintenanceStatusLabel(event.status)) +
+      ' · ' + esc(scopes) + ' · 版本 ' + esc(event.version) + '</div>' +
+      '<h3>' + esc(event.title) + '</h3>' +
+      '<p style="white-space:pre-wrap">' + esc(event.message || '') + '</p>' +
+      '<p class="sub">開始：' + esc(maintenanceFormatTime(event.starts_at)) +
+      '　結束：' + esc(maintenanceFormatTime(event.ends_at)) + '</p>' +
+      (event.internal_note ? '<p class="sub">內部備註：' + esc(event.internal_note) + '</p>' : '') +
+      '<div class="competitionActions">' + actions + '</div>' +
+      '</article>';
+  }).join('') || '<div class="empty">目前沒有符合條件的維護事件。</div>';
+
+  host.querySelectorAll('[data-maintenance-edit]').forEach(button => {
+    button.addEventListener('click', () => maintenanceEditEvent(button.dataset.maintenanceEdit));
+  });
+  host.querySelectorAll('[data-maintenance-action]').forEach(button => {
+    button.addEventListener('click', () => maintenanceRunAction(
+      button.dataset.maintenanceId,
+      button.dataset.maintenanceAction
+    ));
+  });
+}
+
+async function loadMaintenanceEvents() {
+  const host = $('maintenanceEventList');
+  if (!host) return;
+  host.innerHTML = '<div class="loading">正在讀取維護紀錄…</div>';
+
+  try {
+    const status = $('maintenanceStatusFilter')?.value || 'all';
+    const query = new URLSearchParams({ limit: '100' });
+    if (status !== 'all') query.set('status', status);
+
+    const data = await maintenanceAdminRequest(
+      'maintenance-admin-list?' + query.toString()
+    );
+    maintenanceEventsCache = Array.isArray(data?.events) ? data.events : [];
+    renderMaintenanceEvents();
+  } catch (error) {
+    host.innerHTML = '<div class="empty">❌ 載入維護紀錄失敗：' + esc(error.message) + '</div>';
+  }
+}
+
+function maintenanceSyncScopeOptions() {
+  const global = Boolean($('maintenanceGlobal')?.checked);
+  const wrapper = $('maintenanceScopeOptions');
+  if (wrapper) wrapper.hidden = global;
+  wrapper?.querySelectorAll('[data-maintenance-scope]').forEach(input => {
+    input.disabled = global || maintenanceEditingScheduleLocked;
+    if (global) input.checked = false;
+  });
+}
+
+function maintenanceClearForm() {
+  maintenanceEditingScheduleLocked = false;
+  ['maintenanceStartsAt', 'maintenanceEndsAt', 'maintenanceGlobal'].forEach(id => {
+    if ($(id)) $(id).disabled = false;
+  });
+  ['maintenanceEventId', 'maintenanceEventVersion', 'maintenanceTitle',
+    'maintenanceMessage', 'maintenanceStartsAt', 'maintenanceEndsAt',
+    'maintenanceInternalNote', 'maintenanceReason'
+  ].forEach(id => { if ($(id)) $(id).value = ''; });
+
+  if ($('maintenanceGlobal')) $('maintenanceGlobal').checked = false;
+  document.querySelectorAll('[data-maintenance-scope]').forEach(input => {
+    input.disabled = false;
+    input.checked = false;
+  });
+  maintenanceSyncScopeOptions();
+
+  if ($('maintenanceFormTitle')) $('maintenanceFormTitle').textContent = '新增維護草稿';
+  if ($('saveMaintenanceEvent')) $('saveMaintenanceEvent').textContent = '💾 建立草稿';
+}
+
+function maintenanceEditEvent(eventId) {
+  const event = maintenanceEventsCache.find(item => String(item.id) === String(eventId));
+  if (!event) return;
+
+  maintenanceEditingScheduleLocked = event.status === 'scheduled' && Date.parse(event.starts_at) <= Date.now();
+  $('maintenanceEventId').value = event.id;
+  $('maintenanceEventVersion').value = String(event.version);
+  $('maintenanceTitle').value = event.title || '';
+  $('maintenanceMessage').value = event.message || '';
+  $('maintenanceInternalNote').value = event.internal_note || '';
+  $('maintenanceStartsAt').value = taipeiDateTimeLocal(event.starts_at);
+  $('maintenanceEndsAt').value = taipeiDateTimeLocal(event.ends_at);
+  $('maintenanceGlobal').checked = Boolean(event.is_global);
+  $('maintenanceStartsAt').disabled = maintenanceEditingScheduleLocked;
+  $('maintenanceEndsAt').disabled = maintenanceEditingScheduleLocked;
+  $('maintenanceGlobal').disabled = maintenanceEditingScheduleLocked;
+
+  const scopes = Array.isArray(event.scopes) ? event.scopes : [];
+  document.querySelectorAll('[data-maintenance-scope]').forEach(input => {
+    input.checked = scopes.includes(input.dataset.maintenanceScope);
+  });
+
+  $('maintenanceReason').value = '更新維護事件';
+  msg('maintenanceMsg', maintenanceEditingScheduleLocked ? '此事件已進入維護期間，只能修改標題、訪客訊息與內部備註。' : '');
+  $('maintenanceFormTitle').textContent = '編輯維護事件（' + maintenanceStatusLabel(event.status) + '）';
+  $('saveMaintenanceEvent').textContent = '💾 儲存修改';
+  maintenanceSyncScopeOptions();
+  $('maintenanceTitle').focus();
+  window.scrollTo({ top: $('maintenanceTab').offsetTop - 20, behavior: 'smooth' });
+}
+
+async function saveMaintenanceEvent() {
+  const button = $('saveMaintenanceEvent');
+  const eventId = $('maintenanceEventId')?.value.trim() || '';
+  const title = $('maintenanceTitle')?.value.trim() || '';
+  const message = $('maintenanceMessage')?.value.trim() || '';
+  const internalNote = $('maintenanceInternalNote')?.value.trim() || '';
+  const reason = $('maintenanceReason')?.value.trim() || '';
+  const isGlobal = Boolean($('maintenanceGlobal')?.checked);
+  const scopeCodes = isGlobal ? [] :
+    [...document.querySelectorAll('[data-maintenance-scope]:checked')]
+      .map(input => input.dataset.maintenanceScope);
+  const startsAt = taipeiDateTimeToISO($('maintenanceStartsAt')?.value || '');
+  const endsAt = taipeiDateTimeToISO($('maintenanceEndsAt')?.value || '');
+
+  if (!title || !message || !reason || !startsAt || !endsAt) {
+    msg('maintenanceMsg', '❌ 請填寫標題、訊息、開始／結束時間與操作原因。');
+    return;
+  }
+  if (Date.parse(startsAt) >= Date.parse(endsAt)) {
+    msg('maintenanceMsg', '❌ 結束時間必須晚於開始時間。');
+    return;
+  }
+  if (!isGlobal && scopeCodes.length === 0) {
+    msg('maintenanceMsg', '❌ 局部維護至少要選擇一個功能範圍。');
+    return;
+  }
+
+  const body = {
+    title,
+    message,
+    internal_note: internalNote,
+    reason,
+    idempotency_key: maintenanceUuid()
+  };
+
+  // Active scheduled events may change descriptive fields only; the database rejects schedule changes.
+  if (!eventId || !maintenanceEditingScheduleLocked) {
+    body.is_global = isGlobal;
+    body.scope_codes = scopeCodes;
+    body.starts_at = startsAt;
+    body.ends_at = endsAt;
+  }
+
+  if (eventId) {
+    body.event_id = eventId;
+    body.expected_version = Number($('maintenanceEventVersion').value);
+  } else {
+    body.status = 'draft';
+  }
+
+  if (button) button.disabled = true;
+  msg('maintenanceMsg', eventId ? '⏳ 正在儲存修改…' : '⏳ 正在建立維護草稿…');
+
+  try {
+    await maintenanceAdminRequest(
+      eventId ? 'maintenance-event-update' : 'maintenance-event-create',
+      { method: 'POST', body }
+    );
+    msg('maintenanceMsg', eventId ? '✅ 維護事件已更新。' : '✅ 維護草稿已建立；確認時間與範圍後，可在事件清單安排維護。');
+    maintenanceClearForm();
+    await loadMaintenanceEvents();
+  } catch (error) {
+    msg('maintenanceMsg', '❌ ' + error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function maintenanceRunAction(eventId, action) {
+  const event = maintenanceEventsCache.find(item => String(item.id) === String(eventId));
+  if (!event) return;
+
+  const reason = $('maintenanceReason')?.value.trim() || '';
+  if (!reason) {
+    msg('maintenanceMsg', '請先在表單的「操作原因」填寫原因，再執行排程操作。');
+    $('maintenanceReason')?.focus();
+    return;
+  }
+
+  const labels = { schedule: '安排維護', cancel: '取消排程', complete: '完成維護' };
+  if (!confirm('確定要「' + (labels[action] || action) + '」嗎？')) return;
+
+  try {
+    await maintenanceAdminRequest('maintenance-event-action', {
+      method: 'POST',
+      body: {
+        event_id: event.id,
+        expected_version: Number(event.version),
+        action,
+        reason,
+        idempotency_key: maintenanceUuid()
+      }
+    });
+    msg('maintenanceMsg', '✅ 已完成：' + (labels[action] || action));
+    await loadMaintenanceEvents();
+  } catch (error) {
+    msg('maintenanceMsg', '❌ ' + error.message);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  $('refreshMaintenanceEvents')?.addEventListener('click', loadMaintenanceEvents);
+  $('maintenanceStatusFilter')?.addEventListener('change', loadMaintenanceEvents);
+  $('saveMaintenanceEvent')?.addEventListener('click', saveMaintenanceEvent);
+  $('clearMaintenanceForm')?.addEventListener('click', maintenanceClearForm);
+  $('maintenanceGlobal')?.addEventListener('change', maintenanceSyncScopeOptions);
+  document.querySelector('[data-tab="maintenanceTab"]')?.addEventListener('click', loadMaintenanceEvents);
+  maintenanceSyncScopeOptions();
+});

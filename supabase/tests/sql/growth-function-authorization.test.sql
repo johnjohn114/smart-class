@@ -76,6 +76,7 @@ CREATE TABLE public.growth_user_tasks (
   cycle_key text NOT NULL DEFAULT 'once',
   PRIMARY KEY(user_id,task_id,cycle_key)
 );
+
 CREATE TABLE public.growth_achievements (
   id uuid PRIMARY KEY,
   active boolean NOT NULL,
@@ -316,17 +317,21 @@ BEGIN
   IF public.complete_growth_task('profile-check') IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'FAIL: task RPC resolved the shadow pg_temp.growth_tasks instead of public.growth_tasks';
   END IF;
+END
+$member_self$;
+RESET ROLE;
+DO $task_record$
+BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.growth_user_tasks
-    WHERE user_id=auth.uid()
+    WHERE user_id='00000000-0000-4000-8000-000000000002'
       AND task_id='00000000-0000-4000-8000-000000000040'
       AND completed_at IS NOT NULL
   ) THEN
     RAISE EXCEPTION 'FAIL: task completion did not write the public task record';
   END IF;
 END
-$member_self$;
-RESET ROLE;
+$task_record$;
 
 -- Authenticated member cannot inspect or refresh another member's records.
 SET ROLE authenticated;
