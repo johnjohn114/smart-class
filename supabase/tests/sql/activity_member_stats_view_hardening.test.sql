@@ -51,7 +51,6 @@ RESET ROLE;
 -- Public leaderboard contract: anonymous access is intentional, but only the
 -- five presentation fields are exposed; no account UUID or private totals.
 DO $$
-DECLARE n integer; a integer; l integer; ns integer; total integer; has_fallback boolean; has_uuid boolean;
 BEGIN
  IF NOT has_table_privilege('anon','public.activity_public_leaderboard','SELECT')
  THEN RAISE EXCEPTION 'anonymous leaderboard SELECT missing'; END IF;
@@ -66,15 +65,16 @@ END $$;
 SET ROLE anon;
 DO $$
 DECLARE n integer; a integer; l integer; ns integer; total integer;
+        has_fallback boolean; has_uuid boolean;
 BEGIN
- SELECT count(*),sum(attended_count),sum(late_count),sum(no_show_count),sum(activity_points),bool_or(nickname='會員'),bool_or(nickname ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-END $$;
-RESET ROLE;
-SELECT 'activity_member_stats and public leaderboard integration tests passed' AS result;
-)
- INTO n,a,l,ns,total,has_fallback,has_uuid FROM public.activity_public_leaderboard;
+ SELECT count(*),sum(attended_count),sum(late_count),sum(no_show_count),
+        sum(activity_points),bool_or(nickname='會員'),
+        bool_or(nickname ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+ INTO n,a,l,ns,total,has_fallback,has_uuid
+ FROM public.activity_public_leaderboard;
  IF (n,a,l,ns,total,has_fallback) IS DISTINCT FROM (2,3,1,1,28,true)
- THEN RAISE EXCEPTION 'public leaderboard output/fallback mismatch: %, %, %, %, %, %',n,a,l,ns,total,has_fallback; END IF;
+ THEN RAISE EXCEPTION 'public leaderboard output/fallback mismatch: %, %, %, %, %, %',
+   n,a,l,ns,total,has_fallback; END IF;
  IF has_uuid THEN RAISE EXCEPTION 'public leaderboard exposed an account UUID as nickname'; END IF;
 END $$;
 RESET ROLE;
