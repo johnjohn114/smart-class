@@ -183,3 +183,78 @@
 3. 暫不刪除或改寫 Migration B，避免破壞其他分支或環境可能存在的歷史用途。
 4. 若未來要統一 migration 管理，應先在獨立測試資料庫驗證完整 migration 序列，再安排版本化整理。
 5. 不新增 `is_latest`，也不修改管理介面、公開更新中心或 Android 版本設定；目前沒有證據顯示這些改動是必要的。
+
+## 9. Growth RPC 正式環境風險與呼叫端審查（2026-11-18）
+
+本節只做正式資料庫函式定義／EXECUTE 權限的唯讀檢查，以及分支前端呼叫位置比對；沒有呼叫任何會修改正式資料的 RPC。
+
+### 9.1 高優先級：目前 anon 可執行且函式本體授權不足
+
+| 函式 | 正式資料庫 anon EXECUTE | 正式函式本體觀察 | 風險 |
+|---|---:|---|---|
+| `award_growth_points(uuid,integer,text,text,text,text,uuid)` | 是 | 沒有驗證 `auth.uid()` 或呼叫者角色；可依參數更新指定會員積分、寫入交易及通知 | 未登入呼叫可影響任意會員積分 |
+| `check_growth_achievements(uuid)` | 是 | 正式版本沒有會員本人／管理員檢查；會依指定會員資料解鎖成就，並可能呼叫積分發放 | 未登入呼叫可觸發他人獎勵與積分變更 |
+| `refresh_growth_level(uuid)` | 是 | 正式版本沒有本人／管理員檢查；會更新指定會員的 `profiles.growth_level` | 未登入呼叫可改動他人等級欄位 |
+| `check_activity_badges(uuid)` | 是 | 正式版本以 `p_user_id <> auth.uid()` 判斷；當 `auth.uid()` 為 NULL 時，SQL 比較結果也是 NULL，條件可能不會觸發拒絕 | 未登入呼叫可指定其他會員並寫入徽章紀錄 |
+| `admin_delete_growth_reward(uuid)` | 是 | 以 `caller_role <> 'admin'` 判斷；匿名請求查不到角色時 `caller_role` 為 NULL，IF NULL 不會進入拒絕分支 | 未登入呼叫可能停用或刪除獎勵 |
+| `admin_upsert_growth_reward(...)` | 是 | 同樣以 nullable 的 `caller_role <> 'admin'` 判斷，沒有先拒絕 `auth.uid() IS NULL` | 未登入呼叫可能新增或修改獎勵 |
+
+以上是依據函式定義與權限推導出的可達風險；本次沒有實際呼叫這些 RPC，也沒有修改積分、獎勵、等級或徽章資料。
+
+### 9.2 其他 Growth RPC：目前可由 anon 呼叫，但函式內有登入檢查
+
+| 函式 | anon EXECUTE | 本次檢查到的保護 |
+|---|---:|---|
+| `complete_growth_task(text)` | 是 | 先檢查 `auth.uid()`，未登入會拒絕 |
+| `record_growth_activity()` | 是 | 先檢查 `auth.uid()`，未登入會拒絕 |
+| `redeem_growth_reward(uuid)` | 是 | 先檢查 `auth.uid()`，未登入會拒絕 |
+| `use_growth_coupon(uuid)` | 是 | 先檢查 `auth.uid()`，未登入會拒絕 |
+| `admin_adjust_growth_points(uuid,integer,text)` | 是 | 呼叫 `is_admin()`；正式 `is_admin()` 以 `auth.uid()` 對照 profiles admin 角色，匿名呼叫不會通過 |
+| `admin_reset_growth_member(uuid,text)` | 是 | 明確拒絕 `auth.uid()` 為 NULL，並要求 `is_admin()` |
+
+即使部分函式有內部驗證，仍應撤銷不必要的 anon EXECUTE，採取最小權限；這可降低未來函式改版時漏掉內部檢查的風險。
+
+### 9.3 Trigger functions 與內部 helper
+
+- `growth_registration_reward()` 與 `growth_result_reward()` 是觸發器函式，會在報名／成績事件中呼叫 `award_growth_points`。
+- `award_growth_points` 也由任務完成、成就解鎖及獎勵兌換等 SECURITY DEFINER 流程內部呼叫；不需要讓瀏覽器直接呼叫。
+- `_refresh_growth_level_internal(uuid)` 應只供受控資料庫函式內部使用，不應開放給 API 角色。
+- 撤銷 API 角色對 trigger function 的直接 EXECUTE，不會刪除 trigger binding；候選 SQL 測試也包含「撤權後觸發器仍能運作」的驗證。
+
+### 9.4 前端實際呼叫端
+
+分支前端目前找到以下呼叫：
+
+| 檔案／位置 | RPC | 使用目的 |
+|---|---|---|
+| `app.js` 約第 604 行 | `record_growth_activity()` | 記錄會員活躍 |
+| `app.js` 約第 611 行 | `complete_growth_task(text)` | 更新本人任務進度 |
+| `app.js` 約第 613 行 | `check_growth_achievements(uuid)` | 檢查本人成就 |
+| `app.js` 約第 614 行 | `refresh_growth_level(uuid)` | 更新本人等級 |
+| `app.js` 約第 168 行 | `use_growth_coupon(uuid)` | 使用本人優惠券 |
+| `app.js` 約第 687 行 | `redeem_growth_reward(uuid)` | 兌換獎勵 |
+| `admin.js` 約第 860 行 | `admin_reset_growth_member(uuid,text)` | 管理員重置指定會員成長資料 |
+| `admin.js` 約第 883 行 | `admin_adjust_growth_points(uuid,integer,text)` | 管理員調整指定會員積分 |
+
+補充：
+- `admin.js` 的獎勵新增／編輯／刪除目前直接使用 `growth_rewards` REST table API 與 RLS policies；本分支未找到它呼叫 `admin_upsert_growth_reward` 或 `admin_delete_growth_reward` 的程式碼。
+- 本分支前端檔案中未找到 `check_activity_badges` 的直接呼叫；保留 authenticated 執行權限前，仍應確認是否有外部或排程呼叫者。
+- 前端沒有直接呼叫 `award_growth_points` 或 `_refresh_growth_level_internal` 的需求。
+
+### 9.5 候選 Migration 與測試的相符性
+
+`202611160001_growth_function_authorization_hardening.sql` 已包含下列修正方向：
+- 管理員獎勵函式改用 `caller_role IS DISTINCT FROM 'admin'`，並拒絕 NULL 身分。
+- `award_growth_points`、內部等級 helper 不授權 anon/authenticated 直接執行。
+- 成就、等級、徽章函式加入本人／管理員範圍檢查。
+- 任務、活躍、兌換、優惠券等使用者 RPC 僅保留 authenticated allowlist。
+- 以完整 ACL allowlist 撤銷其餘 SECURITY DEFINER 函式的 API 角色 EXECUTE，並保留 `is_admin()` 的 anon EXECUTE，以供既有 RLS policy 使用。
+- SQL 測試檔包含 anon 拒絕、會員跨帳號拒絕、管理員允許、內部 helper 拒絕，以及 trigger 撤權後仍能執行的檢查。
+
+### 9.6 本階段判定與限制
+
+**判定：正式資料庫目前不符合 Growth 權限候選修補版的安全目標；至少六個高優先級函式存在明確授權缺口。**
+
+候選 Migration 是可供測試的修補方向，不等於已獲准直接執行。它的 ACL 區塊會重新整理 public schema 中整批 SECURITY DEFINER 函式的 EXECUTE 權限，影響範圍不只 Growth。執行前仍須完成整份 allowlist 與每個非 Growth RPC 呼叫端的相容性核對，並在獨立測試環境跑完整 SQL 測試。
+
+本次沒有執行候選 Migration、沒有呼叫寫入型 RPC、沒有修改正式資料庫，也沒有改動前端程式碼。
