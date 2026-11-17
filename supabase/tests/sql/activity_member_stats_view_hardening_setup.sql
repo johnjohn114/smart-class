@@ -12,11 +12,11 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
 $$;
 GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon,authenticated,service_role;
-CREATE TABLE public.profiles(id uuid PRIMARY KEY,nickname text NOT NULL,role text NOT NULL DEFAULT 'visitor');
+CREATE TABLE public.profiles(id uuid PRIMARY KEY,nickname text,role text NOT NULL DEFAULT 'visitor');
 CREATE TABLE public.competition_attendance(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,user_id uuid NOT NULL REFERENCES public.profiles(id),status text NOT NULL,points_awarded integer NOT NULL DEFAULT 0,completion_points_awarded integer NOT NULL DEFAULT 0);
 INSERT INTO public.profiles VALUES
 ('00000000-0000-0000-0000-000000000001','Synthetic Member A','visitor'),
-('00000000-0000-0000-0000-000000000002','Synthetic Member B','visitor'),
+('00000000-0000-0000-0000-000000000002',NULL,'visitor'),
 ('00000000-0000-0000-0000-000000000099','Synthetic Admin','admin');
 INSERT INTO public.competition_attendance(user_id,status,points_awarded,completion_points_awarded) VALUES
 ('00000000-0000-0000-0000-000000000001','checked_in',10,5),
