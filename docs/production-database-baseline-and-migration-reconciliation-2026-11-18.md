@@ -117,3 +117,14 @@
 - 沒有新增、修改或刪除正式資料庫物件或資料列。
 - 沒有執行 migration、部署 Edge Function、發布網站或合併 PR。
 - 本文件只記錄本次查詢時點的觀察結果；正式執行前必須重新盤點。
+
+## 7. Supabase Migration 清單工具的補充確認（2026-11-18）
+
+另外透過 Supabase 專案 Migration 清單介面查詢，回傳 `migrations: []`，即目前沒有列出任何由該介面管理的 migration 紀錄。
+
+系統目錄另可見：
+- `auth.schema_migrations`：只有 `version` 欄位，屬 Auth 服務內部紀錄，不是本專案 public schema migration 清單。
+- `realtime.schema_migrations`：只有 `version`、`inserted_at`，屬 Realtime 服務內部紀錄。
+- `storage.migrations`：欄位為 `id`、`name`、`hash`、`executed_at`，屬 Storage 服務 migration 紀錄。
+
+因此，本次對應用程式資料庫 migration 的判斷更明確：Supabase Migration 清單目前為空，且未找到專案層級的標準 migration history。這仍不排除曾透過 SQL Editor 手動執行、其他工具或其他環境流程修改資料庫。正式歷史必須由專案管理者確認來源，不能把 Auth/Realtime/Storage 內部 migration 紀錄誤認為 app schema migration 歷史。
