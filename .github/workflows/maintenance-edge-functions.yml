@@ -168,7 +168,7 @@ jobs:
       - name: Apply maintenance SQL draft to disposable GoTrue database
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261117121103_maintenance_system_initial.sql
 
       - name: Start PostgREST against GoTrue database
         run: |
