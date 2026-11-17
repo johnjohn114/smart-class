@@ -350,6 +350,65 @@ def main():
                 and cancelled.get("data", {}).get("version") == 4,
                 "scheduled event can be cancelled through the lifecycle action RPC")
 
+
+    # Public status is scope-specific and returns only the public field whitelist.
+    active_start = datetime.now(timezone.utc) - timedelta(minutes=5)
+    active_end = datetime.now(timezone.utc) + timedelta(minutes=30)
+    public_scope_payload = {
+        "title": "GoTrue CI public scope status",
+        "message": "Public scope notice",
+        "internal_note": "PRIVATE_NOTE_MUST_NOT_LEAK",
+        "is_global": False,
+        "scope_codes": ["membership_growth"],
+        "starts_at": iso(active_start),
+        "ends_at": iso(active_end),
+        "status": "scheduled",
+        "reason": "public scope status test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, active_scope_created = rpc("maintenance_event_create", public_scope_payload, admin)
+    assert_true(status == 200 and active_scope_created.get("ok") is True,
+                "admin can create an active local-scope event")
+
+    status, matching_scope_status = rpc(
+        "maintenance_status_public", {"scope": "membership_growth"}, None
+    )
+    assert_true(status == 200
+                and matching_scope_status.get("data", {}).get("is_maintenance") is True,
+                "public status returns an active event for its matching scope")
+    assert_true("PRIVATE_NOTE_MUST_NOT_LEAK" not in json.dumps(matching_scope_status),
+                "public status response never exposes internal notes")
+
+    status, unrelated_scope_status = rpc(
+        "maintenance_status_public", {"scope": "video_content"}, None
+    )
+    assert_true(status == 200
+                and unrelated_scope_status.get("data", {}).get("is_maintenance") is False,
+                "public status does not leak an unrelated local-scope event")
+
+    # site_core is a shared scope: an overlapping event in any other local
+    # scope must be rejected even though the two named scopes differ.
+    site_core_start = scope_start + timedelta(days=2)
+    site_core_end = site_core_start + timedelta(minutes=35)
+    site_core_id = create_scope_draft(
+        "Shared site core", site_core_start, site_core_end, ["site_core"])
+    status, site_core_scheduled = run_action(site_core_id, "schedule")
+    assert_true(status == 200
+                and site_core_scheduled.get("data", {}).get("status") == "scheduled",
+                "site_core event can be scheduled")
+
+    unrelated_local_id = create_scope_draft(
+        "Site core blocks other local scope",
+        site_core_start + timedelta(minutes=5),
+        site_core_end - timedelta(minutes=5),
+        ["video_content"],
+    )
+    status, site_core_conflict = run_action(unrelated_local_id, "schedule")
+    assert_true(status in (400, 409, 422)
+                and isinstance(site_core_conflict, dict)
+                and site_core_conflict.get("message") == "CONFLICT",
+                "site_core conflicts with every overlapping local scope")
+
     print("PASS: GoTrue-issued JWT / PostgREST / RPC / role / concurrency / idempotency suite")
 
 
