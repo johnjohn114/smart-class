@@ -36,7 +36,7 @@ END $$;
 RESET ROLE;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000099',false);
-SELECT set_config('request.jwt.claim.role','admin',false);
+-- Admin status is derived from the synthetic profiles.role via is_admin().
 DO $$
 DECLARE n integer; a integer; l integer; ns integer; cp integer; xp integer; total integer;
 BEGIN
