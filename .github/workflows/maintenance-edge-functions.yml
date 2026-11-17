@@ -251,6 +251,7 @@ jobs:
           TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/activity_member_stats_test
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening_setup.sql
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_member_stats_view_hardening.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_public_leaderboard_view.sql
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening.test.sql
 
       - name: Start PostgREST after database roles are provisioned
