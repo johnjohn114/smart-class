@@ -242,4 +242,49 @@ END
 $$;
 RESET ROLE;
 
+-- Verify an active global event conflicts with every one of the seven local scopes.
+-- This catches the case where global maintenance accidentally leaves a region available.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000001', false);
+SET ROLE authenticated;
+DO $
+DECLARE
+  scope_code text;
+  request_payload jsonb;
+  conflict_seen boolean;
+  scope_codes text[] := ARRAY[
+    'site_core',
+    'announcements_info',
+    'events_competitions',
+    'video_content',
+    'membership_growth',
+    'store_support',
+    'downloads_app'
+  ];
+BEGIN
+  FOREACH scope_code IN ARRAY scope_codes LOOP
+    request_payload := pg_catalog.jsonb_build_object(
+      'title', 'Global overlap test ' || scope_code,
+      'message', 'Must conflict with active global event',
+      'is_global', false,
+      'scope_codes', pg_catalog.jsonb_build_array(scope_code),
+      'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '10 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+      'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '20 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+      'status', 'scheduled',
+      'reason', 'global scope matrix integration test',
+      'idempotency_key', pg_catalog.gen_random_uuid()::text
+    );
+    conflict_seen := false;
+    BEGIN
+      PERFORM public.maintenance_event_create(request_payload);
+    EXCEPTION WHEN unique_violation THEN
+      conflict_seen := true;
+    END;
+    IF NOT conflict_seen THEN
+      RAISE EXCEPTION 'FAIL: active global event did not block scope %', scope_code;
+    END IF;
+  END LOOP;
+END
+$;
+RESET ROLE;
+
 \echo 'PASS: isolated PostgreSQL maintenance RPC/RLS integration checks'
