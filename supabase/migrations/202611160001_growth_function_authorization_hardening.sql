@@ -95,7 +95,7 @@ CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
  RETURNS text
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path TO ''
 AS $function$
 begin
   if auth.uid() is null
