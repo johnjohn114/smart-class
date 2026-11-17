@@ -28,6 +28,9 @@ on:
       - ".github/workflows/maintenance-edge-functions.yml"
   pull_request:
     paths:
+      - "app.js"
+      - "docs/activity-member-stats-release-and-rollback-plan.md"
+      - "docs/production-database-baseline-and-migration-reconciliation-2026-11-18.md"
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
@@ -46,6 +49,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Check browser JavaScript syntax
+        run: node --check app.js
 
       - name: Set up Deno
         uses: denoland/setup-deno@v2
@@ -242,6 +248,17 @@ jobs:
           psql postgresql://postgres:postgres@localhost:5432/default_privileges_trigger_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/default-privileges-trigger-hardening.test.sql
+
+      - name: Run activity_member_stats view security integration tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE activity_member_stats_test"
+          TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/activity_member_stats_test
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening_setup.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_member_stats_view_hardening.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_public_leaderboard_view.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening.test.sql
 
       - name: Start PostgREST after database roles are provisioned
         run: |
