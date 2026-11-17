@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static guardrails for the unexecuted maintenance SQL draft.
+"""Static guardrails for the maintenance v1 release migration candidate.
 
 This is not a PostgreSQL parser and does not prove JWT/RLS behavior.
 Run from the repository root:
@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-SQL_PATH = Path("supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql")
+SQL_PATH = Path("supabase/migrations/20261117121103_maintenance_system_initial.sql")
 TABLES = (
     "maintenance_scopes", "maintenance_events", "maintenance_event_private_notes",
     "maintenance_event_scopes", "maintenance_audit_logs", "maintenance_idempotency",
@@ -163,7 +163,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
 
 def main() -> int:
     if not SQL_PATH.is_file():
-        print(f"FAIL: SQL draft not found: {SQL_PATH}", file=sys.stderr)
+        print(f"FAIL: migration not found: {SQL_PATH}", file=sys.stderr)
         return 2
     checks = inspect_sql(SQL_PATH.read_text(encoding="utf-8"))
     failed = [name for name, ok in checks.items() if not ok]
