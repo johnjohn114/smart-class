@@ -31,7 +31,8 @@ CREATE TABLE public.profiles (
   id uuid PRIMARY KEY,
   role text,
   growth_points integer NOT NULL DEFAULT 0,
-  growth_level text NOT NULL DEFAULT 'newbie'
+  growth_level text NOT NULL DEFAULT 'newbie',
+  nickname text
 );
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean
@@ -53,6 +54,29 @@ CREATE TABLE public.growth_levels (
   min_points integer NOT NULL,
   sort_order integer NOT NULL DEFAULT 0
 );
+CREATE TABLE public.growth_tasks (
+  id uuid PRIMARY KEY,
+  code text NOT NULL UNIQUE,
+  title text NOT NULL,
+  description text,
+  task_type text NOT NULL,
+  requirement_count integer NOT NULL DEFAULT 1,
+  reward_points integer NOT NULL DEFAULT 0,
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  cycle_type text NOT NULL DEFAULT 'one_time',
+  start_at timestamptz,
+  end_at timestamptz
+);
+CREATE TABLE public.growth_user_tasks (
+  user_id uuid NOT NULL,
+  task_id uuid NOT NULL,
+  progress integer NOT NULL DEFAULT 0,
+  completed_at timestamptz,
+  cycle_key text NOT NULL DEFAULT 'once',
+  PRIMARY KEY(user_id,task_id,cycle_key)
+);
+
 CREATE TABLE public.growth_achievements (
   id uuid PRIMARY KEY,
   active boolean NOT NULL,
@@ -236,6 +260,7 @@ BEGIN
   IF NOT has_function_privilege('authenticated','public.increment_download_count(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute increment_download_count'; END IF;
   IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points directly'; END IF;
   IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute internal helper'; END IF;
+  IF NOT has_function_privilege('authenticated','public.complete_growth_task(text)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute own task RPC'; END IF;
 END
 $anon_acl$;
 
@@ -255,6 +280,24 @@ BEGIN
 END
 $download_counter$;
 
+INSERT INTO public.growth_tasks(id,code,title,task_type,requirement_count,reward_points)
+VALUES('00000000-0000-4000-8000-000000000040','profile-check','Profile check','profile_complete',1,0);
+UPDATE public.profiles SET nickname='CI member'
+WHERE id='00000000-0000-4000-8000-000000000002';
+CREATE TEMP TABLE growth_levels(
+  code text, name text, min_points integer, sort_order integer
+);
+INSERT INTO pg_temp.growth_levels VALUES('temp_override','Temp override',0,999);
+CREATE TEMP TABLE growth_tasks(
+  id uuid, code text, title text, description text, task_type text,
+  requirement_count integer, reward_points integer, active boolean,
+  created_at timestamptz, cycle_type text, start_at timestamptz, end_at timestamptz
+);
+INSERT INTO pg_temp.growth_tasks VALUES(
+  '00000000-0000-4000-8000-000000000041','profile-check','Shadow task',
+  NULL,'not_a_real_task_type',999,0,true,now(),'one_time',NULL,NULL
+);
+
 -- Authenticated member can inspect own achievements and refresh own level.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
 SET ROLE authenticated;
@@ -271,6 +314,17 @@ BEGIN
   IF (public.check_activity_badges(auth.uid())->>'success')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL: member could not check own activity badges'; END IF;
   level_code := public.refresh_growth_level(auth.uid());
   IF level_code <> 'sprout' THEN RAISE EXCEPTION 'FAIL: own growth level refresh returned unexpected level'; END IF;
+  IF public.complete_growth_task('profile-check') IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FAIL: task RPC resolved the shadow pg_temp.growth_tasks instead of public.growth_tasks';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.growth_user_tasks
+    WHERE user_id=auth.uid()
+      AND task_id='00000000-0000-4000-8000-000000000040'
+      AND completed_at IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'FAIL: task completion did not write the public task record';
+  END IF;
 END
 $member_self$;
 RESET ROLE;
