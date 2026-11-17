@@ -290,14 +290,14 @@
 
 ### 10.4 Trigger 相容性
 
-正式資料庫查到四個 SECURITY DEFINER trigger-returning functions：
+正式資料庫查到五個 SECURITY DEFINER trigger-returning functions：
 - `assign_member_no_and_nickname()`
 - `check_competition_registration_rules()`
 - `ensure_visitor_profile()`
 - `growth_registration_reward()`
 - `growth_result_reward()`
 
-其中後四者以外，前述列表實際共五個 trigger-returning functions；所有 trigger 綁定都應在修補前後逐一核對。候選 Migration 對 trigger functions 撤銷 API role 的直接 EXECUTE，但不移除 trigger binding；候選 SQL 測試有一個 fixture 驗證撤銷直接 EXECUTE 後，觸發器仍會執行。正式環境仍需在隔離測試資料庫重現全部現有 trigger 行為，不能只依 fixture 推斷正式資料庫已通過。
+這五個函式都必須保留各自既有的 trigger binding；修補前後應逐一核對。候選 Migration 對 trigger functions 撤銷 API role 的直接 EXECUTE，但不移除 trigger binding；候選 SQL 測試有一個 fixture 驗證撤銷直接 EXECUTE 後，觸發器仍會執行。正式環境仍需在隔離測試資料庫重現全部現有 trigger 行為，不能只依 fixture 推斷正式資料庫已通過。
 
 ### 10.5 最終相容性判定
 
