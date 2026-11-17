@@ -29,6 +29,8 @@ on:
   pull_request:
     paths:
       - "app.js"
+      - "docs/activity-member-stats-release-and-rollback-plan.md"
+      - "docs/production-database-baseline-and-migration-reconciliation-2026-11-18.md"
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
