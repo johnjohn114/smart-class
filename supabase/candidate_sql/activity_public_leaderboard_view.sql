@@ -21,8 +21,12 @@ FROM public.competition_attendance a
 LEFT JOIN public.profiles p ON p.id = a.user_id
 GROUP BY a.user_id;
 
-REVOKE ALL PRIVILEGES ON TABLE public.activity_public_leaderboard FROM PUBLIC;
-GRANT SELECT ON TABLE public.activity_public_leaderboard TO anon, authenticated, service_role;
+-- The project has broad default ACLs, so explicitly clear inherited grants
+-- from every API role before granting the single required privilege.
+REVOKE ALL PRIVILEGES ON TABLE public.activity_public_leaderboard
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.activity_public_leaderboard
+  TO anon, authenticated, service_role;
 
 COMMENT ON VIEW public.activity_public_leaderboard IS
   'Intentionally public leaderboard projection; contains only nickname and displayed activity aggregates, not account identifiers. Missing or blank nicknames are shown as 會員.';
