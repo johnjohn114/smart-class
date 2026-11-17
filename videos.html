@@ -1,7 +1,8 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>🎬 影音頻道</title><link rel="stylesheet" href="style.css"></head><body>
 <header><div class="nav"><div class="logo" id="siteName">商業簡介</div><button class="mobileNavToggle" type="button" aria-expanded="false">☰ 選單</button><nav><a href="index.html">首頁</a><a href="news.html">最新消息</a><a href="videos.html">🎬 影音頻道</a><a href="products.html">商品</a><a href="my.html">👤 我的</a><a href="competitions.html">🏆 歷屆成績</a><a href="search.html">🔍 搜尋</a><a class="admin" href="admin.html">👑 管理員</a></nav></div></header>
 <main class="container" style="max-width:1200px;margin:0 auto;padding:32px 18px"><div class="dashboardHeader"><div><h1>🎬 影音頻道</h1><p class="sub">在網站內觀看 YouTube 影片，也可以一鍵前往 YouTube。</p></div></div><div class="adminListTools" style="margin:18px 0"><input id="videoSearch" type="search" placeholder="搜尋影片標題、介紹"><select id="videoCategory"><option value="all">全部分類</option></select></div><div id="featuredVideo"></div><div id="videoGrid" class="productGrid"></div><div id="videoEmpty" class="empty hidden">目前沒有上架影片。</div></main>
-<script src="config.js"></script><script>
+<script src="config.js"></script>
+<script src="maintenance-client.js?v=26.11.16"></script><script>
 const $=id=>document.getElementById(id);let videos=[];
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function ytId(u){try{const x=new URL(u);if(x.hostname.includes('youtu.be'))return x.pathname.slice(1).split('/')[0];if(x.searchParams.get('v'))return x.searchParams.get('v');const m=x.pathname.match(/\/(?:embed|shorts)\/([^/?]+)/);return m?m[1]:''}catch{return ''}}
