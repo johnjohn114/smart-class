@@ -128,3 +128,58 @@
 - `storage.migrations`：欄位為 `id`、`name`、`hash`、`executed_at`，屬 Storage 服務 migration 紀錄。
 
 因此，本次對應用程式資料庫 migration 的判斷更明確：Supabase Migration 清單目前為空，且未找到專案層級的標準 migration history。這仍不排除曾透過 SQL Editor 手動執行、其他工具或其他環境流程修改資料庫。正式歷史必須由專案管理者確認來源，不能把 Auth/Realtime/Storage 內部 migration 紀錄誤認為 app schema migration 歷史。
+
+## 8. App releases 衝突的應用程式相容性檢查（2026-11-18）
+
+本輪另外讀取了分支中的 `admin-app-releases.js`、`app-release-center.js`、`app-updates.html` 及 Android `build.gradle`，並再次唯讀查詢正式資料庫的欄位、RLS policies 與 indexes。
+
+### 8.1 現有應用程式依賴
+
+- `admin-app-releases.js` 查詢 `app_releases`，按 `version_code.desc` 排序。
+- 新增／更新時送出 `version_code`、`version_name`、`release_notes`、`apk_url`、`published`、`published_at`、`created_by`。
+- 管理介面會依 `published` 顯示發布狀態，並提供新增、編輯、切換發布、刪除操作。
+- `app-release-center.js` 讀取 `id,version_code,version_name,release_notes,apk_url,published,published_at,created_at`，只顯示已發布版本。
+- Android `build.gradle` 目前設定 `versionCode 21`、`versionName '26.11.6'`。
+
+目前這些讀取路徑不依賴 `is_latest` 欄位。
+
+### 8.2 正式資料庫實際結構
+
+正式資料庫 `public.app_releases` 欄位為：
+`id`、`version_code`、`version_name`、`release_notes`、`apk_url`、`published`、`created_at`、`published_at`、`created_by`。
+
+目前 indexes 為：
+- `app_releases_pkey`
+- `app_releases_version_code_key`
+
+目前 policies 為五項：
+- `Public can read published app releases`
+- `Admins can read all app releases`
+- `Admins can insert app releases`
+- `Admins can update app releases`
+- `Admins can delete app releases`
+
+沒有查到 `app_releases_published_idx`，也沒有查到 `is_app_release_admin()` 函式。
+
+### 8.3 相容性判定
+
+| 比較點 | Migration A：`202610310001_app_releases.sql` | Migration B：`20261031_app_releases.sql` |
+|---|---|---|
+| `created_by` | 有 | 沒有 |
+| `version_code` 唯一性 | 有 | 無 UNIQUE constraint（僅普通欄位） |
+| `is_latest` | 沒有 | 有 |
+| `apk_url` HTTPS constraint | 沒有 | 有 |
+| policies | 與正式資料庫五項命名一致 | 兩項不同命名 policies |
+| helper function | 無 | 建立 `is_app_release_admin()` |
+| index | version_code unique index | 額外 published/latest 複合 index |
+| 與現有前後端契約 | 高度吻合 | 不完全吻合，管理端送出的 `created_by` 欄位會與此定義不相容 |
+
+**結論更新：** 現有正式資料庫結構、管理端送出的欄位、公開更新中心的 select 欄位，以及現有 policies，均支持 Migration A 是目前實際採用的 schema 契約。Migration B 不應執行到這個正式資料庫，也不應與 Migration A 串接執行。這是相容性結論，不是 migration history 的來源證明。
+
+### 8.4 建議處置（尚未修改程式）
+
+1. 將 Migration A 標記為目前 schema 的相容基準。
+2. 將 Migration B 標記為衝突候選／待查明來源，不可套用到現有正式資料庫。
+3. 暫不刪除或改寫 Migration B，避免破壞其他分支或環境可能存在的歷史用途。
+4. 若未來要統一 migration 管理，應先在獨立測試資料庫驗證完整 migration 序列，再安排版本化整理。
+5. 不新增 `is_latest`，也不修改管理介面、公開更新中心或 Android 版本設定；目前沒有證據顯示這些改動是必要的。
