@@ -258,3 +258,53 @@
 候選 Migration 是可供測試的修補方向，不等於已獲准直接執行。它的 ACL 區塊會重新整理 public schema 中整批 SECURITY DEFINER 函式的 EXECUTE 權限，影響範圍不只 Growth。執行前仍須完成整份 allowlist 與每個非 Growth RPC 呼叫端的相容性核對，並在獨立測試環境跑完整 SQL 測試。
 
 本次沒有執行候選 Migration、沒有呼叫寫入型 RPC、沒有修改正式資料庫，也沒有改動前端程式碼。
+
+## 10. Growth 修補 Migration 的完整 ACL 相容性檢查（2026-11-18）
+
+### 10.1 既有前端 RPC 呼叫與候選 allowlist
+
+除 Growth 本身外，也比對了 `app.js`、`admin.js` 中的 RPC 呼叫及管理訂單的動態 RPC 名稱。
+
+目前已在前端找到的 RPC：
+- 會員／一般功能：`close_my_support_ticket`、`use_growth_coupon`、`checkin_competition`、`join_competition_waitlist`、`record_growth_activity`、`complete_growth_task`、`check_growth_achievements`、`refresh_growth_level`、`redeem_growth_reward`、`increment_download_count`。
+- 管理功能：`admin_mark_order_paid`、`admin_complete_order`、`admin_cancel_order`、`admin_promote_competition_waitlist`、`admin_settle_competition`、`admin_activity_analytics`、`admin_grant_competition_reward`、`admin_mark_competition_member_attendance`、`admin_reset_growth_member`、`admin_adjust_growth_points`、`admin_upsert_video`、`admin_delete_video`。
+
+上述有實際前端呼叫的 RPC 均列在候選 Migration 的 authenticated allowlist 內。部分其他函式目前沒有在這兩個前端檔案中找到直接呼叫，但可能供資料庫政策、觸發器或其他受控流程使用；不能只因前端搜尋不到就刪除或撤銷其內部用途。
+
+### 10.2 正式資料庫現況 ACL 矩陣
+
+正式資料庫目前查到 36 個 public SECURITY DEFINER 函式。除 `is_admin()` 與一個內部 award helper 的特殊狀態外，絕大多數目前對 anon、authenticated、service_role 都有 EXECUTE；三個觸發器函式亦仍可被 API 角色直接 EXECUTE。
+
+重要例外：
+- `award_growth_points(...)`：anon=true、authenticated=false、service_role=true。
+- `is_admin()`：anon=false、authenticated=true、service_role=true。
+- `check_competition_registration_rules()`、`ensure_visitor_profile()`、`growth_registration_reward()`、`growth_result_reward()`：目前 API 角色可直接 EXECUTE；它們屬 trigger-returning routines，應保留 trigger binding，但不應當成可直接呼叫的 RPC。
+
+### 10.3 RLS policies 對 is_admin() 的依賴
+
+本次另查到多項 RLS policies 在條件式中呼叫 `public.is_admin()`，包括：
+- 公開讀取政策：`competitions`、`competition_results`、`forms`、`form_questions`、`products`。
+- 會員／管理政策：`profiles`、`announcements`、`growth_*`、`notifications`、`coupons`、`support_tickets` 等。
+
+目前正式資料庫 `anon` 沒有 `is_admin()` 的 EXECUTE；候選 Migration 特別保留並授予 `is_admin()` 給 anon、authenticated，且該函式在 `auth.uid()` 為 NULL 時會回傳 false。這項 grant 不可被誤刪，否則部分使用 `is_admin()` 的 RLS 查詢可能因函式權限不足而失敗。候選 Migration 將 `is_admin_user()` 另列為 authenticated allowlist，不能與 `is_admin()` 混為一談。
+
+### 10.4 Trigger 相容性
+
+正式資料庫查到四個 SECURITY DEFINER trigger-returning functions：
+- `assign_member_no_and_nickname()`
+- `check_competition_registration_rules()`
+- `ensure_visitor_profile()`
+- `growth_registration_reward()`
+- `growth_result_reward()`
+
+其中後四者以外，前述列表實際共五個 trigger-returning functions；所有 trigger 綁定都應在修補前後逐一核對。候選 Migration 對 trigger functions 撤銷 API role 的直接 EXECUTE，但不移除 trigger binding；候選 SQL 測試有一個 fixture 驗證撤銷直接 EXECUTE 後，觸發器仍會執行。正式環境仍需在隔離測試資料庫重現全部現有 trigger 行為，不能只依 fixture 推斷正式資料庫已通過。
+
+### 10.5 最終相容性判定
+
+- 候選 allowlist 已包含本次找到的前端 RPC 呼叫端。
+- `is_admin()` 的 anon EXECUTE 是既有 RLS policy 相容性要求，必須保留。
+- trigger functions 應撤銷直接 API EXECUTE，但保留現有 trigger bindings。
+- 其餘未在前端找到直接呼叫的 SECURITY DEFINER routines，仍須依其 trigger、policy、資料庫內部呼叫及排程用途核對。
+- 候選 Migration 對 public SECURITY DEFINER 函式採 fail-closed ACL 整理，影響面大於 Growth 單一功能；應先在與正式 schema 相符的隔離資料庫執行完整測試，再審查每個例外。
+
+**本輪仍為唯讀審查。** 沒有套用候選 Migration、修改 ACL、呼叫寫入型 RPC、執行使用者資料操作或變更前端程式碼。
