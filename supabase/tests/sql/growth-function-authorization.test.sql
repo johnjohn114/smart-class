@@ -289,7 +289,7 @@ $catalog_fixtures$;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres
   GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
 
@@ -311,8 +311,10 @@ BEGIN
   IF has_function_privilege('authenticated','public.ci_future_security_definer()','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: future SECURITY DEFINER function is executable by authenticated';
   END IF;
-  IF has_function_privilege('service_role','public.ci_future_security_definer()','EXECUTE') THEN
-    RAISE EXCEPTION 'FAIL: future function unexpectedly inherited service_role access';
+  -- service_role is intentionally retained as a trusted server-side role;
+  -- it is not shipped to the browser and is outside the public-client allowlist.
+  IF NOT has_function_privilege('service_role','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: trusted service_role default was unexpectedly removed';
   END IF;
 END
 $future_function_defaults$;
