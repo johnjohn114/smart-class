@@ -34,7 +34,7 @@ ALTER TABLE public.competition_results
 CREATE UNIQUE INDEX IF NOT EXISTS ci_competition_results_id_uq
   ON public.competition_results(id);
 CREATE UNIQUE INDEX IF NOT EXISTS ci_growth_point_transactions_source_key_uq
-  ON public.growth_point_transactions(source_key) WHERE source_key IS NOT NULL;
+  ON public.growth_point_transactions(source_key);
 
 -- Preserve the Storage-specific defaults as a control while the public
 -- defaults are tightened by the second migration.
@@ -174,12 +174,20 @@ BEGIN
      OR NOT has_function_privilege('service_role','storage.sequential_default_function()','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Storage-specific function defaults changed unexpectedly';
   END IF;
-  IF has_function_privilege('anon','public.complete_growth_task(text,text)','EXECUTE')
-     OR has_function_privilege('authenticated','public.complete_growth_task(text,text)','EXECUTE') THEN
-    RAISE EXCEPTION 'FAIL: a post-migration SECURITY DEFINER overload bypassed the RPC allowlist';
-  END IF;
 END
 $combined_defaults$;
+
+-- A new overloaded SECURITY DEFINER routine must not inherit API EXECUTE.
+CREATE FUNCTION public.complete_growth_task(p_task_code text, p_extra text)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER AS 'SELECT true';
+DO $overload_acl$
+BEGIN
+  IF has_function_privilege('anon','public.complete_growth_task(text,text)','EXECUTE')
+     OR has_function_privilege('authenticated','public.complete_growth_task(text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: newly added SECURITY DEFINER overload became a public RPC';
+  END IF;
+END
+$overload_acl$;
 
 -- Existing admin must remain admin and a conflict must not consume a number.
 INSERT INTO public.visitor_accounts(id)
