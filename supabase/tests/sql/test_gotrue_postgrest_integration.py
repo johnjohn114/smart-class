@@ -226,6 +226,40 @@ def main():
                 and global_conflict.get("message") == "CONFLICT",
                 f"global schedule conflicts with an overlapping local-scope event (HTTP {status}; body={global_conflict!r})")
 
+    # Database-side text length limits must match the admin UI and Edge Function contract.
+    length_start = datetime.now(timezone.utc) + timedelta(days=12)
+    length_end = length_start + timedelta(minutes=30)
+    max_length_payload = {
+        "title": "T" * 200,
+        "message": "M" * 4000,
+        "internal_note": "N" * 4000,
+        "is_global": True,
+        "scope_codes": [],
+        "starts_at": iso(length_start),
+        "ends_at": iso(length_end),
+        "status": "draft",
+        "reason": "R" * 500,
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, max_length_result = rpc("maintenance_event_create", max_length_payload, admin)
+    assert_true(status == 200 and max_length_result.get("ok") is True,
+                "database accepts exact documented maximum lengths for title, message, internal_note and reason")
+
+    for field, too_long in (
+        ("title", "T" * 201),
+        ("message", "M" * 4001),
+        ("internal_note", "N" * 4001),
+        ("reason", "R" * 501),
+    ):
+        invalid_length_payload = dict(max_length_payload)
+        invalid_length_payload[field] = too_long
+        invalid_length_payload["idempotency_key"] = str(uuid.uuid4())
+        status, invalid_length_result = rpc(
+            "maintenance_event_create", invalid_length_payload, admin
+        )
+        assert_true(status in (400, 422),
+                    f"database rejects {field} longer than its documented maximum (HTTP {status})")
+
     # A draft create isolates idempotency behavior from schedule conflict checks.
     idem_start = datetime.now(timezone.utc) + timedelta(days=2)
     idem_end = idem_start + timedelta(minutes=45)
