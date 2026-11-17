@@ -317,4 +317,76 @@ END
 $scope_status$;
 RESET ROLE;
 
+-- Replace the global event with one local event, then prove that only
+-- its selected scope is in maintenance and the other six remain available.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000001', false);
+SET ROLE authenticated;
+DO $local_scope_admin$
+DECLARE
+  global_event_id uuid;
+  global_version bigint;
+  local_result jsonb;
+BEGIN
+  SELECT id, version INTO STRICT global_event_id, global_version
+    FROM private.maintenance_events
+   WHERE is_global = true AND status = 'scheduled';
+
+  PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id', global_event_id,
+    'expected_version', global_version,
+    'action', 'cancel',
+    'reason', 'replace global event with local scope test',
+    'idempotency_key', '00000000-0000-4000-8000-000000000021'
+  ));
+
+  local_result := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    'title', 'Local scope isolation test',
+    'message', 'Only announcements_info is under maintenance',
+    'is_global', false,
+    'scope_codes', pg_catalog.jsonb_build_array('announcements_info'),
+    'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '30 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'status', 'scheduled',
+    'reason', 'local scope isolation integration test',
+    'idempotency_key', '00000000-0000-4000-8000-000000000022'
+  ));
+  IF (local_result #>> '{data,status}') IS DISTINCT FROM 'scheduled' THEN
+    RAISE EXCEPTION 'FAIL: local maintenance event was not scheduled';
+  END IF;
+END
+$local_scope_admin$;
+RESET ROLE;
+
+SET ROLE anon;
+SELECT set_config('request.jwt.claim.sub', '', false);
+DO $local_scope_matrix$
+DECLARE
+  scope_code text;
+  result jsonb;
+  expected_active boolean;
+  scope_codes text[] := ARRAY[
+    'site_core',
+    'announcements_info',
+    'events_competitions',
+    'video_content',
+    'membership_growth',
+    'store_support',
+    'downloads_app'
+  ];
+BEGIN
+  FOREACH scope_code IN ARRAY scope_codes LOOP
+    result := public.maintenance_status_public(
+      pg_catalog.jsonb_build_object('scope', scope_code)
+    );
+    expected_active := scope_code = 'announcements_info';
+    IF (result #>> '{data,is_maintenance}')::boolean IS DISTINCT FROM expected_active
+       OR (result #>> '{data,is_global}')::boolean IS DISTINCT FROM false THEN
+      RAISE EXCEPTION 'FAIL: local maintenance leaked to scope %; expected active=%',
+        scope_code, expected_active;
+    END IF;
+  END LOOP;
+END
+$local_scope_matrix$;
+RESET ROLE;
+
 \echo 'PASS: isolated PostgreSQL maintenance RPC/RLS integration checks'
