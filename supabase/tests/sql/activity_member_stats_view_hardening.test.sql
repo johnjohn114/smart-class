@@ -7,6 +7,7 @@ BEGIN
  IF NOT coalesce(opts @> ARRAY['security_invoker=true'],false) THEN RAISE EXCEPTION 'security_invoker=true required'; END IF;
  IF has_table_privilege('anon','public.activity_member_stats','SELECT') THEN RAISE EXCEPTION 'anon must not SELECT the view'; END IF;
  IF NOT has_table_privilege('authenticated','public.activity_member_stats','SELECT') THEN RAISE EXCEPTION 'authenticated SELECT missing'; END IF;
+ IF NOT has_table_privilege('service_role','public.activity_member_stats','SELECT') THEN RAISE EXCEPTION 'service_role SELECT missing'; END IF;
  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.profiles'::regclass)
  OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.competition_attendance'::regclass) THEN RAISE EXCEPTION 'source table RLS disabled'; END IF;
  IF (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='activity_member_stats')<>8 THEN RAISE EXCEPTION 'view output columns changed'; END IF;
