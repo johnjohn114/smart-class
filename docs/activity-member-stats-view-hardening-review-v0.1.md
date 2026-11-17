@@ -17,18 +17,30 @@
 3. Grant SELECT only to `authenticated` and `service_role`.
 4. Leave source table policies unchanged.
 
+## Frontend dependency and compatibility finding
+The current public activity leaderboard in `app.js` reads `activity_member_stats` with the anon key and renders nickname, attendance, late/no-show counts, and activity points. Simply revoking anon from that view would break the public leaderboard.
+
+The candidate therefore separates two purposes:
+- `activity_member_stats`: authenticated member/admin access with caller RLS (`security_invoker=true`); anonymous access revoked.
+- `activity_public_leaderboard`: an explicitly public, security-barrier projection containing only the five fields rendered by the public leaderboard. It omits `user_id`, `checkin_points`, and `completion_points`.
+
+The public leaderboard query in `app.js` is switched to the new projection. Public visibility of nicknames and displayed activity aggregates is intentional and should be confirmed as a product/privacy decision before production release.
+
 ## Combined disposable PostgreSQL integration test
-CI runs synthetic fixture setup, candidate SQL, and one consolidated test sequence:
-- Anonymous SELECT is denied.
+CI runs synthetic fixture setup, both candidate SQL files, and one consolidated test sequence:
+- Anonymous SELECT on `activity_member_stats` is denied.
 - A normal authenticated member sees only their own aggregate.
 - An admin sees both synthetic member aggregates.
-- All eight original output columns remain present.
-- Attendance, late/no-show and point totals match the original aggregation formula.
+- All eight original `activity_member_stats` output columns remain present.
+- Anonymous SELECT on `activity_public_leaderboard` succeeds.
+- The public projection exposes exactly five presentation columns and no account UUID or internal point subtotals.
+- Synthetic aggregate totals match the expected values.
 
 Files:
 - `supabase/tests/sql/activity_member_stats_view_hardening_setup.sql`
 - `supabase/tests/sql/activity_member_stats_view_hardening.test.sql`
 - `supabase/candidate_sql/activity_member_stats_view_hardening.sql`
+- `supabase/candidate_sql/activity_public_leaderboard_view.sql`
 
 ## Release gates
 The CI test is isolated and synthetic; it is not a production smoke test. Review application dependencies and reconcile the full production migration baseline before any production change. No production schema, data, policies, Data API settings, or deployed functions are changed by this candidate.
