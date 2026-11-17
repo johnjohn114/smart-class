@@ -424,7 +424,7 @@ BEGIN
       -- this helper only, and it returns false when auth.uid() is NULL.
       IF r.signature = 'is_admin()' THEN
         EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon, authenticated', r.signature);
-      ELSIF r.signature = ANY(authenticated_allowlist) THEN
+      ELSIF replace(r.signature, ', ', ',') = ANY(authenticated_allowlist) THEN
         EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', r.signature);
       END IF;
     END IF;
