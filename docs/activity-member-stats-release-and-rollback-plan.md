@@ -49,6 +49,8 @@ If Stage A fails, stop and remove/repair only the newly created projection after
 
 Release the `app.js` change that reads `activity_public_leaderboard`.
 
+**Pre-projection compatibility:** the frontend first requests the new projection. If PostgREST returns HTTP 404 because the relation is not installed / not in the schema cache, it retries the legacy `activity_member_stats` view using only the five presentation columns. It does not request `user_id`, `checkin_points`, or `completion_points` in this fallback. This keeps the existing public leaderboard working during the staged rollout, but it does **not** harden the legacy view; the old public exposure remains until Stage C is completed. A non-404 response (including permission errors) does not trigger fallback, so permission failures are not silently masked.
+
 Verify:
 
 - The public leaderboard loads without API errors.
