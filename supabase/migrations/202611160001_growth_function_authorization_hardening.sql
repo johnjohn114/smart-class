@@ -3,6 +3,15 @@
 -- This file is for isolated verification first; never auto-apply to production.
 BEGIN;
 
+-- PostgreSQL grants EXECUTE to PUBLIC on new functions by default. The live
+-- project also has per-schema defaults granting anon/authenticated EXECUTE.
+-- Remove both defaults for project-owned functions so future SECURITY DEFINER
+-- routines do not become public RPCs before an explicit allowlist grant.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public.admin_delete_growth_reward(p_reward_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
