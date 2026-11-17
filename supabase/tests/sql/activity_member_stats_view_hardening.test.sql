@@ -50,7 +50,7 @@ END $$;
 RESET ROLE;
 -- Public leaderboard contract: anonymous access is intentional, but only the
 -- five presentation fields are exposed; no account UUID or private totals.
-DO $
+DO $$
 DECLARE n integer; a integer; l integer; ns integer; total integer;
 BEGIN
  IF NOT has_table_privilege('anon','public.activity_public_leaderboard','SELECT')
@@ -62,15 +62,15 @@ BEGIN
             WHERE table_schema='public' AND table_name='activity_public_leaderboard'
               AND column_name IN ('user_id','checkin_points','completion_points'))
  THEN RAISE EXCEPTION 'public leaderboard exposes a private/internal column'; END IF;
-END $;
+END $$;
 SET ROLE anon;
-DO $
+DO $$
 DECLARE n integer; a integer; l integer; ns integer; total integer;
 BEGIN
  SELECT count(*),sum(attended_count),sum(late_count),sum(no_show_count),sum(activity_points)
  INTO n,a,l,ns,total FROM public.activity_public_leaderboard;
  IF (n,a,l,ns,total) IS DISTINCT FROM (2,3,1,1,28)
  THEN RAISE EXCEPTION 'public leaderboard output mismatch: %, %, %, %, %',n,a,l,ns,total; END IF;
-END $;
+END $$;
 RESET ROLE;
 SELECT 'activity_member_stats and public leaderboard integration tests passed' AS result;
