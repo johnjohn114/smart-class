@@ -6,6 +6,12 @@ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN BYPASSRLS; END IF;
 END $$;
+CREATE SCHEMA auth;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid
+$$;
+GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION auth.uid() TO anon,authenticated,service_role;
 CREATE TABLE public.profiles(id uuid PRIMARY KEY,nickname text NOT NULL,role text NOT NULL DEFAULT 'visitor');
 CREATE TABLE public.competition_attendance(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,user_id uuid NOT NULL REFERENCES public.profiles(id),status text NOT NULL,points_awarded integer NOT NULL DEFAULT 0,completion_points_awarded integer NOT NULL DEFAULT 0);
 INSERT INTO public.profiles VALUES
@@ -19,10 +25,16 @@ INSERT INTO public.competition_attendance(user_id,status,points_awarded,completi
 ('00000000-0000-0000-0000-000000000002','checked_in',7,1);
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.competition_attendance ENABLE ROW LEVEL SECURITY;
+CREATE FUNCTION public.is_admin() RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=''
+AS $$
+ SELECT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id=auth.uid() AND p.role='admin')
+$$;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 CREATE POLICY profiles_self_or_admin_select ON public.profiles FOR SELECT TO authenticated
-USING (id=nullif(current_setting('request.jwt.claim.sub',true),'')::uuid OR current_setting('request.jwt.claim.role',true)='admin');
+USING (id=auth.uid() OR public.is_admin());
 CREATE POLICY attendance_self_or_admin_select ON public.competition_attendance FOR SELECT TO authenticated
-USING (user_id=nullif(current_setting('request.jwt.claim.sub',true),'')::uuid OR current_setting('request.jwt.claim.role',true)='admin');
+USING (user_id=auth.uid() OR public.is_admin());
 GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
 GRANT SELECT ON public.profiles,public.competition_attendance TO authenticated,service_role;
 CREATE VIEW public.activity_member_stats AS
