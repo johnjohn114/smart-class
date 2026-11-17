@@ -246,7 +246,7 @@ RESET ROLE;
 -- This catches the case where global maintenance accidentally leaves a region available.
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000001', false);
 SET ROLE authenticated;
-DO $
+DO $scope_matrix$
 DECLARE
   scope_code text;
   request_payload jsonb;
@@ -284,7 +284,7 @@ BEGIN
     END IF;
   END LOOP;
 END
-$;
+$scope_matrix$;
 RESET ROLE;
 
 \echo 'PASS: isolated PostgreSQL maintenance RPC/RLS integration checks'
