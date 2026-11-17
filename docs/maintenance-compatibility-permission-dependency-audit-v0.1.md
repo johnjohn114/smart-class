@@ -127,3 +127,34 @@ Still unverified in production:
 **Static compatibility review:** substantially completed; follow-up items remain.  
 **Production migration readiness:** NOT APPROVED.  
 **Production database changes / deployments / merges / paid resources:** none performed.
+
+
+## 9. Follow-up hardening and CI verification（2026-11-17）
+
+### 9.1 SECURITY DEFINER rowtype / search_path corrections
+
+- Candidate `_refresh_growth_level_internal(uuid)` now uses `SET search_path = ''` and `public.growth_levels%ROWTYPE`.
+- Candidate `refresh_growth_level(uuid)` now also uses an empty search path; its references to `auth.uid()` and `public.profiles` are schema-qualified.
+- Candidate `complete_growth_task(text)` was added from the read-only live function definition with an empty search path, `public.growth_tasks%ROWTYPE`, and schema-qualified table/function references.
+- The disposable growth authorization test now creates public task fixtures before applying the migration and creates same-named temporary `growth_levels` / `growth_tasks` tables with deliberately different rows. It verifies the RPCs continue to use the intended `public` objects.
+- The task row assertion is performed after resetting the authenticated role, so the test does not mistake a missing direct table grant for a failure of the SECURITY DEFINER function.
+
+### 9.2 Storage default-ACL clarification
+
+- The default-privilege migration comment now states that the global removal of default PUBLIC EXECUTE affects future postgres-owned functions in every schema, while existing schema-specific grants (including storage's API-role grants) remain.
+- The disposable PostgreSQL test creates a storage-specific default function grant before applying the migration and asserts that those API-role grants remain. This makes the cross-schema effect explicit rather than implying storage was fully converted to opt-in grants.
+
+### 9.3 CI result
+
+- CI run `44072571211` tested commit `20c0b338e117fc81caf93ee75dccf8e283b7c1c1`: **success**.
+- Deno type-check and tests: success.
+- GoTrue-issued JWT / PostgREST integration: success.
+- PostgreSQL 17 integration: success, including maintenance RPC/RLS, growth function authorization, temporary-name shadow tests, storage/public default-ACL tests, and trigger side-effect regressions.
+- Earlier runs in this sequence exposed two test-harness defects (the new task function's fixture tables were absent, then an assertion queried a protected table while still using the authenticated role). Both were corrected; the final run above passed.
+
+### 9.4 Remaining limitations
+
+- The temporary-name shadow tests verify the selected growth functions, not all 36 live SECURITY DEFINER routines.
+- The candidate ACL loop still needs the complete function-by-function authorization matrix and RLS-policy execution coverage before production approval.
+- Production migration baseline reconciliation, Data API exposed-schema verification, maintenance deployment/runtime smoke tests, retention policy decisions, and review of the global default-PUBLIC revoke remain open.
+- No production SQL was executed. No deployment, merge to main, or paid resource was created.
