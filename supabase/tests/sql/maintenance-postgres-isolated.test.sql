@@ -326,6 +326,12 @@ DECLARE
   global_event_id uuid;
   global_version bigint;
   local_result jsonb;
+  local_event_id uuid;
+  local_version bigint;
+  disjoint_result jsonb;
+  disjoint_event_id uuid;
+  disjoint_version bigint;
+  conflict_seen boolean := false;
 BEGIN
   SELECT id, version INTO STRICT global_event_id, global_version
     FROM private.maintenance_events
@@ -353,6 +359,54 @@ BEGIN
   IF (local_result #>> '{data,status}') IS DISTINCT FROM 'scheduled' THEN
     RAISE EXCEPTION 'FAIL: local maintenance event was not scheduled';
   END IF;
+  local_event_id := (local_result #>> '{data,event_id}')::uuid;
+  local_version := (local_result #>> '{data,version}')::bigint;
+
+  -- A second overlapping event for the same local scope must be rejected.
+  BEGIN
+    PERFORM public.maintenance_event_create(pg_catalog.jsonb_build_object(
+      'title', 'Same scope conflict test',
+      'message', 'This overlapping event must be rejected',
+      'is_global', false,
+      'scope_codes', pg_catalog.jsonb_build_array('announcements_info'),
+      'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '4 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+      'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '20 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+      'status', 'scheduled',
+      'reason', 'same scope conflict integration test',
+      'idempotency_key', '00000000-0000-4000-8000-000000000023'
+    ));
+  EXCEPTION WHEN unique_violation THEN
+    conflict_seen := true;
+  END;
+  IF NOT conflict_seen THEN
+    RAISE EXCEPTION 'FAIL: overlapping event in the same local scope was accepted';
+  END IF;
+
+  -- A different local scope may be scheduled at the same time.
+  disjoint_result := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    'title', 'Disjoint scope coexistence test',
+    'message', 'A different local scope may be scheduled concurrently',
+    'is_global', false,
+    'scope_codes', pg_catalog.jsonb_build_array('downloads_app'),
+    'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '3 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '15 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'status', 'scheduled',
+    'reason', 'disjoint scope coexistence integration test',
+    'idempotency_key', '00000000-0000-4000-8000-000000000024'
+  ));
+  IF (disjoint_result #>> '{data,status}') IS DISTINCT FROM 'scheduled' THEN
+    RAISE EXCEPTION 'FAIL: disjoint local scope was not scheduled';
+  END IF;
+  disjoint_event_id := (disjoint_result #>> '{data,event_id}')::uuid;
+  disjoint_version := (disjoint_result #>> '{data,version}')::bigint;
+
+  PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id', disjoint_event_id,
+    'expected_version', disjoint_version,
+    'action', 'cancel',
+    'reason', 'cleanup disjoint scope coexistence test',
+    'idempotency_key', '00000000-0000-4000-8000-000000000025'
+  ));
 END
 $local_scope_admin$;
 RESET ROLE;
