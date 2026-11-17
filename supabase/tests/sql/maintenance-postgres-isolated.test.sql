@@ -564,7 +564,7 @@ BEGIN
     'idempotency_key','00000000-0000-4000-8000-000000000037'
   ));
   IF (cancel_draft_action #>> '{data,status}') IS DISTINCT FROM 'cancelled'
-     OR (cancel_draft_action #>> '{data/version}')::bigint<>2 THEN
+     OR (cancel_draft_action #>> '{data,version}')::bigint<>2 THEN
     RAISE EXCEPTION 'FAIL: draft -> cancelled transition/version incorrect';
   END IF;
 
@@ -607,7 +607,7 @@ BEGIN
     'idempotency_key','00000000-0000-4000-8000-000000000041'
   ));
   IF (cancel_scheduled_action #>> '{data,status}') IS DISTINCT FROM 'cancelled'
-     OR (cancel_scheduled_action #>> '{data/version}')::bigint<>3 THEN
+     OR (cancel_scheduled_action #>> '{data,version}')::bigint<>3 THEN
     RAISE EXCEPTION 'FAIL: scheduled -> cancelled transition/version incorrect';
   END IF;
 
