@@ -492,9 +492,6 @@ BEGIN
     'reason','schedule lifecycle test',
     'idempotency_key','00000000-0000-4000-8000-000000000032'
   ));
-  IF (complete_schedule #>> '{data/status}') IS NOT NULL THEN
-    NULL;
-  END IF;
   IF (complete_schedule #>> '{data,status}') IS DISTINCT FROM 'scheduled'
      OR (complete_schedule #>> '{data,version}')::bigint<>2 THEN
     RAISE EXCEPTION 'FAIL: draft -> scheduled transition/version incorrect';
@@ -566,7 +563,7 @@ BEGIN
     'reason','cancel draft lifecycle test',
     'idempotency_key','00000000-0000-4000-8000-000000000037'
   ));
-  IF (cancel_draft_action #>> '{data/status}') IS DISTINCT FROM 'cancelled'
+  IF (cancel_draft_action #>> '{data,status}') IS DISTINCT FROM 'cancelled'
      OR (cancel_draft_action #>> '{data/version}')::bigint<>2 THEN
     RAISE EXCEPTION 'FAIL: draft -> cancelled transition/version incorrect';
   END IF;
@@ -609,7 +606,7 @@ BEGIN
     'reason','cancel scheduled lifecycle test',
     'idempotency_key','00000000-0000-4000-8000-000000000041'
   ));
-  IF (cancel_scheduled_action #>> '{data/status}') IS DISTINCT FROM 'cancelled'
+  IF (cancel_scheduled_action #>> '{data,status}') IS DISTINCT FROM 'cancelled'
      OR (cancel_scheduled_action #>> '{data/version}')::bigint<>3 THEN
     RAISE EXCEPTION 'FAIL: scheduled -> cancelled transition/version incorrect';
   END IF;
