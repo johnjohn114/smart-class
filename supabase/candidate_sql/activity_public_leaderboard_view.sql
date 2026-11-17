@@ -1,12 +1,13 @@
 -- Candidate-only public leaderboard projection.
 -- This view is intentionally public, but exposes only fields already rendered
 -- by the public leaderboard. It deliberately omits user_id and private totals.
+-- A missing/blank nickname uses a neutral label, never an account identifier.
 BEGIN;
 
 CREATE OR REPLACE VIEW public.activity_public_leaderboard
 WITH (security_barrier = true, security_invoker = false) AS
 SELECT
-  max(COALESCE(p.nickname, a.user_id::text)) AS nickname,
+  max(COALESCE(NULLIF(btrim(p.nickname), ''), '會員')) AS nickname,
   count(*) FILTER (
     WHERE a.status = ANY (ARRAY['checked_in'::text, 'late'::text])
   )::integer AS attended_count,
@@ -24,6 +25,6 @@ REVOKE ALL PRIVILEGES ON TABLE public.activity_public_leaderboard FROM PUBLIC;
 GRANT SELECT ON TABLE public.activity_public_leaderboard TO anon, authenticated, service_role;
 
 COMMENT ON VIEW public.activity_public_leaderboard IS
-  'Intentionally public leaderboard projection; contains only nickname and displayed activity aggregates, not account identifiers.';
+  'Intentionally public leaderboard projection; contains only nickname and displayed activity aggregates, not account identifiers. Missing or blank nicknames are shown as 會員.';
 
 COMMIT;
