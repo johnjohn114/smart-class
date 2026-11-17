@@ -10,10 +10,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM anon, authenticated, service_role;
--- PostgreSQL's default PUBLIC EXECUTE grant is global and cannot be
--- overridden by a schema-specific REVOKE. This therefore applies to every
--- future function created by postgres in every schema; callers must receive
--- explicit per-function GRANTs in their migrations.
+-- PostgreSQL's default PUBLIC EXECUTE grant is global. Removing it affects
+-- future postgres-owned functions in every schema. Existing schema-specific
+-- defaults (for example, storage grants) remain in effect; audit those
+-- separately and do not assume every schema now has opt-in API access.
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
