@@ -225,7 +225,99 @@ CREATE TRIGGER ci_security_definer_trigger
 AFTER INSERT ON public.ci_trigger_source
 FOR EACH ROW EXECUTE FUNCTION public.ci_security_definer_trigger();
 
+
+-- Complete catalog fixture: create any production SECURITY DEFINER signatures
+-- not otherwise needed by the behavioral tests, so the ACL matrix covers all
+-- 36 live routines plus the private growth-level helper introduced by the
+-- candidate migration. These stubs are disposable and never touch production.
+DO $catalog_fixtures$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('admin_activity_analytics', '', false),
+      ('admin_adjust_growth_points', 'uuid,integer,text', false),
+      ('admin_apply_competition_rewards', 'uuid', false),
+      ('admin_cancel_order', 'uuid', false),
+      ('admin_complete_order', 'uuid', false),
+      ('admin_delete_video', 'uuid', false),
+      ('admin_grant_competition_reward', 'uuid,text,text,text,integer,uuid', false),
+      ('admin_mark_competition_attendance', 'uuid,text,text', false),
+      ('admin_mark_competition_member_attendance', 'uuid,uuid,text,text', false),
+      ('admin_mark_order_paid', 'uuid', false),
+      ('admin_promote_competition_waitlist', 'uuid', false),
+      ('admin_reset_growth_member', 'uuid,text', false),
+      ('admin_settle_competition', 'uuid', false),
+      ('admin_upsert_video', 'jsonb', false),
+      ('assign_member_no_and_nickname', '', true),
+      ('check_competition_registration_rules', '', true),
+      ('checkin_competition', 'uuid,text', false),
+      ('close_my_support_ticket', 'uuid', false),
+      ('create_cash_order', 'uuid,integer,text', false),
+      ('ensure_visitor_profile', '', true),
+      ('growth_registration_reward', '', true),
+      ('growth_result_reward', '', true),
+      ('is_admin_user', '', false),
+      ('join_competition_waitlist', 'uuid,text', false),
+      ('record_growth_activity', '', false),
+      ('redeem_growth_reward', 'uuid', false),
+      ('use_growth_coupon', 'uuid', false)
+    ) AS v(name, argtypes, is_trigger)
+  LOOP
+    IF to_regprocedure(format('public.%I(%s)', r.name, r.argtypes)) IS NULL THEN
+      IF r.is_trigger THEN
+        EXECUTE format(
+          'CREATE FUNCTION public.%I(%s) RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS %L',
+          r.name, r.argtypes, 'BEGIN RETURN NEW; END;'
+        );
+      ELSE
+        EXECUTE format(
+          'CREATE FUNCTION public.%I(%s) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS %L',
+          r.name, r.argtypes, 'BEGIN RETURN; END;'
+        );
+      END IF;
+    END IF;
+  END LOOP;
+END
+$catalog_fixtures$;
+
+-- Simulate the live project's unsafe defaults before applying the fix:
+-- PUBLIC gets PostgreSQL's normal function EXECUTE default, and the public
+-- schema additionally grants anon/authenticated EXECUTE for postgres-owned
+-- functions. The migration must remove both sources for future functions.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
+
+-- A SECURITY DEFINER function created after the migration must not become a
+-- callable API endpoint through either PUBLIC or schema-specific defaults.
+CREATE FUNCTION public.ci_future_security_definer()
+RETURNS integer
+LANGUAGE sql
+SECURITY DEFINER
+AS $future$
+  SELECT 1
+$future$;
+
+DO $future_function_defaults$
+BEGIN
+  IF has_function_privilege('anon','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: future SECURITY DEFINER function is executable by anon';
+  END IF;
+  IF has_function_privilege('authenticated','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: future SECURITY DEFINER function is executable by authenticated';
+  END IF;
+  -- service_role is intentionally retained as a trusted server-side role;
+  -- it is not shipped to the browser and is outside the public-client allowlist.
+  IF NOT has_function_privilege('service_role','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: trusted service_role default was unexpectedly removed';
+  END IF;
+END
+$future_function_defaults$;
 
 -- is_admin() is the one safe SECURITY DEFINER helper exposed to anon because
 -- several PUBLIC RLS policies call it; it must return false without a JWT.
@@ -258,6 +350,10 @@ BEGIN
   IF has_function_privilege('anon','public.check_activity_badges(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute check_activity_badges'; END IF;
   IF has_function_privilege('anon','public.increment_download_count(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: anon can execute increment_download_count'; END IF;
   IF NOT has_function_privilege('authenticated','public.increment_download_count(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute increment_download_count'; END IF;
+  IF NOT has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: reviewed admin RPC missing authenticated EXECUTE'; END IF;
+  IF NOT has_function_privilege('authenticated','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: reviewed admin upsert RPC missing authenticated EXECUTE'; END IF;
+  IF NOT has_function_privilege('authenticated','public.check_growth_achievements(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: member achievement RPC missing authenticated EXECUTE'; END IF;
+  IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: member level RPC missing authenticated EXECUTE'; END IF;
   IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points directly'; END IF;
   IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute internal helper'; END IF;
   IF NOT has_function_privilege('authenticated','public.complete_growth_task(text)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute own task RPC'; END IF;
@@ -482,5 +578,99 @@ BEGIN
   END IF;
 END
 $all_anon_denied$;
+
+
+-- Exhaustive EXECUTE matrix for every production SECURITY DEFINER routine
+-- (36 live signatures) plus the private helper added by this migration.
+-- Only is_admin() is callable by anon; authenticated may call the reviewed
+-- RPC allowlist and is_admin(); triggers and internal point helpers are denied.
+DO $complete_acl_matrix$
+DECLARE
+  r record;
+  resolved regprocedure;
+  expected_authenticated boolean;
+  expected_anon boolean;
+  expected_trigger boolean;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('admin_activity_analytics()', true, false, false),
+      ('admin_adjust_growth_points(uuid,integer,text)', true, false, false),
+      ('admin_apply_competition_rewards(uuid)', true, false, false),
+      ('admin_cancel_order(uuid)', true, false, false),
+      ('admin_complete_order(uuid)', true, false, false),
+      ('admin_delete_growth_reward(uuid)', true, false, false),
+      ('admin_delete_video(uuid)', true, false, false),
+      ('admin_grant_competition_reward(uuid,text,text,text,integer,uuid)', true, false, false),
+      ('admin_mark_competition_attendance(uuid,text,text)', true, false, false),
+      ('admin_mark_competition_member_attendance(uuid,uuid,text,text)', true, false, false),
+      ('admin_mark_order_paid(uuid)', true, false, false),
+      ('admin_promote_competition_waitlist(uuid)', true, false, false),
+      ('admin_reset_growth_member(uuid,text)', true, false, false),
+      ('admin_settle_competition(uuid)', true, false, false),
+      ('admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamp with time zone,timestamp with time zone,integer,boolean)', true, false, false),
+      ('admin_upsert_video(jsonb)', true, false, false),
+      ('assign_member_no_and_nickname()', false, false, true),
+      ('award_growth_points(uuid,integer,text,text,text,text,uuid)', false, false, false),
+      ('check_activity_badges(uuid)', true, false, false),
+      ('check_competition_registration_rules()', false, false, true),
+      ('check_growth_achievements(uuid)', true, false, false),
+      ('checkin_competition(uuid,text)', true, false, false),
+      ('close_my_support_ticket(uuid)', true, false, false),
+      ('complete_growth_task(text)', true, false, false),
+      ('create_cash_order(uuid,integer,text)', true, false, false),
+      ('ensure_visitor_profile()', false, false, true),
+      ('growth_registration_reward()', false, false, true),
+      ('growth_result_reward()', false, false, true),
+      ('increment_download_count(uuid)', true, false, false),
+      ('is_admin()', true, true, false),
+      ('is_admin_user()', true, false, false),
+      ('join_competition_waitlist(uuid,text)', true, false, false),
+      ('record_growth_activity()', true, false, false),
+      ('redeem_growth_reward(uuid)', true, false, false),
+      ('refresh_growth_level(uuid)', true, false, false),
+      ('use_growth_coupon(uuid)', true, false, false),
+      ('_refresh_growth_level_internal(uuid)', false, false, false)
+    ) AS v(signature, allow_authenticated, allow_anon, is_trigger)
+  LOOP
+    resolved := to_regprocedure('public.' || r.signature);
+    IF resolved IS NULL THEN
+      RAISE EXCEPTION 'FAIL: catalog fixture missing SECURITY DEFINER signature %', r.signature;
+    END IF;
+
+    expected_authenticated := r.allow_authenticated;
+    expected_anon := r.allow_anon;
+    expected_trigger := r.is_trigger;
+
+    IF has_function_privilege('authenticated', resolved, 'EXECUTE')
+       IS DISTINCT FROM expected_authenticated THEN
+      RAISE EXCEPTION 'FAIL: authenticated EXECUTE mismatch for %, expected %',
+        r.signature, expected_authenticated;
+    END IF;
+
+    IF has_function_privilege('anon', resolved, 'EXECUTE')
+       IS DISTINCT FROM expected_anon THEN
+      RAISE EXCEPTION 'FAIL: anon EXECUTE mismatch for %, expected %',
+        r.signature, expected_anon;
+    END IF;
+
+    IF expected_trigger AND has_function_privilege('service_role', resolved, 'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: service_role can directly execute trigger function %', r.signature;
+    END IF;
+  END LOOP;
+
+  IF (
+    SELECT count(*)
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.prokind = 'f'
+      AND p.oid::regprocedure::text <> 'ci_security_definer_trigger()'
+  ) <> 38 THEN
+    RAISE EXCEPTION 'FAIL: expected 38 catalog entries (36 live routines, internal helper, and future-function fixture)';
+  END IF;
+END
+$complete_acl_matrix$;
 
 \echo 'PASS: growth function authorization regression tests'
