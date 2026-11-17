@@ -287,4 +287,34 @@ END
 $scope_matrix$;
 RESET ROLE;
 
+-- Verify public status resolves the active global event for every supported scope.
+SET ROLE anon;
+SELECT set_config('request.jwt.claim.sub', '', false);
+DO $scope_status$
+DECLARE
+  scope_code text;
+  result jsonb;
+  scope_codes text[] := ARRAY[
+    'site_core',
+    'announcements_info',
+    'events_competitions',
+    'video_content',
+    'membership_growth',
+    'store_support',
+    'downloads_app'
+  ];
+BEGIN
+  FOREACH scope_code IN ARRAY scope_codes LOOP
+    result := public.maintenance_status_public(
+      pg_catalog.jsonb_build_object('scope', scope_code)
+    );
+    IF (result #>> '{data,is_maintenance}')::boolean IS DISTINCT FROM true
+       OR (result #>> '{data,is_global}')::boolean IS DISTINCT FROM true THEN
+      RAISE EXCEPTION 'FAIL: public status did not report global maintenance for scope %', scope_code;
+    END IF;
+  END LOOP;
+END
+$scope_status$;
+RESET ROLE;
+
 \echo 'PASS: isolated PostgreSQL maintenance RPC/RLS integration checks'
