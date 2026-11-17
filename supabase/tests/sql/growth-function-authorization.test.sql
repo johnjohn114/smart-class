@@ -667,8 +667,8 @@ BEGIN
       AND p.prosecdef
       AND p.prokind = 'f'
       AND p.oid::regprocedure::text <> 'ci_security_definer_trigger()'
-  ) <> 37 THEN
-    RAISE EXCEPTION 'FAIL: expected 37 catalog entries (36 live routines plus internal helper)';
+  ) <> 38 THEN
+    RAISE EXCEPTION 'FAIL: expected 38 catalog entries (36 live routines, internal helper, and future-function fixture)';
   END IF;
 END
 $complete_acl_matrix$;
