@@ -80,9 +80,9 @@ CREATE OR REPLACE FUNCTION public._refresh_growth_level_internal(p_user_id uuid)
  RETURNS text
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path TO ''
 AS $function$
-declare lvl growth_levels%rowtype;
+declare lvl public.growth_levels%rowtype;
 begin
  select * into lvl from public.growth_levels where min_points <= coalesce((select growth_points from public.profiles where id=p_user_id),0) order by min_points desc,sort_order desc limit 1;
  if lvl.code is null then lvl.code:='newbie'; end if;
@@ -108,6 +108,109 @@ begin
   end if;
 
   return public._refresh_growth_level_internal(p_user_id);
+end;
+$function$;
+
+
+-- The live routine used an unqualified growth_tasks%ROWTYPE under
+-- search_path=public. Pin the type and all relation references explicitly.
+CREATE OR REPLACE FUNCTION public.complete_growth_task(p_task_code text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  uid uuid := auth.uid();
+  t public.growth_tasks%rowtype;
+  n integer := 0;
+  cycle text;
+  completed boolean := false;
+begin
+  if uid is null then raise exception '請先登入'; end if;
+
+  select * into t
+  from public.growth_tasks
+  where code=p_task_code
+    and active=true
+    and (start_at is null or now()>=start_at)
+    and (end_at is null or now()<=end_at);
+
+  if t.id is null then raise exception '找不到任務'; end if;
+
+  cycle := case
+    when t.cycle_type='daily' then to_char(now(),'YYYY-MM-DD')
+    when t.cycle_type='weekly' then to_char(date_trunc('week',now()),'YYYY-MM-DD')
+    else 'once'
+  end;
+
+  select exists(
+    select 1 from public.growth_user_tasks
+    where user_id=uid and task_id=t.id
+      and cycle_key=cycle and completed_at is not null
+  ) into completed;
+
+  if completed then return true; end if;
+
+  if t.task_type='profile_complete' then
+    select count(*) into n
+    from public.profiles
+    where id=uid and coalesce(nullif(trim(nickname),''),'')<>'';
+  elsif t.task_type='first_registration' then
+    select count(*) into n
+    from public.competition_registrations
+    where user_id=uid and status in ('active','pending','approved');
+  elsif t.task_type='first_result' then
+    select count(*) into n
+    from public.competition_results r
+    join public.competitions c on c.id=r.competition_id
+    where r.user_id=uid and c.published=true;
+  elsif t.task_type='registration_count' then
+    select count(*) into n
+    from public.competition_registrations
+    where user_id=uid and status in ('active','pending','approved')
+      and (t.cycle_type='one_time' or created_at >= case
+        when t.cycle_type='daily' then date_trunc('day',now())
+        else date_trunc('week',now()) end);
+  elsif t.task_type='result_count' then
+    select count(*) into n
+    from public.competition_results r
+    join public.competitions c on c.id=r.competition_id
+    where r.user_id=uid and c.published=true
+      and (t.cycle_type='one_time' or r.created_at >= case
+        when t.cycle_type='daily' then date_trunc('day',now())
+        else date_trunc('week',now()) end);
+  end if;
+
+  insert into public.growth_user_tasks(user_id,task_id,cycle_key,progress)
+  values(uid,t.id,cycle,least(n,t.requirement_count))
+  on conflict(user_id,task_id,cycle_key) do update
+    set progress=excluded.progress;
+
+  if n>=t.requirement_count then
+    update public.growth_user_tasks
+    set completed_at=now(),progress=t.requirement_count
+    where user_id=uid and task_id=t.id
+      and cycle_key=cycle and completed_at is null;
+
+    if t.reward_points>0 then
+      perform public.award_growth_points(
+        uid,t.reward_points,'完成任務：'||t.title,'task',t.id::text,
+        'task:'||t.id::text||':'||uid::text||':'||cycle,null
+      );
+    end if;
+
+    insert into public.notifications(user_id,title,content,type)
+    values(
+      uid,'🎯 任務完成！',
+      '你已完成「'||t.title||'」'||
+      case when t.reward_points>0 then '，獲得 +'||t.reward_points||' 積分。' else '。' end,
+      '成長'
+    );
+    return true;
+  end if;
+
+  return false;
 end;
 $function$;
 
