@@ -249,6 +249,15 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/default-privileges-trigger-hardening.test.sql
 
+      - name: Run sequential growth and default-privilege integration test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE growth_default_sequential_test"
+          psql postgresql://postgres:postgres@localhost:5432/growth_default_sequential_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/growth-and-default-privileges-sequential.test.sql
+
       - name: Run activity_member_stats view security integration tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
