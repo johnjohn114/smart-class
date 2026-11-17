@@ -9,6 +9,8 @@
   'use strict';
 
   if (window.MaintenanceClient) return;
+  // Do not contact un-deployed maintenance endpoints before the backend is ready.
+  if (typeof MAINTENANCE_FEATURE_ENABLED === 'undefined' || MAINTENANCE_FEATURE_ENABLED !== true) return;
 
   const CORE_SCOPE = 'site_core';
   const VALID_SCOPES = new Set([
