@@ -243,6 +243,16 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/default-privileges-trigger-hardening.test.sql
 
+      - name: Run activity_member_stats view security integration tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE activity_member_stats_test"
+          TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/activity_member_stats_test
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening_setup.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_member_stats_view_hardening.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening.test.sql
+
       - name: Start PostgREST after database roles are provisioned
         run: |
           docker run --detach --network host --name maintenance-postgrest \
