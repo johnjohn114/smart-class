@@ -443,4 +443,192 @@ END
 $local_scope_matrix$;
 RESET ROLE;
 
+-- Lifecycle regression matrix: draft -> scheduled -> completed,
+-- draft/scheduled -> cancelled, invalid transitions, versioning, and replay.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000001', false);
+SET ROLE authenticated;
+DO $lifecycle_matrix$
+DECLARE
+  complete_create jsonb;
+  complete_schedule jsonb;
+  complete_replay jsonb;
+  cancel_draft_create jsonb;
+  cancel_draft_action jsonb;
+  cancel_scheduled_create jsonb;
+  cancel_scheduled_action jsonb;
+  event_id uuid;
+  event_version bigint;
+  event_status text;
+  audit_before integer;
+  audit_after integer;
+  idempotency_before integer;
+  idempotency_after integer;
+  invalid_seen boolean;
+BEGIN
+  SELECT count(*) INTO audit_before FROM private.maintenance_audit_logs;
+  SELECT count(*) INTO idempotency_before FROM private.maintenance_idempotency;
+
+  -- Create a draft whose time window is already over; scheduling it and
+  -- completing it immediately exercises both legal state transitions.
+  complete_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    'title','Lifecycle complete path',
+    'message','Synthetic lifecycle integration test',
+    'is_global',false,
+    'scope_codes',pg_catalog.jsonb_build_array('membership_growth'),
+    'starts_at',pg_catalog.to_char((pg_catalog.now()-interval '30 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'ends_at',pg_catalog.to_char((pg_catalog.now()-interval '10 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'status','draft',
+    'reason','create draft lifecycle test',
+    'idempotency_key','00000000-0000-4000-8000-000000000031'
+  ));
+  event_id := (complete_create #>> '{data,event_id}')::uuid;
+  event_version := (complete_create #>> '{data,version}')::bigint;
+  IF (complete_create #>> '{data,status}') IS DISTINCT FROM 'draft' OR event_version<>1 THEN
+    RAISE EXCEPTION 'FAIL: draft create returned unexpected status/version';
+  END IF;
+
+  complete_schedule := public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id',event_id,'expected_version',event_version,'action','schedule',
+    'reason','schedule lifecycle test',
+    'idempotency_key','00000000-0000-4000-8000-000000000032'
+  ));
+  IF (complete_schedule #>> '{data/status}') IS NOT NULL THEN
+    NULL;
+  END IF;
+  IF (complete_schedule #>> '{data,status}') IS DISTINCT FROM 'scheduled'
+     OR (complete_schedule #>> '{data,version}')::bigint<>2 THEN
+    RAISE EXCEPTION 'FAIL: draft -> scheduled transition/version incorrect';
+  END IF;
+
+  -- Same key + same payload must replay the original schedule result.
+  complete_replay := public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id',event_id,'expected_version',event_version,'action','schedule',
+    'reason','schedule lifecycle test',
+    'idempotency_key','00000000-0000-4000-8000-000000000032'
+  ));
+  IF complete_replay IS DISTINCT FROM complete_schedule THEN
+    RAISE EXCEPTION 'FAIL: schedule action idempotency replay changed the response';
+  END IF;
+
+  invalid_seen := false;
+  BEGIN
+    PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+      'event_id',event_id,'expected_version',2,'action','schedule',
+      'reason','repeat schedule must fail',
+      'idempotency_key','00000000-0000-4000-8000-000000000033'
+    ));
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_seen := true;
+  END;
+  IF NOT invalid_seen THEN
+    RAISE EXCEPTION 'FAIL: scheduling an already scheduled event was accepted';
+  END IF;
+
+  complete_schedule := public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id',event_id,'expected_version',2,'action','complete',
+    'reason','complete expired lifecycle test',
+    'idempotency_key','00000000-0000-4000-8000-000000000034'
+  ));
+  IF (complete_schedule #>> '{data,status}') IS DISTINCT FROM 'completed'
+     OR (complete_schedule #>> '{data,version}')::bigint<>3 THEN
+    RAISE EXCEPTION 'FAIL: scheduled -> completed transition/version incorrect';
+  END IF;
+
+  invalid_seen := false;
+  BEGIN
+    PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+      'event_id',event_id,'expected_version',3,'action','cancel',
+      'reason','completed event cannot be cancelled',
+      'idempotency_key','00000000-0000-4000-8000-000000000035'
+    ));
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_seen := true;
+  END;
+  IF NOT invalid_seen THEN
+    RAISE EXCEPTION 'FAIL: completed event was allowed to transition to cancelled';
+  END IF;
+
+  -- Draft cancellation is allowed.
+  cancel_draft_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    'title','Lifecycle cancel draft',
+    'message','Synthetic lifecycle integration test',
+    'is_global',false,
+    'scope_codes',pg_catalog.jsonb_build_array('store_support'),
+    'starts_at',pg_catalog.to_char((pg_catalog.now()+interval '2 hours') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'ends_at',pg_catalog.to_char((pg_catalog.now()+interval '3 hours') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'status','draft',
+    'reason','create draft cancellation test',
+    'idempotency_key','00000000-0000-4000-8000-000000000036'
+  ));
+  event_id := (cancel_draft_create #>> '{data,event_id}')::uuid;
+  cancel_draft_action := public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id',event_id,'expected_version',1,'action','cancel',
+    'reason','cancel draft lifecycle test',
+    'idempotency_key','00000000-0000-4000-8000-000000000037'
+  ));
+  IF (cancel_draft_action #>> '{data/status}') IS DISTINCT FROM 'cancelled'
+     OR (cancel_draft_action #>> '{data/version}')::bigint<>2 THEN
+    RAISE EXCEPTION 'FAIL: draft -> cancelled transition/version incorrect';
+  END IF;
+
+  -- Scheduled cancellation is allowed, but completion before ends_at is not.
+  cancel_scheduled_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    'title','Lifecycle cancel scheduled',
+    'message','Synthetic lifecycle integration test',
+    'is_global',false,
+    'scope_codes',pg_catalog.jsonb_build_array('video_content'),
+    'starts_at',pg_catalog.to_char((pg_catalog.now()+interval '2 hours') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'ends_at',pg_catalog.to_char((pg_catalog.now()+interval '3 hours') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'status','draft',
+    'reason','create scheduled cancellation test',
+    'idempotency_key','00000000-0000-4000-8000-000000000038'
+  ));
+  event_id := (cancel_scheduled_create #>> '{data,event_id}')::uuid;
+  PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id',event_id,'expected_version',1,'action','schedule',
+    'reason','schedule future cancellation test',
+    'idempotency_key','00000000-0000-4000-8000-000000000039'
+  ));
+
+  invalid_seen := false;
+  BEGIN
+    PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+      'event_id',event_id,'expected_version',2,'action','complete',
+      'reason','premature completion must fail',
+      'idempotency_key','00000000-0000-4000-8000-000000000040'
+    ));
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_seen := true;
+  END;
+  IF NOT invalid_seen THEN
+    RAISE EXCEPTION 'FAIL: scheduled event completed before ends_at';
+  END IF;
+
+  cancel_scheduled_action := public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id',event_id,'expected_version',2,'action','cancel',
+    'reason','cancel scheduled lifecycle test',
+    'idempotency_key','00000000-0000-4000-8000-000000000041'
+  ));
+  IF (cancel_scheduled_action #>> '{data/status}') IS DISTINCT FROM 'cancelled'
+     OR (cancel_scheduled_action #>> '{data/version}')::bigint<>3 THEN
+    RAISE EXCEPTION 'FAIL: scheduled -> cancelled transition/version incorrect';
+  END IF;
+
+  SELECT count(*) INTO audit_after FROM private.maintenance_audit_logs;
+  SELECT count(*) INTO idempotency_after FROM private.maintenance_idempotency;
+  IF audit_after-audit_before<>8 OR idempotency_after-idempotency_before<>8 THEN
+    RAISE EXCEPTION 'FAIL: lifecycle success audit/idempotency counts incorrect (audit %, idempotency %)',
+      audit_after-audit_before,idempotency_after-idempotency_before;
+  END IF;
+
+  SELECT status,version INTO event_status,event_version
+    FROM private.maintenance_events
+   WHERE id=(cancel_scheduled_create #>> '{data,event_id}')::uuid;
+  IF event_status IS DISTINCT FROM 'cancelled' OR event_version<>3 THEN
+    RAISE EXCEPTION 'FAIL: persisted lifecycle final state/version incorrect';
+  END IF;
+END
+$lifecycle_matrix$;
+RESET ROLE;
+
 \echo 'PASS: isolated PostgreSQL maintenance RPC/RLS integration checks'
