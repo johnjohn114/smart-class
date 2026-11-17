@@ -1,0 +1,51 @@
+name: Generate maintenance migration shell
+
+on:
+  push:
+    branches:
+      - migration/generate-maintenance-shell-20261117
+    paths:
+      - ".github/workflows/generate-maintenance-migration-shell.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: migration/generate-maintenance-shell-20261117
+          fetch-depth: 0
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Generate migration filename using Supabase CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p supabase/migrations
+          before="$(find supabase/migrations -maxdepth 1 -type f -print | sort)"
+          supabase migration new maintenance_system_initial
+          after="$(find supabase/migrations -maxdepth 1 -type f -print | sort)"
+          new_files="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))"
+          if [[ ! "$new_files" =~ ^supabase/migrations/[0-9]+_maintenance_system_initial\.sql$ ]]; then
+            echo "Unexpected generated migration file: $new_files" >&2
+            exit 1
+          fi
+          echo "Generated $new_files"
+          echo "MIGRATION_FILE=$new_files" >> "$GITHUB_ENV"
+
+      - name: Commit generated empty migration shell
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MIGRATION_FILE"
+          git commit -m "chore: generate maintenance migration shell with Supabase CLI"
+          git push origin HEAD:migration/generate-maintenance-shell-20261117
