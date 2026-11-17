@@ -28,6 +28,7 @@ on:
       - ".github/workflows/maintenance-edge-functions.yml"
   pull_request:
     paths:
+      - "app.js"
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
