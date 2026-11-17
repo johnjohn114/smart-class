@@ -50,6 +50,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check browser JavaScript syntax
+        run: node --check app.js
+
       - name: Set up Deno
         uses: denoland/setup-deno@v2
         with:
