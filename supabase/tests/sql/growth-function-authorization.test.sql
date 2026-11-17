@@ -282,7 +282,40 @@ BEGIN
 END
 $catalog_fixtures$;
 
+-- Simulate the live project's unsafe defaults before applying the fix:
+-- PUBLIC gets PostgreSQL's normal function EXECUTE default, and the public
+-- schema additionally grants anon/authenticated EXECUTE for postgres-owned
+-- functions. The migration must remove both sources for future functions.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
+
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
+
+-- A SECURITY DEFINER function created after the migration must not become a
+-- callable API endpoint through either PUBLIC or schema-specific defaults.
+CREATE FUNCTION public.ci_future_security_definer()
+RETURNS integer
+LANGUAGE sql
+SECURITY DEFINER
+AS $future$
+  SELECT 1
+$future$;
+
+DO $future_function_defaults$
+BEGIN
+  IF has_function_privilege('anon','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: future SECURITY DEFINER function is executable by anon';
+  END IF;
+  IF has_function_privilege('authenticated','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: future SECURITY DEFINER function is executable by authenticated';
+  END IF;
+  IF has_function_privilege('service_role','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: future function unexpectedly inherited service_role access';
+  END IF;
+END
+$future_function_defaults$;
 
 -- is_admin() is the one safe SECURITY DEFINER helper exposed to anon because
 -- several PUBLIC RLS policies call it; it must return false without a JWT.
