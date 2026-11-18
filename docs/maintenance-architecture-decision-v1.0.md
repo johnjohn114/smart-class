@@ -16,7 +16,8 @@ This decision selects the current six-table source design as the implementation 
 The decision is based on the current branch source files. The canonical SQL source is the development draft under `supabase/sql/`; no maintenance migration file is retained under `supabase/migrations/` until the production baseline and migration history have been reconciled:
 
 - `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`
-- `docs/maintenance-api-spec-v0.6.md`
+- `docs/maintenance-api-spec-v0.7.md` (latest API contract)
+- `docs/maintenance-api-spec-v0.6.md` (previous contract version)
 - `docs/maintenance-contract-sql-review-v0.1.md`
 - `docs/maintenance-prelaunch-review-v0.1.md`
 
