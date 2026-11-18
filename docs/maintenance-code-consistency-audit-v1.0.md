@@ -37,7 +37,7 @@ Earlier branch state contained `supabase/migrations/20261117121103_maintenance_s
 
 ### P1 — API specification metadata and implementation state are stale
 
-`docs/maintenance-api-spec-v0.6.md` still says:
+`docs/maintenance-api-spec-v0.6.md` (the previous contract version) and `docs/maintenance-api-spec-v0.7.md` (the latest contract version) were checked for implementation-state drift. The latest v0.7 has now been corrected. The original stale statements in v0.6 were also corrected. The earlier v0.6 statements included:
 - branch is `main` and the migration remains in PR #16;
 - The historical prelaunch review was conducted against `feature/maintenance-system`; it is not the current branch snapshot.
 - the six tables/RPCs exist only as an unverified draft and have not been created.
