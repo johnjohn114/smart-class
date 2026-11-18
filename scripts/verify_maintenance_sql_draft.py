@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static guardrails for the maintenance v1 release migration candidate.
+"""Static guardrails for the maintenance v1 development SQL draft.
 
 This is not a PostgreSQL parser and does not prove JWT/RLS behavior.
 Run from the repository root:
