@@ -37,7 +37,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 
 -- Apply the canonical development draft under test. This runs only in the ephemeral CI database.
-\\ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
+\ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
 DO $$
 BEGIN
