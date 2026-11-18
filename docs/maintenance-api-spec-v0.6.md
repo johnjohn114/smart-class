@@ -86,7 +86,7 @@
 
 ## 3.4 RPC 呼叫參數補充（開發契約）
 
-五個 Edge Functions 目前統一以單一 JSONB 參數呼叫對應 RPC：`p_request`。呼叫 body 為 `{ "p_request": <validated request object> }`。SQL signature 與回傳格式以 `docs/maintenance-rpc-sql-contract-v0.1.md` 為準；目前 RPC 尚未建立，此為呼叫端契約，尚未經 PostgREST 整合測試。
+五個 Edge Functions 目前統一以單一 JSONB 參數呼叫對應 RPC：`p_request`。呼叫 body 為 `{ "p_request": <validated request object> }`。SQL signature 與回傳格式以 `docs/maintenance-rpc-sql-contract-v0.1.md` 為準；目前開發分支已有對應 RPC 的 SQL 定義與 GoTrue/PostgREST 隔離整合測試，但這不代表正式 Supabase 已建立 RPC，也不代表正式環境已部署或通過 smoke test。
 
 ## 4. API 契約
 
