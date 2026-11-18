@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-SQL_PATH = Path("supabase/migrations/20261117121103_maintenance_system_initial.sql")
+SQL_PATH = Path("supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql")
 TABLES = (
     "maintenance_scopes", "maintenance_events", "maintenance_event_private_notes",
     "maintenance_event_scopes", "maintenance_audit_logs", "maintenance_idempotency",
