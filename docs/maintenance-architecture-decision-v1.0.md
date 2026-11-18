@@ -13,9 +13,8 @@ This decision selects the current six-table source design as the implementation 
 
 ## 2. Source basis
 
-The decision is based on the current branch source files:
+The decision is based on the current branch source files. The canonical SQL source is the development draft under `supabase/sql/`; no maintenance migration file is retained under `supabase/migrations/` until the production baseline and migration history have been reconciled:
 
-- `supabase/migrations/20261117121103_maintenance_system_initial.sql`
 - `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`
 - `docs/maintenance-api-spec-v0.6.md`
 - `docs/maintenance-contract-sql-review-v0.1.md`
@@ -138,7 +137,7 @@ This document does not authorize:
 - merging this branch into `main`
 - creating paid resources
 
-The production migration baseline/history issue must be independently resolved and approved before any production migration.
+The production migration baseline/history issue must be independently resolved and approved before a separately reviewed migration is created or applied.
 
 ## 8. Decision summary
 
