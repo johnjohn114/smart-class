@@ -3,7 +3,7 @@
 > 日期：2026-11-18
 > 規格版本：v0.6（本次僅校正實作狀態與分支資訊，不變更 API 契約）
 > 審核分支：`feature/v26.11.7-maintenance-next`
-> 狀態：本文件定義維護 API 契約；目前開發分支已包含五支 Edge Function 原始碼、六表 SQL 草案，以及位於 `supabase/migrations/20261117121103_maintenance_system_initial.sql` 的 Migration 候選檔。這些檔案存在於 GitHub 不代表已部署或已套用至正式 Supabase。正式 Migration、Edge Function 部署與功能啟用均未核准。
+> 狀態：本文件定義維護 API 契約；目前開發分支已包含五支 Edge Function 原始碼與六表 SQL 開發草案；SQL 草案僅保留於 `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`，不放在 Supabase CLI 的 migrations 目錄。開發草案存在於 GitHub 不代表已部署或已套用至正式 Supabase。正式 Migration、Edge Function 部署與功能啟用均未核准。
 > 本版承接 v0.5，更新長度限制、scope code 對照與未決上線條件。舊版保留作為歷史紀錄；若本版標示待決，不得自行猜測。
 
 ## 1. 目標與範圍
@@ -22,7 +22,7 @@
 - `maintenance_event_update`
 - `maintenance_event_action`
 
-目前開發分支 `feature/v26.11.7-maintenance-next` 已包含五支 Edge Function 原始碼、五個 RPC 的 SQL 定義與六張維護資料表的 SQL 定義。SQL 草案位於 `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`；另有一份內容近似的 Migration 候選檔 `supabase/migrations/20261117121103_maintenance_system_initial.sql`。Migration 候選檔位於 Supabase CLI migrations 目錄，未來 migration 命令可能會將它列為待套用項目；在 migration baseline、正式 migration history 與安全套用計畫完成審核前，不得對正式環境執行 `supabase db push`、migration repair 或其他套用操作。這些原始碼檔案存在於分支，不代表正式資料庫已建立相關物件，也不代表 API 已部署或可供使用。本文件只定義契約，不代表 API 已可用。資料表基準為 `private.maintenance_scopes`、`private.maintenance_events`、`private.maintenance_event_private_notes`、`private.maintenance_event_scopes`、`private.maintenance_audit_logs`、`private.maintenance_idempotency`；舊四表 `public.maintenance_state` 設計不屬於本版架構。
+目前開發分支 `feature/v26.11.7-maintenance-next` 已包含五支 Edge Function 原始碼、五個 RPC 的 SQL 定義與六張維護資料表的 SQL 定義。唯一保留的 SQL 開發草案位於 `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`；已將先前誤放於 `supabase/migrations/` 的候選檔移除，避免它被 Supabase CLI 誤認為待套用 Migration。未來正式 Migration 必須在 migration baseline、正式 migration history 與安全套用計畫完成審核後，另行建立並獨立核准。這些原始碼檔案存在於分支，不代表正式資料庫已建立相關物件，也不代表 API 已部署或可供使用。本文件只定義契約，不代表 API 已可用。資料表基準為 `private.maintenance_scopes`、`private.maintenance_events`、`private.maintenance_event_private_notes`、`private.maintenance_event_scopes`、`private.maintenance_audit_logs`、`private.maintenance_idempotency`；舊四表 `public.maintenance_state` 設計不屬於本版架構。
 
 ## 2. 已確認的產品規則
 
@@ -339,8 +339,8 @@ status API 第一版只回傳目前生效事件；未來預告事件不在本版
 
 目前狀態（須區分 repository 與 production）：
 - Repository：目前審核分支 `feature/v26.11.7-maintenance-next` 包含五支 Edge Function 原始碼、五個 RPC 定義與六張 private table 的 SQL 定義。
-- Migration 檔案：`supabase/migrations/20261117121103_maintenance_system_initial.sql` 已存在於開發分支的 migrations 目錄；它是 Migration 候選檔，不等於已套用至任何 Supabase 專案。
-- SQL 草案：`supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql` 保留為開發草案；它與 Migration 候選檔內容近似，但用途標示不同，兩者不可視為已完成正式核准。
+- SQL 草案：`supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql` 是目前唯一保留的維護 SQL 開發草案，位於 `supabase/sql/`，不會被 Supabase CLI 當作待套用 Migration。
+- Migration：目前沒有維護系統 SQL 檔案放在 `supabase/migrations/`；正式 Migration 必須等 baseline/history reconciliation 完成後另行建立與核准。
 - Production：依目前審核紀錄，尚未核准或執行正式 Migration，亦未核准部署 Edge Functions 或啟用維護功能；正式資料庫物件與 Dashboard Data API Exposed schemas 設定仍須在上線前獨立確認。
 - 測試：既有 CI/隔離測試只代表其明確標示的 commit 與測試環境；不得當作目前分支 HEAD 或正式環境已通過測試。完整 PostgreSQL 還原測試仍標示未驗證。
 - 本文件與本次審核均未修改正式 Supabase。
