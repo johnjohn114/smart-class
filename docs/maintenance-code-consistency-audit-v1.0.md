@@ -9,7 +9,7 @@
 
 **The core five-Edge-Function / five-RPC naming and seven-scope identifiers align. The architecture is directionally consistent with the v1.0 decision, but the repository is not yet release-ready.**
 
-The most important finding is operational: a full maintenance SQL file exists under `supabase/migrations/`. Supabase CLI treats SQL files in that directory as migration candidates. It is not merely a harmless draft file. Do not run `supabase db push` or any migration command against production until the migration-baseline and release gates are separately resolved and approved.
+The initial audit found a full maintenance SQL file under `supabase/migrations/`. That placement has since been corrected on this branch: the candidate was removed from the migrations directory, and the isolated test, static verifier, and CI now use the canonical draft under `supabase/sql/`. This resolves the repository placement hazard only; it does not approve a production migration.
 
 ## 2. Items confirmed aligned
 
@@ -27,19 +27,13 @@ The most important finding is operational: a full maintenance SQL file exists un
 
 ## 3. Findings requiring action
 
-### P0 — Migration file is present in the active migrations directory
+### P0 — Resolved on this branch: migration candidate removed from the active migrations directory
 
-Current branch contains:
+Earlier branch state contained `supabase/migrations/20261117121103_maintenance_system_initial.sql`, while the canonical draft was `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`. The two files were nearly identical, with differences in headers, preflight wording, and one table comment.
 
-`supabase/migrations/20261117121103_maintenance_system_initial.sql`
+**Resolution:** the migration-directory copy has been removed from this branch. The SQL integration harness now includes the canonical draft from `supabase/sql/`; the static verifier and GoTrue/PostgREST CI workflow also reference that draft. The workflow is configured to run on the current development branch. The draft remains clearly labelled development-only.
 
-It contains the full six-table schema and five RPC definitions. The SQL integration harness includes this exact file using `\\ir ../../migrations/20261117121103_maintenance_system_initial.sql`.
-
-The separate file `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql` is labelled “DEVELOPMENT DRAFT ONLY. DO NOT RUN AGAINST PRODUCTION” and says it is intentionally outside the migrations directory. The two SQL files are almost identical; the observed differences are their headers, the preflight error wording, and the maintenance_events table comment.
-
-**Risk:** documentation that says the SQL exists only as a draft under `supabase/sql/` is stale for this branch. More importantly, the migration-directory file is eligible to be applied by a future CLI migration operation. A warning in a review document does not prevent that.
-
-**Required decision:** before any production migration workflow, explicitly decide whether this file remains a migration candidate or is moved back to a non-migration draft location pending baseline approval. Do not execute it as part of this audit.
+**Remaining boundary:** this is a repository organization correction only. It does not create a production migration, reconcile migration history, or authorize `db push`/migration repair.
 
 ### P1 — API specification metadata and implementation state are stale
 
@@ -48,7 +42,7 @@ The separate file `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql` i
 - Edge Function source is on `feature/maintenance-system`;
 - the six tables/RPCs exist only as an unverified draft and have not been created.
 
-Those statements do not describe the current repository branch, which contains the five Edge Function sources and a full SQL file in `supabase/migrations/`. They may still describe production deployment state, but the document does not distinguish repository state from production state.
+Those statements were stale for the reviewed branch. The API specification has since been corrected to distinguish repository source from production deployment state and to identify the canonical SQL draft under `supabase/sql/`.
 
 **Required action:** update the document header and implementation-state paragraph to distinguish (a) current branch source, (b) migration file present in the repository, and (c) production state, which the reviewed evidence says remains un-deployed. Keep the production non-approval statement.
 
@@ -102,4 +96,4 @@ This audit did not execute CI, run local tests, call production Supabase, or ver
 
 No production database changes, migration repair/replay, Edge Function deployment, feature enablement, merge to `main`, or paid resource creation is authorized by this audit.
 
-**Conclusion: source naming and core architecture align; documentation drift and migration placement must be resolved before release review.**
+**Conclusion: source naming and core architecture align; migration-directory placement has been corrected on this branch. Production migration baseline, permissions, rate limiting, retention, and runtime checks remain release blockers.**
