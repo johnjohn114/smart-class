@@ -39,7 +39,7 @@ Earlier branch state contained `supabase/migrations/20261117121103_maintenance_s
 
 `docs/maintenance-api-spec-v0.6.md` still says:
 - branch is `main` and the migration remains in PR #16;
-- Edge Function source is on `feature/maintenance-system`;
+- The historical prelaunch review was conducted against `feature/maintenance-system`; it is not the current branch snapshot.
 - the six tables/RPCs exist only as an unverified draft and have not been created.
 
 Those statements were stale for the reviewed branch. The API specification has since been corrected to distinguish repository source from production deployment state and to identify the canonical SQL draft under `supabase/sql/`.
