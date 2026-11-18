@@ -39,12 +39,12 @@ Earlier branch state contained `supabase/migrations/20261117121103_maintenance_s
 
 `docs/maintenance-api-spec-v0.6.md` (the previous contract version) and `docs/maintenance-api-spec-v0.7.md` (the latest contract version) were checked for implementation-state drift. The latest v0.7 has now been corrected. The original stale statements in v0.6 were also corrected. The earlier v0.6 statements included:
 - branch is `main` and the migration remains in PR #16;
-- The historical prelaunch review was conducted against `feature/maintenance-system`; it is not the current branch snapshot.
+- Edge Function source was described as being on the historical branch `feature/maintenance-system`.
 - the six tables/RPCs exist only as an unverified draft and have not been created.
 
 Those statements were stale for the reviewed branch. The API specification has since been corrected to distinguish repository source from production deployment state and to identify the canonical SQL draft under `supabase/sql/`.
 
-**Required action:** update the document header and implementation-state paragraph to distinguish (a) current branch source, (b) migration file present in the repository, and (c) production state, which the reviewed evidence says remains un-deployed. Keep the production non-approval statement.
+**Resolution:** both v0.6 and the latest v0.7 now distinguish current branch source, canonical SQL draft location, and production deployment state. The stale branch and migration wording has been corrected; no API behavior or database objects were changed by those documentation edits.
 
 ### P1 — HTTP 429 is specified but no rate limiter is implemented
 
