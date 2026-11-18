@@ -1,8 +1,9 @@
 # Maintenance System API 規格 v0.7
 
-> 日期：2026-11-17
-> 分支：`migration/maintenance-v1-20261117`（待 CI 審查）
-> 狀態：整合規格 v0.7；五支 Edge Function 與六表 RPC 已通過隔離 CI；正式 Migration 待本分支完整 CI 與合併，尚未部署。  
+> 日期：2026-11-18
+> 規格版本：v0.7（本次僅校正分支與 SQL/Migration 狀態，不變更 API 契約）
+> 審核分支：`feature/v26.11.7-maintenance-next`
+> 狀態：整合規格 v0.7；五支 Edge Function 與六表 RPC 已有隔離 CI 測試證據，但該證據只適用於文件所列的測試 commit。正式 Migration、Edge Function 部署與功能啟用均未核准。
 > 本版承接 v0.6，定稿 v1 的錯誤碼與資料保留決策。舊版保留作為歷史紀錄。
 
 ## 1. 目標與範圍
@@ -85,7 +86,7 @@
 
 ## 3.4 RPC 呼叫參數補充（開發契約）
 
-五個 Edge Functions 目前統一以單一 JSONB 參數呼叫對應 RPC：`p_request`。呼叫 body 為 `{ "p_request": <validated request object> }`。SQL signature 與回傳格式以 `docs/maintenance-rpc-sql-contract-v0.1.md` 為準；目前 RPC 尚未建立，此為呼叫端契約，尚未經 PostgREST 整合測試。
+五個 Edge Functions 目前統一以單一 JSONB 參數呼叫對應 RPC：`p_request`。呼叫 body 為 `{ "p_request": <validated request object> }`。SQL signature 與回傳格式以 `docs/maintenance-rpc-sql-contract-v0.1.md` 為準；目前開發分支已有對應 RPC 的 SQL 定義與 GoTrue/PostgREST 隔離整合測試，但這不代表正式 Supabase 已建立 RPC，也不代表正式環境已部署或通過 smoke test。
 
 ## 4. API 契約
 
@@ -342,10 +343,11 @@ status API 第一版只回傳目前生效事件；未來預告事件不在本版
 
 ## 11. 實作前狀態與禁止事項
 
-目前：
-- 五支 Edge Functions：原始碼已提交，隔離 CI 已通過；正式環境尚未部署。
-- 五個 RPC、private schema 與六張資料表：已在隔離 PostgreSQL 17 / GoTrue / PostgREST 測試環境驗證；正式環境尚未建立。
-- Migration：由 Supabase CLI 產生正式檔名，待本次 migration PR 的完整 CI 與合併。
-- 正式 Supabase：未修改；正式 migration history 與 schema baseline 尚未核准。
+目前狀態（須區分 repository 與 production）：
+- Repository：目前審核分支 `feature/v26.11.7-maintenance-next` 包含五支 Edge Function 原始碼、五個 RPC 定義與六張 private table 的 SQL 定義。
+- SQL 草案：`supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql` 是目前唯一保留的維護 SQL 開發草案；已移除先前放在 `supabase/migrations/` 的候選副本，避免 Supabase CLI 將未核准的維護 SQL 列為待套用 Migration。
+- Migration：目前沒有維護系統 SQL 檔案放在 `supabase/migrations/`。正式 Migration 必須等 production baseline/history reconciliation 完成後，另行建立、審核與核准。
+- Production：依目前審核紀錄，正式 Migration 尚未核准或執行，Edge Functions 尚未核准部署，維護功能保持未啟用；正式資料庫物件與 Dashboard Data API Exposed schemas 設定仍須獨立確認。
+- 測試：隔離 CI 證據只適用於其明確標示的 commit 與測試環境，不代表目前分支 HEAD 或正式環境已通過測試。
 
-本規格與 Migration 合併不代表正式資料庫已部署。隔離 CI 已使用 GoTrue 簽發 JWT 與 PostgreSQL 17 / PostgREST 驗證核心授權與 RLS 行為；正式環境仍須完成 schema baseline、Data API Exposed schemas、CORS/env 與 smoke test。
+本規格與開發分支中的 SQL 草案存在，均不代表正式資料庫已部署。正式環境仍須完成 schema baseline、Data API Exposed schemas、CORS/env 與 smoke test。
