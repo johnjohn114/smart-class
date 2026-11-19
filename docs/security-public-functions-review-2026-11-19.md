@@ -180,3 +180,44 @@ The isolated tests currently verify several key growth and admin paths, but do n
 - The existing migration is still a branch-only draft; the successful CI run used disposable PostgreSQL databases and did not modify the live project.
 - The migration's blanket authenticated grant to non-trigger SECURITY DEFINER functions is a confirmed production blocker; replace it with a reviewed explicit allowlist and expand regression coverage.
 - No production change has been made.
+
+
+### 11. Expanded frontend RPC trace — 2026-11-19
+
+A second read-only source pass inspected the following files on `security/admin-function-permissions-20261119`: `admin.js`, `app.js`, `calendar.js`, `settings.js`, `maintenance-client.js`, `admin-app-releases.js`, `app-release-center.js`, and the main HTML pages for checkout, competitions, coupons, downloads, videos, member profile, home, news, products, and support.
+
+**Admin-page RPCs found in `admin.js`:**
+- `admin_activity_analytics()`
+- `admin_cancel_order(uuid)`
+- `admin_complete_order(uuid)`
+- `admin_delete_video(uuid)`
+- `admin_grant_competition_reward(uuid, text, text, text, integer, uuid)`
+- `admin_mark_competition_member_attendance(uuid, uuid, text, text)`
+- `admin_mark_order_paid(uuid)`
+- `admin_promote_competition_waitlist(uuid)`
+- `admin_reset_growth_member(uuid, text)`
+- `admin_settle_competition(uuid)`
+- `admin_upsert_video(jsonb)`
+- `admin_adjust_growth_points(uuid, integer, text)`
+
+The three order RPCs are invoked through a shared helper that constructs `/rest/v1/rpc/` plus a function name supplied by the caller; they were confirmed by tracing the helper and its three call sites, not by a literal endpoint scan.
+
+**Member-app RPCs found in `app.js`:**
+- `check_growth_achievements(uuid)`
+- `refresh_growth_level(uuid)`
+- `close_my_support_ticket(uuid)`
+- `use_growth_coupon(uuid)`
+- `checkin_competition(uuid, text)`
+- `join_competition_waitlist(uuid, text)`
+- `record_growth_activity()`
+- `complete_growth_task(text)`
+- `redeem_growth_reward(uuid)`
+- `increment_download_count(uuid)`
+
+The main member app calls `check_growth_achievements` and `refresh_growth_level` with the current signed-in user's `u.id`, which is compatible with a self-or-admin authorization rule.
+
+**Not found in the inspected frontend files:** `admin_apply_competition_rewards`, `admin_delete_growth_reward`, `admin_mark_competition_attendance`, and `admin_upsert_growth_reward`. Their absence from these files is not proof they are unused: they may be called by external clients, hidden/legacy pages, SQL routines, or other integration paths. Keep them out of any allowlist until their intended callers and authorization rules are confirmed.
+
+**Production ACL cross-check:** a read-only catalog query reconfirmed that all listed `admin_*` functions are `SECURITY DEFINER` and currently have EXECUTE entries for both `anon` and `authenticated`. This is a privilege exposure finding; whether a caller can complete an operation still depends on each function's body-level authorization checks. The catalog query also reconfirmed direct `anon` EXECUTE on `award_growth_points(uuid, integer, text, text, text, text, uuid)`, which remains a higher-priority helper exposure.
+
+**Decision for migration work:** the frontend trace is materially broader but is not a complete external-client inventory. Do not replace the blanket grant loop with an allowlist based only on these frontend matches. First inspect every candidate function body and signature, confirm all legitimate callers (including trigger/helper dependencies and any external client), then grant only the minimal API roles per reviewed signature. No production database change was made during this pass.
