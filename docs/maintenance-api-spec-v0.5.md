@@ -2,7 +2,7 @@
 
 > 日期：2026-11-08  
 > 分支：`feature/maintenance-system`  
-> 狀態：整合規格草案；五支 Edge Function 原始碼已提交，尚未完成測試或部署；RPC SQL 僅有未驗證草案，未核准正式 Migration。  
+> 狀態：整合規格草案；五支 Edge Function 已通過 GitHub Actions run 44522250340 的 Deno type-check、驗證測試，以及隔離 PostgreSQL／GoTrue／PostgREST 整合測試；尚未部署。RPC SQL 仍為草案，未核准正式 Migration。  
 > 本版整合 v0.1～v0.4、資料庫連線模型 v0.4 與權限/RPC 安全審查 v0.2。v0.4 保留作為歷史紀錄，實作以本版為準；若本版標示待決，不得自行猜測。
 
 ## 1. 目標與範圍
@@ -323,7 +323,7 @@ Request：
 ## 11. 實作前狀態與禁止事項
 
 目前：
-- 五個 Edge Functions：原始碼已提交至 `feature/maintenance-system`；尚未完成測試或部署。
+- 五個 Edge Functions：原始碼已提交至 `feature/maintenance-system`；Deno type-check、函式驗證測試及隔離資料庫/JWT/RLS 整合測試已通過；尚未部署。
 - 五個 RPC：未建立。
 - private schema/tables：未建立。
 - Migration：未執行。
