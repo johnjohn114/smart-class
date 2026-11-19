@@ -366,7 +366,7 @@ The migration now performs a fail-closed preflight: it checks that all 24 allowl
 
 **Migration compatibility:** the existing `202611160001_growth_function_authorization_hardening.sql` is retained and hardened for fresh environments. A new forward migration, `202611190001_growth_function_authorization_forward.sql`, repeats the reviewed definitions and ACL policy so environments that may already have recorded or manually applied the earlier migration have a new migration version to apply. The live Supabase migration inventory returned no tracked migrations and the usual `supabase_migrations.schema_migrations` table was not present; therefore the exact historical application path cannot be established from that inventory alone. The forward migration is a compatibility measure, not proof of deployment history.
 
-**Exact-head CI:** branch head `39381be2c19ad8251d72a42b17867a0d261697b5` was tested by GitHub Actions run `44534725451`. All three jobs passed:
+**Exact-head CI:** branch head `3d12750c784110410a16e580efa29756253f014b` was tested by GitHub Actions run `44535089939`. All three jobs passed:
 - Deno type check and tests.
 - Isolated PostgreSQL RPC/RLS tests, including all 24 allowlist ACL checks, unlisted-routine denial, trigger side effects, and PostgREST checks.
 - GoTrue-issued JWT and PostgREST integration.
