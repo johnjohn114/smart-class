@@ -163,6 +163,74 @@ CREATE TABLE public.user_activity_badges (
 
 GRANT SELECT ON public.profiles TO authenticated;
 
+-- Minimal stubs for the remaining production RPC signatures in the reviewed
+-- allowlist. Their bodies are irrelevant here; this fixture tests ACL behavior.
+CREATE FUNCTION public.admin_activity_analytics() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_adjust_growth_points(uuid,integer,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_cancel_order(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_complete_order(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_delete_video(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_mark_competition_member_attendance(uuid,uuid,text,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_mark_competition_attendance(uuid,text,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_mark_order_paid(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_promote_competition_waitlist(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_reset_growth_member(uuid,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_settle_competition(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.admin_upsert_video(jsonb) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.close_my_support_ticket(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.create_cash_order(uuid,integer,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.use_growth_coupon(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.checkin_competition(uuid,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.join_competition_waitlist(uuid,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.record_growth_activity() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+CREATE FUNCTION public.redeem_growth_reward(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+
+-- A SECURITY DEFINER routine outside the allowlist must remain unavailable.
+CREATE FUNCTION public.ci_unlisted_definer() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $ BEGIN RETURN; END $;
+
 INSERT INTO public.growth_levels(code,name,min_points,sort_order)
 VALUES ('newbie','新手',0,0),('sprout','萌芽',10,1);
 INSERT INTO public.profiles(id,role,growth_points,growth_level) VALUES
@@ -482,6 +550,56 @@ BEGIN
   END IF;
 END
 $all_anon_denied$;
+
+
+-- Verify every reviewed API allowlist signature is executable by authenticated
+-- and none is executable by anon. The production migration has a strict
+-- signature-presence guard, so this fixture supplies all allowlisted stubs.
+DO $all_allowlisted_acl$
+DECLARE sig text;
+BEGIN
+  FOREACH sig IN ARRAY ARRAY[
+    'public.admin_activity_analytics()',
+    'public.admin_adjust_growth_points(uuid,integer,text)',
+    'public.admin_cancel_order(uuid)',
+    'public.admin_complete_order(uuid)',
+    'public.admin_delete_video(uuid)',
+    'public.admin_delete_growth_reward(uuid)',
+    'public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid)',
+    'public.admin_mark_competition_member_attendance(uuid,uuid,text,text)',
+    'public.admin_mark_competition_attendance(uuid,text,text)',
+    'public.admin_mark_order_paid(uuid)',
+    'public.admin_promote_competition_waitlist(uuid)',
+    'public.admin_reset_growth_member(uuid,text)',
+    'public.admin_settle_competition(uuid)',
+    'public.admin_upsert_video(jsonb)',
+    'public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)',
+    'public.check_growth_achievements(uuid)',
+    'public.check_activity_badges(uuid)',
+    'public.refresh_growth_level(uuid)',
+    'public.close_my_support_ticket(uuid)',
+    'public.create_cash_order(uuid,integer,text)',
+    'public.use_growth_coupon(uuid)',
+    'public.checkin_competition(uuid,text)',
+    'public.join_competition_waitlist(uuid,text)',
+    'public.record_growth_activity()',
+    'public.complete_growth_task(text)',
+    'public.redeem_growth_reward(uuid)',
+    'public.increment_download_count(uuid)'
+  ] LOOP
+    IF NOT has_function_privilege('authenticated',sig,'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: authenticated lacks allowlisted EXECUTE on %', sig;
+    END IF;
+    IF has_function_privilege('anon',sig,'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: anon retains allowlisted EXECUTE on %', sig;
+    END IF;
+  END LOOP;
+  IF has_function_privilege('authenticated','public.ci_unlisted_definer()','EXECUTE')
+     OR has_function_privilege('anon','public.ci_unlisted_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: unlisted SECURITY DEFINER routine remains exposed';
+  END IF;
+END
+$all_allowlisted_acl$;
 
 \echo 'PASS: growth function authorization regression tests'
 
