@@ -159,7 +159,7 @@ The current spot check does not prove every external client or all inline script
 
 ### 10. Final migration review — blocker found
 
-A fresh live catalog query enumerated all 36 public `SECURITY DEFINER` functions (20 non-trigger routines and 6 trigger routines plus other public privileged functions; exact total from the query: 36). The migration's final dynamic ACL loop currently:
+A fresh live catalog query enumerated 36 public `SECURITY DEFINER` functions in total. A separate trigger inventory found 7 non-internal public triggers; 5 of their trigger functions are `SECURITY DEFINER` and 2 are `SECURITY INVOKER`. Do not infer trigger-function counts from the total routine count. The migration's final dynamic ACL loop currently:
 - revokes `PUBLIC` and `anon` from every non-trigger SECURITY DEFINER function;
 - grants `authenticated` to every non-trigger SECURITY DEFINER function except `award_growth_points` and `_refresh_growth_level_internal`;
 - separately grants `anon` on `is_admin()`;
@@ -280,3 +280,25 @@ Inspected production definitions (read-only) for the member-facing RPCs and grow
 - `refresh_growth_level` is called by `award_growth_points`; any helper refactor (e.g. private/internal implementation) must preserve that path and be tested.
   
 **Status:** This review is based on function definitions, not production JWT exploit tests. Existing feature-branch migration changes were not yet applied to production. No production function, privilege, or data change was made during this pass.
+
+### 14. Trigger and internal dependency review — 2026-11-19
+
+A fresh read-only production catalog check found **7 non-internal triggers** on public tables. Their trigger functions are:
+
+- `check_competition_registration_rules()` — `SECURITY DEFINER`, attached to `competition_registrations`; validates event existence, deadline, capacity, and registration status.
+- `growth_registration_reward()` — `SECURITY DEFINER`, attached to `competition_registrations`; calls `award_growth_points(...)`.
+- `growth_result_reward()` — `SECURITY DEFINER`, attached to `competition_results`; calls `award_growth_points(...)` when the related competition is published.
+- `assign_member_no_and_nickname()` — `SECURITY DEFINER`, attached to `profiles`; assigns visitor member number / nickname and updates the member number counter.
+- `ensure_visitor_profile()` — `SECURITY DEFINER`, attached to `visitor_accounts`; creates or normalizes the visitor profile.
+- `set_competition_publish_time()` — `SECURITY INVOKER`, attached to `competitions`.
+- `protect_profile_fields()` — `SECURITY INVOKER`, attached to `profiles`.
+
+The catalog contains **36 public SECURITY DEFINER functions total**, of which **5 are trigger-returning functions**. This corrects the earlier inconsistent parenthetical count in section 10.
+
+**Permission implications:**
+- The migration's trigger branch revokes direct API-role EXECUTE from trigger-returning SECURITY DEFINER functions. Trigger invocation is governed by the trigger mechanism; the trigger's continued operation must be regression-tested after those direct grants are removed.
+- Both growth reward triggers depend on `award_growth_points`. Its direct API EXECUTE should remain revoked, while the trigger functions' owner-executed call path must remain functional.
+- `admin_settle_competition()` calls `admin_apply_competition_rewards()` internally, and `admin_apply_competition_rewards()` calls `check_activity_badges()` for attendees. These internal calls do not by themselves justify exposing either helper as a direct API RPC.
+- `_refresh_growth_level_internal()` is called by trusted growth functions and should remain unavailable to API roles.
+
+**Current boundary:** This was a read-only production catalog and function-definition inspection. No production grants, triggers, function definitions, or data were changed. The final API allowlist is still not ready: the remaining non-trigger SECURITY DEFINER functions need a per-signature classification and their legitimate external callers must be confirmed before replacing the blanket authenticated grant loop.
