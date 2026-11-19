@@ -302,3 +302,25 @@ The catalog contains **36 public SECURITY DEFINER functions total**, of which **
 - `_refresh_growth_level_internal()` is called by trusted growth functions and should remain unavailable to API roles.
 
 **Current boundary:** This was a read-only production catalog and function-definition inspection. No production grants, triggers, function definitions, or data were changed. The final API allowlist is still not ready: the remaining non-trigger SECURITY DEFINER functions need a per-signature classification and their legitimate external callers must be confirmed before replacing the blanket authenticated grant loop.
+
+
+### 15. Explicit EXECUTE allowlist draft — 2026-11-19
+
+The feature-branch migration has now been updated to replace the blanket grant of every non-trigger SECURITY DEFINER routine to `authenticated` with a signature-based allowlist. The migration revokes EXECUTE from `PUBLIC`, `anon`, and `authenticated` for every public SECURITY DEFINER routine, then re-grants only reviewed API endpoints and the two RLS identity helpers described below. Existing explicit `service_role` grants on non-trigger routines are preserved; trigger-returning SECURITY DEFINER functions are also revoked from `service_role`.
+
+**Reviewed authenticated API endpoints in the draft allowlist:**
+- Admin endpoints with body-level admin checks: `admin_activity_analytics()`, `admin_adjust_growth_points(uuid,integer,text)`, `admin_cancel_order(uuid)`, `admin_complete_order(uuid)`, `admin_delete_growth_reward(uuid)`, `admin_delete_video(uuid)`, `admin_grant_competition_reward(uuid,text,text,text,integer,uuid)`, `admin_mark_competition_attendance(uuid,text,text)`, `admin_mark_competition_member_attendance(uuid,uuid,text,text)`, `admin_mark_order_paid(uuid)`, `admin_promote_competition_waitlist(uuid)`, `admin_reset_growth_member(uuid,text)`, `admin_settle_competition(uuid)`, `admin_upsert_growth_reward(...)`, and `admin_upsert_video(jsonb)`.
+- Member endpoints with login / ownership guards: `check_growth_achievements(uuid)`, `check_activity_badges(uuid)`, `refresh_growth_level(uuid)`, `close_my_support_ticket(uuid)`, `create_cash_order(uuid,integer,text)`, `use_growth_coupon(uuid)`, `checkin_competition(uuid,text)`, `join_competition_waitlist(uuid,text)`, `record_growth_activity()`, `complete_growth_task(text)`, `redeem_growth_reward(uuid)`, and `increment_download_count(uuid)`.
+- RLS identity helpers: `is_admin()` is granted to `anon` and `authenticated` because public RLS policies invoke it; its implementation returns false when `auth.uid()` is NULL. `is_admin_user()` is granted to `authenticated` because the videos RLS policy invokes it.
+
+**Intentionally not granted directly to API roles:**
+- `admin_apply_competition_rewards(uuid)`: internal dependency of `admin_settle_competition(uuid)`.
+- `award_growth_points(...)`: internal points mutation helper used by trusted wrappers and triggers.
+- `_refresh_growth_level_internal(uuid)`: migration-created internal level helper.
+- Trigger-returning SECURITY DEFINER functions: invoked by database triggers, not as direct RPCs.
+
+The explicit allowlist includes the two previously unguarded reward admin endpoints only after the migration fixes their NULL-sensitive role checks. It also includes `admin_mark_competition_attendance`, whose body has an admin guard, although no direct frontend call was found in the inspected source set; this preserves the reviewed admin RPC surface while keeping it unavailable to anonymous callers.
+
+**Regression coverage added:** the SQL test now checks that member-facing growth endpoints remain executable by authenticated users, that the internal points and competition-reward helpers are not directly executable by authenticated users, and that RLS identity helper grants remain intact. The disposable test fixture does not define every production routine, so assertions for optional production-only helpers are guarded by `to_regprocedure(...)`.
+
+**Still required before merge or production:** run the full CI suite against this exact branch head; inspect the test result and resolve any failures; complete a final signature-vs-allowlist diff against the live catalog; and review whether the public download counter's authenticated-only exposure is acceptable for metrics integrity. This draft is not approved for production deployment. No production database changes have been made.
