@@ -433,7 +433,6 @@ RESET ROLE;
 
 -- Admin may manage rewards and refresh another member's level.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
-SET ROLE authenticated;
 DO $admin_allowed$
 DECLARE
   result jsonb;
@@ -455,11 +454,9 @@ BEGIN
   IF level_code <> 'newbie' THEN RAISE EXCEPTION 'FAIL: admin could not refresh another member level'; END IF;
 END
 $admin_allowed$;
-RESET ROLE;
 
 -- An authenticated SQL role without a user JWT must never pass admin guards.
 SELECT set_config('request.jwt.claim.sub','',false);
-SET ROLE authenticated;
 DO $missing_identity_denied$
 DECLARE denied boolean := false;
 BEGIN
@@ -482,11 +479,9 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: admin upsert accepted a missing auth.uid()'; END IF;
 END
 $missing_identity_denied$;
-RESET ROLE;
 
 -- A normal authenticated member cannot use admin reward RPCs.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
-SET ROLE authenticated;
 DO $member_admin_denied$
 DECLARE denied boolean := false;
 BEGIN
@@ -498,7 +493,6 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: non-admin member executed admin delete'; END IF;
 END
 $member_admin_denied$;
-RESET ROLE;
 
 
 -- Revoking API-role EXECUTE does not disable an already-created trigger.
@@ -528,8 +522,6 @@ BEGIN
   FOREACH sig IN ARRAY ARRAY[
     'public.award_growth_points(uuid,integer,text,text,text,text,uuid)',
     'public.increment_download_count(uuid)',
-    'public.admin_delete_growth_reward(uuid)',
-    'public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)',
     'public._refresh_growth_level_internal(uuid)',
     'public.refresh_growth_level(uuid)',
     'public.check_growth_achievements(uuid)',
@@ -567,7 +559,6 @@ BEGIN
     'public.admin_delete_growth_reward(uuid)',
     'public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid)',
     'public.admin_mark_competition_member_attendance(uuid,uuid,text,text)',
-    'public.admin_mark_competition_attendance(uuid,text,text)',
     'public.admin_mark_order_paid(uuid)',
     'public.admin_promote_competition_waitlist(uuid)',
     'public.admin_reset_growth_member(uuid,text)',
@@ -603,6 +594,25 @@ $all_allowlisted_acl$;
 
 \echo 'PASS: growth function authorization regression tests'
 
+
+-- Legacy admin endpoints without confirmed frontend call sites remain private.
+DO $unconfirmed_admin_acl$
+BEGIN
+  IF has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public.admin_delete_growth_reward(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE')
+     OR has_function_privilege('anon','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE')
+     OR has_function_privilege('authenticated','public.admin_mark_competition_attendance(uuid,text,text)','EXECUTE')
+     OR has_function_privilege('anon','public.admin_mark_competition_attendance(uuid,text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: unconfirmed legacy admin RPC remains directly exposed';
+  END IF;
+  IF to_regprocedure('public.admin_apply_competition_rewards(uuid)') IS NOT NULL
+     AND (has_function_privilege('authenticated','public.admin_apply_competition_rewards(uuid)','EXECUTE')
+       OR has_function_privilege('anon','public.admin_apply_competition_rewards(uuid)','EXECUTE')) THEN
+    RAISE EXCEPTION 'FAIL: internal competition reward helper remains directly exposed';
+  END IF;
+END
+$unconfirmed_admin_acl$;
 
 -- Explicit allowlist regression checks: reviewed member RPCs remain available,
 -- while privileged helper/admin-internal endpoints are not directly exposed.
