@@ -324,3 +324,14 @@ The explicit allowlist includes the two previously unguarded reward admin endpoi
 **Regression coverage added:** the SQL test now checks that member-facing growth endpoints remain executable by authenticated users, that the internal points and competition-reward helpers are not directly executable by authenticated users, and that RLS identity helper grants remain intact. The disposable test fixture does not define every production routine, so assertions for optional production-only helpers are guarded by `to_regprocedure(...)`.
 
 **Still required before merge or production:** run the full CI suite against this exact branch head; inspect the test result and resolve any failures; complete a final signature-vs-allowlist diff against the live catalog; and review whether the public download counter's authenticated-only exposure is acceptable for metrics integrity. This draft is not approved for production deployment. No production database changes have been made.
+
+### 16. Exact-branch CI and production signature reconciliation — 2026-11-19
+
+The updated branch head `5c21435bc81a7cec4970ac4f985e32589896c174` was exercised by GitHub Actions run `44531585665`. All three jobs completed successfully:
+- Deno type check and tests — success.
+- Isolated PostgreSQL RPC and RLS tests — success, including the growth-function authorization regression test, trigger side-effect test, and PostgREST JWT/RPC/RLS/concurrency checks.
+- GoTrue-issued JWT and PostgREST integration — success.
+
+A fresh read-only production catalog reconciliation compared all 36 current public SECURITY DEFINER routines with the explicit migration classification. The only routines omitted from direct API grants are the five SECURITY DEFINER trigger-returning functions (which are separately revoked from API roles), plus the explicitly classified internal routines `admin_apply_competition_rewards(uuid)` and `award_growth_points(...)`. `_refresh_growth_level_internal(uuid)` is created by the migration and is explicitly revoked from all API roles and `service_role`. The two identity helpers retain only the roles needed by RLS; the reviewed admin/member endpoints are listed in section 15.
+
+**Status:** CI is green on the current branch head and the production signature inventory has been reconciled. This does not authorize deployment. The pull request remains unmerged; no production Supabase SQL, grants, or function definitions have been changed. A final human review should still inspect the PR diff before merge and separately approve any production migration.
