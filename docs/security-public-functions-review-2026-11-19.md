@@ -125,10 +125,41 @@ A read-only scan of `admin.js` on the security review branch found direct RPC ca
 
 No direct string match was found for the remaining admin function names in `admin.js`. This is only a spot check of that one file, not proof that there are no call sites elsewhere in the repository or external clients.
 
+
+### 7. Cross-account authorization checks in growth functions
+
+The live definitions show three additional functions that accept a target member ID but do not adequately enforce ownership in the current production version:
+
+- `check_growth_achievements(uuid)`: the live definition accepts any supplied member ID and can insert achievement unlocks and award points for that member.
+- `refresh_growth_level(uuid)`: the live definition accepts any supplied member ID and updates that member's `profiles.growth_level`.
+- `check_activity_badges(uuid)`: the live ownership condition uses a nullable comparison (`p_user_id <> auth.uid()`). For an anonymous caller, the comparison can evaluate to UNKNOWN and the PL/pgSQL IF may fail to reject the request. The live ACL also allows anon execution.
+
+These are cross-account authorization risks in the live schema. The existing feature-branch migration contains fixes:
+- explicitly rejects missing `auth.uid()`;
+- compares target IDs using `IS DISTINCT FROM`;
+- permits cross-account operations only when the caller is an admin;
+- keeps the internal level recalculation in a separate `_refresh_growth_level_internal(uuid)` helper whose direct API-role EXECUTE is revoked.
+
+The isolated SQL regression test checks that ordinary authenticated users cannot target another member, admins can perform permitted cross-member operations, and anonymous callers cannot execute these helpers.
+
+### 8. Frontend call-site compatibility spot check
+
+The repository's `app.js` calls `check_growth_achievements` and `refresh_growth_level` with the current signed-in user's own `u.id`. This matches the stricter self-or-admin contract in the migration. A scan of `admin.js` separately found the admin RPC call sites listed above.
+
+The current spot check does not prove every external client or all inline scripts have been searched; it is sufficient to show the main app call pattern for these two growth functions is self-targeted.
+
+### 9. Other public SECURITY DEFINER functions reviewed
+
+- Trigger-returning functions are not intended as RPC endpoints; the migration revokes direct API-role EXECUTE while retaining trigger execution.
+- `close_my_support_ticket`, `complete_growth_task`, `create_cash_order`, `join_competition_waitlist`, `record_growth_activity`, `redeem_growth_reward`, and `use_growth_coupon` include login/ownership checks in their inspected definitions.
+- `is_admin_user()` returns only whether the current `auth.uid()` has the admin role; an anonymous caller gets false, so this is not an admin-identity bypass.
+- `increment_download_count(uuid)` updates the counter for a published file without tying the target ID to a user. The feature migration restricts this RPC to authenticated users; consider rate limiting or a trusted server-side counter if download metrics must resist manipulation.
+- `check_growth_achievements`, `check_activity_badges`, and `refresh_growth_level` must retain their new self-or-admin checks when future edits are made.
+
 ## Important caveats
 
 - `anon_can_execute = true` indicates a database privilege, not proof of successful business operation.
-- The definition review in this pass covers all 16 admin functions at a high level, but does not replace full testing with real JWT roles or exhaustive application call-site tracing.
+- The read-only review covers all 16 admin functions and the other public SECURITY DEFINER routines at a high level. It does not replace exhaustive call-site tracing for external clients or production JWT testing.
 - The existing migration is still a branch-only draft; the successful CI run used disposable PostgreSQL databases and did not modify the live project.
 - The migration's blanket authenticated grant to non-trigger SECURITY DEFINER functions still requires a complete function-body authorization review before production use.
 - No production change has been made.
