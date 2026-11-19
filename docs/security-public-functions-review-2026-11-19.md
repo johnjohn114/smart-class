@@ -349,3 +349,28 @@ A final read-only reconciliation was performed against the production catalog an
 **Residual review item:** `increment_download_count(uuid)` remains an authenticated RPC and can be called repeatedly for a published file identifier. Its function authorization prevents anonymous use after migration, but it does not itself enforce per-user rate limits or prove a real download. If download counts are relied on as trusted analytics, add server-side throttling / event validation in a separate change.
 
 **Final review disposition:** The PR is technically consistent with the inspected production function inventory and required RLS helper grants, and the isolated CI suite is green. It is suitable for human review, but this is not a deployment approval. No production SQL was applied; PR #25 remains unmerged and the website remains undeployed.
+
+
+### 18. Updated allowlist, forward migration, and exact-head CI — 2026-11-19
+
+This section supersedes the earlier allowlist counts and dispositions in sections 15–17.
+
+**API/RLS grants are now limited to:**
+- 12 admin RPC signatures with confirmed call sites in the inspected frontend: `admin_activity_analytics`, `admin_adjust_growth_points`, `admin_cancel_order`, `admin_complete_order`, `admin_delete_video`, `admin_grant_competition_reward`, `admin_mark_competition_member_attendance`, `admin_mark_order_paid`, `admin_promote_competition_waitlist`, `admin_reset_growth_member`, `admin_settle_competition`, and `admin_upsert_video`.
+- 12 member RPC signatures with login/ownership checks: `check_growth_achievements`, `check_activity_badges`, `refresh_growth_level`, `close_my_support_ticket`, `create_cash_order`, `use_growth_coupon`, `checkin_competition`, `join_competition_waitlist`, `record_growth_activity`, `complete_growth_task`, `redeem_growth_reward`, and `increment_download_count`.
+- RLS identity helpers remain separately granted: `is_admin()` to `anon` and `authenticated`, and `is_admin_user()` to `authenticated`.
+
+**Three legacy admin RPCs are deliberately excluded from direct `anon` / `authenticated` EXECUTE grants** because no direct call site was confirmed in the inspected frontend set: `admin_delete_growth_reward(uuid)`, `admin_upsert_growth_reward(...)`, and `admin_mark_competition_attendance(uuid,text,text)`. The two reward functions retain the NULL-safe admin guard fixes in their definitions, but are not exposed as member/admin API RPCs until a legitimate caller is confirmed. `admin_apply_competition_rewards(uuid)` remains an internal dependency of `admin_settle_competition(uuid)`, not a direct API endpoint.
+
+The migration now performs a fail-closed preflight: it checks that all 24 allowlisted RPC signatures exist and reports the exact missing signatures before changing any grants. The disposable SQL fixture defines the full allowlist signature set, verifies all 24 authenticated grants and anon denials, and verifies that an unlisted SECURITY DEFINER routine and the three unconfirmed legacy admin endpoints remain unavailable to both API roles.
+
+**Migration compatibility:** the existing `202611160001_growth_function_authorization_hardening.sql` is retained and hardened for fresh environments. A new forward migration, `202611190001_growth_function_authorization_forward.sql`, repeats the reviewed definitions and ACL policy so environments that may already have recorded or manually applied the earlier migration have a new migration version to apply. The live Supabase migration inventory returned no tracked migrations and the usual `supabase_migrations.schema_migrations` table was not present; therefore the exact historical application path cannot be established from that inventory alone. The forward migration is a compatibility measure, not proof of deployment history.
+
+**Exact-head CI:** branch head `39381be2c19ad8251d72a42b17867a0d261697b5` was tested by GitHub Actions run `44534725451`. All three jobs passed:
+- Deno type check and tests.
+- Isolated PostgreSQL RPC/RLS tests, including all 24 allowlist ACL checks, unlisted-routine denial, trigger side effects, and PostgREST checks.
+- GoTrue-issued JWT and PostgREST integration.
+
+A fresh read-only production catalog query confirmed that all 24 allowlisted RPC signatures exist. It also reconfirmed the two live NULL-sensitive reward-function definitions are still present in production, which is why the reviewed migration remains necessary. No production SQL, grants, function definitions, or deployment actions were performed.
+
+**Disposition:** the updated PR is suitable for human review of the final diff. It is not an authorization to merge or deploy. The PR remains unmerged and production remains unchanged. The authenticated download counter remains a residual metrics-integrity risk because it is not rate-limited or tied to proof of a real download.
