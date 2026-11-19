@@ -249,3 +249,34 @@ Both load `caller_role` from `profiles` and then test `caller_role <> 'admin'`. 
 - No direct frontend call found for `admin_mark_competition_attendance`, `admin_delete_growth_reward`, or `admin_upsert_growth_reward`; first verify whether a hidden/legacy admin page or external client requires them. The two growth reward functions have the confirmed NULL-sensitive guard defect.
   
 **Caveat:** this pass confirms the presence of guards in function bodies; it does not exercise them with production JWTs or prove the behavior of every helper under all role contexts. A separate review of the non-admin SECURITY DEFINER RPCs and internal helper dependencies is still required before editing the blanket grant loop. No production privileges or function definitions were changed.
+
+
+### 13. Member-facing RPC and growth-helper body review — 2026-11-19
+
+Inspected production definitions (read-only) for the member-facing RPCs and growth helpers listed below.
+
+**Confirmed cross-account authorization defects / high-risk helper exposure:**
+- `check_growth_achievements(uuid)`: accepts an arbitrary `p_user_id`, reads and writes that user's achievement state, sends notifications, and can award points. The function body has no check that the target is `auth.uid()` or that the caller is an admin.
+- `refresh_growth_level(uuid)`: accepts an arbitrary `p_user_id` and updates that profile's growth level; no caller identity or admin check exists in the function body.
+- `check_activity_badges(uuid)`: checks `p_user_id <> auth.uid()`. With an anonymous caller, `auth.uid()` is NULL and the comparison is UNKNOWN, so the rejection branch can be skipped. It also mutates badge rows for the selected user. Must explicitly reject missing identity and use NULL-safe comparison (e.g. `IS DISTINCT FROM`) with admin override.
+- `award_growth_points(uuid,integer,text,text,text,text,uuid)`: SECURITY DEFINER helper accepts arbitrary target user and amount, updates balances and inserts transactions, with no authorization check in its own body. It is used internally by `admin_adjust_growth_points`, `check_growth_achievements`, `complete_growth_task`, and `redeem_growth_reward`; trusted trigger paths also exist. Direct API EXECUTE should be revoked from `PUBLIC`, `anon`, and `authenticated`, while preserving owner/internal/trigger invocation. Ensure caller-facing wrappers are independently authorized and test the internal paths.
+  
+**Other inspected member-facing RPC bodies contain identity/ownership checks:**
+- `close_my_support_ticket(uuid)`: updates only a ticket whose `user_id=auth.uid()`.
+- `use_growth_coupon(uuid)`: rejects missing login and checks coupon ownership before marking it used.
+- `checkin_competition(uuid,text)`: requires login and finds registration/attendance for `auth.uid()`; checks published event, enabled/time window and code.
+- `join_competition_waitlist(uuid,text)`: requires login and writes waitlist row for `auth.uid()`.
+- `record_growth_activity()`: requires login and records activity only for `auth.uid()`; calls `check_growth_achievements(uid)` internally.
+- `complete_growth_task(text)`: requires login and performs task/point changes for `auth.uid()`.
+- `redeem_growth_reward(uuid)`: requires login and operates on the current user's profile, points, coupon and redemption.
+- `is_admin()` and `is_admin_user()`: return whether the current `auth.uid()` is an admin; these are identity predicates, not standalone admin-action endpoints.
+
+**Integrity / abuse-control observation:**
+- `increment_download_count(uuid)` increments the counter for any published file ID and has no login, ownership, or rate-limit check. This does not expose private file contents in the inspected function body, but it permits download metrics manipulation if directly callable. Consider whether this should be an authenticated-only endpoint, rate-limited server-side, or treated as non-security-sensitive analytics.
+
+**Dependency implications:**
+- `check_growth_achievements` is called internally by `record_growth_activity` and `check_activity_badges` is called internally by `admin_apply_competition_rewards`. Direct API restrictions must preserve these trusted SECURITY DEFINER call paths.
+- `award_growth_points` is a shared mutation helper and must not be granted to API roles merely because authenticated wrapper RPCs call it.
+- `refresh_growth_level` is called by `award_growth_points`; any helper refactor (e.g. private/internal implementation) must preserve that path and be tested.
+  
+**Status:** This review is based on function definitions, not production JWT exploit tests. Existing feature-branch migration changes were not yet applied to production. No production function, privilege, or data change was made during this pass.
