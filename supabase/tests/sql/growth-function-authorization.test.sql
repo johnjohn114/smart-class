@@ -484,3 +484,35 @@ END
 $all_anon_denied$;
 
 \echo 'PASS: growth function authorization regression tests'
+
+
+-- Explicit allowlist regression checks: reviewed member RPCs remain available,
+-- while privileged helper/admin-internal endpoints are not directly exposed.
+DO $explicit_allowlist$
+BEGIN
+  IF NOT has_function_privilege('authenticated','public.check_growth_achievements(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated lost the self-scoped achievement RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated lost the self-scoped level RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.check_activity_badges(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated lost the self-scoped activity badge RPC';
+  END IF;
+  IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can execute the internal points mutation helper';
+  END IF;
+  IF has_function_privilege('authenticated','public.admin_apply_competition_rewards(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can execute the internal competition reward helper';
+  END IF;
+  IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can execute the internal growth level helper';
+  END IF;
+  IF has_function_privilege('anon','public.is_admin()','EXECUTE') IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FAIL: anon cannot evaluate public RLS policies using is_admin()';
+  END IF;
+  IF has_function_privilege('authenticated','public.is_admin_user()','EXECUTE') IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FAIL: authenticated cannot evaluate videos RLS policy using is_admin_user()';
+  END IF;
+END
+$explicit_allowlist$;
