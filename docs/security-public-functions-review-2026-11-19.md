@@ -221,3 +221,31 @@ The main member app calls `check_growth_achievements` and `refresh_growth_level`
 **Production ACL cross-check:** a read-only catalog query reconfirmed that all listed `admin_*` functions are `SECURITY DEFINER` and currently have EXECUTE entries for both `anon` and `authenticated`. This is a privilege exposure finding; whether a caller can complete an operation still depends on each function's body-level authorization checks. The catalog query also reconfirmed direct `anon` EXECUTE on `award_growth_points(uuid, integer, text, text, text, text, uuid)`, which remains a higher-priority helper exposure.
 
 **Decision for migration work:** the frontend trace is materially broader but is not a complete external-client inventory. Do not replace the blanket grant loop with an allowlist based only on these frontend matches. First inspect every candidate function body and signature, confirm all legitimate callers (including trigger/helper dependencies and any external client), then grant only the minimal API roles per reviewed signature. No production database change was made during this pass.
+
+
+### 12. Administrative function-body review — read-only production inspection
+
+Inspected the current production definitions of all 16 `public.admin_*` SECURITY DEFINER functions using `pg_get_functiondef`. No SQL was executed that changes data, definitions, or privileges.
+
+**Admin authorization guard present in the inspected body:**
+- Direct `profiles.id = auth.uid() AND role = 'admin'` check: `admin_activity_analytics`, `admin_apply_competition_rewards`, `admin_cancel_order`, `admin_complete_order`, `admin_grant_competition_reward`, `admin_mark_competition_attendance`, `admin_mark_competition_member_attendance`, `admin_mark_order_paid`, `admin_promote_competition_waitlist`, `admin_settle_competition`.
+- Delegates to `public.is_admin()`: `admin_adjust_growth_points`, `admin_reset_growth_member`.
+- Delegates to `public.is_admin_user()`: `admin_delete_video`, `admin_upsert_video`.
+
+**Two confirmed NULL-sensitive defects remain in live production definitions:**
+- `admin_delete_growth_reward(uuid)`
+- `admin_upsert_growth_reward(...)`
+
+Both load `caller_role` from `profiles` and then test `caller_role <> 'admin'`. A missing profile / NULL role makes the condition UNKNOWN, which does not enter the PL/pgSQL rejection branch. The migration's `IS DISTINCT FROM 'admin'` fix is necessary. The same two functions should not receive broad authenticated EXECUTE as a substitute for fixing their body checks.
+
+**Important helper dependency:**
+- `admin_settle_competition(uuid)` calls `admin_apply_competition_rewards(uuid)` internally.
+- `admin_apply_competition_rewards(uuid)` is not found as a direct frontend RPC call in the inspected source set, but it is a legitimate internal dependency of settlement. This is concrete evidence that a frontend-only allowlist would be incomplete. It should be denied direct API-role EXECUTE unless a separate supported caller is confirmed; its internal call path must remain regression-tested.
+- `admin_apply_competition_rewards` also calls `check_activity_badges(uuid)` for each attendee. Any direct EXECUTE restriction on that helper must preserve the trusted SECURITY DEFINER call path.
+
+**Preliminary permission classification (not yet an applied allowlist):**
+- Admin-facing API candidates with frontend call sites and body-level admin checks: `admin_activity_analytics`, `admin_adjust_growth_points`, `admin_cancel_order`, `admin_complete_order`, `admin_delete_video`, `admin_grant_competition_reward`, `admin_mark_competition_member_attendance`, `admin_mark_order_paid`, `admin_promote_competition_waitlist`, `admin_reset_growth_member`, `admin_settle_competition`, `admin_upsert_video`. These should be granted to `authenticated` only after the migration explicitly revokes `PUBLIC` and `anon`, and the NULL-sensitive reward admin functions are fixed.
+- Internal dependency candidate: `admin_apply_competition_rewards`; no direct frontend call found, but used by `admin_settle_competition`. Do not expose directly to API roles without a separately confirmed need.
+- No direct frontend call found for `admin_mark_competition_attendance`, `admin_delete_growth_reward`, or `admin_upsert_growth_reward`; first verify whether a hidden/legacy admin page or external client requires them. The two growth reward functions have the confirmed NULL-sensitive guard defect.
+  
+**Caveat:** this pass confirms the presence of guards in function bodies; it does not exercise them with production JWTs or prove the behavior of every helper under all role contexts. A separate review of the non-admin SECURITY DEFINER RPCs and internal helper dependencies is still required before editing the blanket grant loop. No production privileges or function definitions were changed.
