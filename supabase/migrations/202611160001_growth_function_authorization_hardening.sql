@@ -395,6 +395,17 @@ DECLARE
     to_regprocedure('public.increment_download_count(uuid)')::oid
   ];
 BEGIN
+
+  -- Fail closed if any reviewed RPC signature is absent. Without this guard,
+  -- to_regprocedure() could add NULL to the allowlist and silently skip a grant.
+  IF EXISTS (
+    SELECT 1
+    FROM unnest(allowed_api_oids) AS expected(oid)
+    WHERE expected.oid IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Growth authorization migration: one or more allowlisted RPC signatures are missing';
+  END IF;
+
   FOR r IN
     SELECT p.oid, p.oid::regprocedure AS signature,
            p.proname, p.prorettype = 'trigger'::regtype AS is_trigger
