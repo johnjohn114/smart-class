@@ -390,7 +390,10 @@ DECLARE
     to_regprocedure('public.record_growth_activity()')::oid,
     to_regprocedure('public.complete_growth_task(text)')::oid,
     to_regprocedure('public.redeem_growth_reward(uuid)')::oid,
-    to_regprocedure('public.increment_download_coun  -- Fail closed if any reviewed RPC signature is absent. Report exact omissions.
+    to_regprocedure('public.increment_download_count(uuid)')::oid
+  ];
+BEGIN
+  -- Fail closed if any reviewed RPC signature is absent. Report exact omissions.
   SELECT string_agg(expected.signature, ', ')
     INTO missing_signatures
   FROM unnest(ARRAY[
@@ -399,16 +402,13 @@ DECLARE
     'public.admin_cancel_order(uuid)',
     'public.admin_complete_order(uuid)',
     'public.admin_delete_video(uuid)',
-    'public.admin_delete_growth_reward(uuid)',
     'public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid)',
     'public.admin_mark_competition_member_attendance(uuid,uuid,text,text)',
-    'public.admin_mark_competition_attendance(uuid,text,text)',
     'public.admin_mark_order_paid(uuid)',
     'public.admin_promote_competition_waitlist(uuid)',
     'public.admin_reset_growth_member(uuid,text)',
     'public.admin_settle_competition(uuid)',
     'public.admin_upsert_video(jsonb)',
-    'public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)',
     'public.check_growth_achievements(uuid)',
     'public.check_activity_badges(uuid)',
     'public.refresh_growth_level(uuid)',
@@ -426,7 +426,6 @@ DECLARE
 
   IF missing_signatures IS NOT NULL THEN
     RAISE EXCEPTION 'Growth authorization migration: missing allowlisted RPC signatures: %', missing_signatures;
-  END IF;res are missing';
   END IF;
 
   FOR r IN
