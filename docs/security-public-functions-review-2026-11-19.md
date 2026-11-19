@@ -74,18 +74,27 @@ This is a confirmed logic defect in the current definitions and should be fixed 
 
 - `public.is_admin()` is `SECURITY DEFINER`, checks `auth.uid()` against `profiles.role = 'admin'`, and the catalog reports EXECUTE for `authenticated` but not `anon`.
 - `public.is_admin_user()` is `SECURITY DEFINER`, checks `auth.uid()` against `profiles.role = 'admin'`, and the catalog reports EXECUTE for both `anon` and `authenticated`. An anonymous caller receives the boolean result of the admin check; it does not itself grant admin identity.
-- `public.award_growth_points` is `SECURITY DEFINER`, executable by `anon` but not `authenticated` in the inspected catalog. It does not itself perform an admin check in the inspected definition. It is called internally by `admin_adjust_growth_points`, so its broad anon grant is a separate high-priority item for review; do not change it until its legitimate call paths and public exposure are understood.
+- `public.award_growth_points` is `SECURITY DEFINER`, executable by `anon` but not `authenticated` in the inspected catalog. It does not itself perform an admin check in the inspected definition. It is called by admin RPC, growth-task/achievement functions, and two trigger functions; the existing migration removes direct API-role execution while preserving trusted internal calls.
 
-## Proposed remediation sequence
+## Existing remediation draft and verification
 
-1. Complete a full inventory of all public `SECURITY DEFINER` functions, their grants, callers, and trigger dependencies.
-2. Review source-code RPC call sites and all callers of shared helpers such as `award_growth_points`.
-3. Correct the two NULL-sensitive checks with `IS DISTINCT FROM`.
-4. Prepare explicit per-signature grants: revoke EXECUTE from `PUBLIC` and `anon` for administrative RPCs; grant only to the intended authenticated/service roles after caller paths are verified.
-5. Separately review `award_growth_points` and other helpers with broad grants.
-6. Add regression tests for anonymous, ordinary authenticated, and admin callers.
-7. Run CI and Supabase security advisors.
-8. Only after review and explicit approval, prepare a production migration. Do not run it as part of this audit.
+The feature branch already contains `supabase/migrations/202611160001_growth_function_authorization_hardening.sql`. It:
+- fixes the two NULL-sensitive reward-admin checks by explicitly rejecting NULL identity and using `IS DISTINCT FROM`;
+- revokes direct EXECUTE on `award_growth_points` from `PUBLIC`, `anon`, and `authenticated` while preserving calls made by trusted SECURITY DEFINER functions and triggers;
+- hardens several related growth helpers and trigger functions;
+- loops through public SECURITY DEFINER functions to remove `PUBLIC` / `anon` EXECUTE and grants `authenticated` EXECUTE to non-trigger functions (with specific internal helpers excluded).
+
+The branch also contains `supabase/tests/sql/growth-function-authorization.test.sql`, which checks anonymous ACL denial, ordinary member vs admin behavior, missing identity rejection, and that trigger side effects continue after trigger-function EXECUTE revocation.
+
+**CI verification:** GitHub Actions run `44522250340` on commit `9fc4c27ead8372a9df594e3e02985b9af703e618` completed successfully. The isolated PostgreSQL job explicitly passed both the growth-function authorization regression tests and the default-privileges/trigger-side-effect tests. This verifies the migration and tests in disposable PostgreSQL fixtures, not on the live Supabase project.
+
+## Remaining review before any production application
+
+1. Review every public SECURITY DEFINER function body, not only the 16 `admin_*` names, to confirm authenticated callers are authorized for the specific target records and actions.
+2. Trace all frontend and other repository RPC call sites, including any non-admin flows.
+3. Run Supabase security advisors and compare the before/after findings in an isolated or staging environment.
+4. Confirm the intended release/migration ordering and rollback plan.
+5. Only after review and explicit approval, apply a production migration. No production SQL or grants have been changed as part of this audit.
 
 
 ### 5. Critical additional finding: `award_growth_points`
@@ -97,7 +106,7 @@ The live catalog reports this function as `SECURITY DEFINER`, executable by `ano
 
 This means the anonymous role has a direct database execution path to a privileged points-changing function. Unlike the admin RPCs above, the inspected definition does not contain an authorization guard. Treat this as **critical priority** and address it before the routine admin grant cleanup.
 
-The function is also called internally by `admin_adjust_growth_points`. The correct remediation must preserve the trusted internal call path while preventing direct untrusted invocation. Do not simply remove the helper or change its signature without checking all call sites and ownership/privilege behavior.
+The function is called internally by `admin_adjust_growth_points`, `check_growth_achievements`, `complete_growth_task`, and the `growth_registration_reward` / `growth_result_reward` trigger functions. A repository migration already revokes direct API-role EXECUTE on this helper while retaining the owner-executed internal/trigger paths. The isolated regression test explicitly verifies that the triggers still run after direct EXECUTE is revoked.
 
 ### 6. Frontend RPC call-site spot check
 
@@ -120,5 +129,6 @@ No direct string match was found for the remaining admin function names in `admi
 
 - `anon_can_execute = true` indicates a database privilege, not proof of successful business operation.
 - The definition review in this pass covers all 16 admin functions at a high level, but does not replace full testing with real JWT roles or exhaustive application call-site tracing.
-- The proposed grant pattern is not yet approved for deployment. Some helpers may have legitimate internal or public callers; dependencies must be checked first.
+- The existing migration is still a branch-only draft; the successful CI run used disposable PostgreSQL databases and did not modify the live project.
+- The migration's blanket authenticated grant to non-trigger SECURITY DEFINER functions still requires a complete function-body authorization review before production use.
 - No production change has been made.
