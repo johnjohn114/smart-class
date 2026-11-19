@@ -87,6 +87,35 @@ This is a confirmed logic defect in the current definitions and should be fixed 
 7. Run CI and Supabase security advisors.
 8. Only after review and explicit approval, prepare a production migration. Do not run it as part of this audit.
 
+
+### 5. Critical additional finding: `award_growth_points`
+
+The live catalog reports this function as `SECURITY DEFINER`, executable by `anon`, and not executable by `authenticated`. Its inspected definition:
+- accepts a target user ID and point amount;
+- updates that user's points and records a transaction;
+- does not perform an authenticated-user or admin-role check in the function body.
+
+This means the anonymous role has a direct database execution path to a privileged points-changing function. Unlike the admin RPCs above, the inspected definition does not contain an authorization guard. Treat this as **critical priority** and address it before the routine admin grant cleanup.
+
+The function is also called internally by `admin_adjust_growth_points`. The correct remediation must preserve the trusted internal call path while preventing direct untrusted invocation. Do not simply remove the helper or change its signature without checking all call sites and ownership/privilege behavior.
+
+### 6. Frontend RPC call-site spot check
+
+A read-only scan of `admin.js` on the security review branch found direct RPC call sites for:
+- `admin_activity_analytics`
+- `admin_cancel_order`
+- `admin_complete_order`
+- `admin_delete_video`
+- `admin_grant_competition_reward`
+- `admin_mark_competition_member_attendance`
+- `admin_mark_order_paid`
+- `admin_promote_competition_waitlist`
+- `admin_reset_growth_member`
+- `admin_settle_competition`
+- `admin_upsert_video`
+
+No direct string match was found for the remaining admin function names in `admin.js`. This is only a spot check of that one file, not proof that there are no call sites elsewhere in the repository or external clients.
+
 ## Important caveats
 
 - `anon_can_execute = true` indicates a database privilege, not proof of successful business operation.
