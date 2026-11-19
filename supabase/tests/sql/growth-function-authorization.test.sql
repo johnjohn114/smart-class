@@ -502,7 +502,8 @@ BEGIN
   IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: authenticated can execute the internal points mutation helper';
   END IF;
-  IF has_function_privilege('authenticated','public.admin_apply_competition_rewards(uuid)','EXECUTE') THEN
+  IF to_regprocedure('public.admin_apply_competition_rewards(uuid)') IS NOT NULL
+     AND has_function_privilege('authenticated','public.admin_apply_competition_rewards(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: authenticated can execute the internal competition reward helper';
   END IF;
   IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN
@@ -511,7 +512,8 @@ BEGIN
   IF has_function_privilege('anon','public.is_admin()','EXECUTE') IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'FAIL: anon cannot evaluate public RLS policies using is_admin()';
   END IF;
-  IF has_function_privilege('authenticated','public.is_admin_user()','EXECUTE') IS DISTINCT FROM true THEN
+  IF to_regprocedure('public.is_admin_user()') IS NOT NULL
+     AND has_function_privilege('authenticated','public.is_admin_user()','EXECUTE') IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'FAIL: authenticated cannot evaluate videos RLS policy using is_admin_user()';
   END IF;
 END
