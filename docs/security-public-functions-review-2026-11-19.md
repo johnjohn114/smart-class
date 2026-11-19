@@ -335,3 +335,17 @@ The updated branch head `5c21435bc81a7cec4970ac4f985e32589896c174` was exercised
 A fresh read-only production catalog reconciliation compared all 36 current public SECURITY DEFINER routines with the explicit migration classification. The only routines omitted from direct API grants are the five SECURITY DEFINER trigger-returning functions (which are separately revoked from API roles), plus the explicitly classified internal routines `admin_apply_competition_rewards(uuid)` and `award_growth_points(...)`. `_refresh_growth_level_internal(uuid)` is created by the migration and is explicitly revoked from all API roles and `service_role`. The two identity helpers retain only the roles needed by RLS; the reviewed admin/member endpoints are listed in section 15.
 
 **Status:** CI is green on the current branch head and the production signature inventory has been reconciled. This does not authorize deployment. The pull request remains unmerged; no production Supabase SQL, grants, or function definitions have been changed. A final human review should still inspect the PR diff before merge and separately approve any production migration.
+
+
+### 17. Final PR security review — 2026-11-19
+
+A final read-only reconciliation was performed against the production catalog and RLS policies.
+
+- The 29 signature entries in the migration allowlist correspond to the 29 non-trigger, non-internal SECURITY DEFINER routines classified for API/RLS use: 15 admin RPCs, 12 member RPCs, and 2 identity helpers.
+- The remaining 7 of the 36 routines are 5 trigger-returning functions and 2 internal helpers (`admin_apply_competition_rewards(uuid)` and `award_growth_points(...)`). The migration revokes direct API EXECUTE for these; trigger execution paths are covered by the isolated regression suite.
+- RLS policy inspection confirms `is_admin()` is used by policies on public-readable data, including `quick_links` whose policy role is `public`. Therefore granting `is_admin()` to `anon` as well as `authenticated` is intentional and necessary. `is_admin_user()` is used by the authenticated-only `videos_admin_read` policy, so its authenticated grant is sufficient.
+- PR #25 currently has no submitted reviews or inline review threads. Its exact head CI run `44531585665` completed all three jobs successfully.
+
+**Residual review item:** `increment_download_count(uuid)` remains an authenticated RPC and can be called repeatedly for a published file identifier. Its function authorization prevents anonymous use after migration, but it does not itself enforce per-user rate limits or prove a real download. If download counts are relied on as trusted analytics, add server-side throttling / event validation in a separate change.
+
+**Final review disposition:** The PR is technically consistent with the inspected production function inventory and required RLS helper grants, and the isolated CI suite is green. It is suitable for human review, but this is not a deployment approval. No production SQL was applied; PR #25 remains unmerged and the website remains undeployed.
