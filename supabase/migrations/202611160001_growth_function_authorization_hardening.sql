@@ -359,56 +359,76 @@ GRANT EXECUTE ON FUNCTION public.increment_download_count(uuid) TO authenticated
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO authenticated;
 
 
--- Apply least-privilege EXECUTE grants to every public SECURITY DEFINER routine.
--- Trigger functions are invoked by their table triggers, not directly by API roles.
+-- Explicit API EXECUTE allowlist for reviewed public SECURITY DEFINER RPCs.
+-- Everything else is denied to PUBLIC/anon/authenticated by default.
+-- SECURITY DEFINER-to-SECURITY DEFINER calls continue as the function owner.
 DO $acl_hardening$
 DECLARE
   r record;
+  allowed_api_oids oid[] := ARRAY[
+    to_regprocedure('public.admin_activity_analytics()')::oid,
+    to_regprocedure('public.admin_adjust_growth_points(uuid,integer,text)')::oid,
+    to_regprocedure('public.admin_cancel_order(uuid)')::oid,
+    to_regprocedure('public.admin_complete_order(uuid)')::oid,
+    to_regprocedure('public.admin_delete_video(uuid)')::oid,
+    to_regprocedure('public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid)')::oid,
+    to_regprocedure('public.admin_mark_competition_member_attendance(uuid,uuid,text,text)')::oid,
+    to_regprocedure('public.admin_mark_order_paid(uuid)')::oid,
+    to_regprocedure('public.admin_promote_competition_waitlist(uuid)')::oid,
+    to_regprocedure('public.admin_reset_growth_member(uuid,text)')::oid,
+    to_regprocedure('public.admin_settle_competition(uuid)')::oid,
+    to_regprocedure('public.admin_upsert_video(jsonb)')::oid,
+    to_regprocedure('public.check_growth_achievements(uuid)')::oid,
+    to_regprocedure('public.refresh_growth_level(uuid)')::oid,
+    to_regprocedure('public.close_my_support_ticket(uuid)')::oid,
+    to_regprocedure('public.use_growth_coupon(uuid)')::oid,
+    to_regprocedure('public.checkin_competition(uuid,text)')::oid,
+    to_regprocedure('public.join_competition_waitlist(uuid,text)')::oid,
+    to_regprocedure('public.record_growth_activity()')::oid,
+    to_regprocedure('public.complete_growth_task(text)')::oid,
+    to_regprocedure('public.redeem_growth_reward(uuid)')::oid,
+    to_regprocedure('public.increment_download_count(uuid)')::oid
+  ];
 BEGIN
   FOR r IN
-    SELECT p.oid,
-           p.oid::regprocedure AS signature,
-           p.proname,
-           p.prorettype = 'trigger'::regtype AS is_trigger
+    SELECT p.oid, p.oid::regprocedure AS signature,
+           p.proname, p.prorettype = 'trigger'::regtype AS is_trigger
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.prosecdef = true
       AND p.prokind = 'f'
   LOOP
+    EXECUTE format(
+      'REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated',
+      r.signature
+    );
+
     IF r.is_trigger THEN
       EXECUTE format(
-        'REVOKE ALL PRIVILEGES ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role',
+        'REVOKE EXECUTE ON FUNCTION %s FROM service_role',
         r.signature
       );
-    ELSE
+    ELSIF r.oid = ANY(allowed_api_oids) THEN
       EXECUTE format(
-        'REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon',
+        'GRANT EXECUTE ON FUNCTION %s TO authenticated',
         r.signature
       );
-
-      -- Public RLS policies call is_admin(); anon needs this safe false-for-anon helper.
-      IF r.proname = 'is_admin' THEN
-        EXECUTE format(
-          'GRANT EXECUTE ON FUNCTION %s TO anon',
-          r.signature
-        );
-      END IF;
-
-      IF r.proname IN ('award_growth_points', '_refresh_growth_level_internal') THEN
-        EXECUTE format(
-          'REVOKE EXECUTE ON FUNCTION %s FROM authenticated',
-          r.signature
-        );
-      ELSE
-        EXECUTE format(
-          'GRANT EXECUTE ON FUNCTION %s TO authenticated',
-          r.signature
-        );
-      END IF;
+    ELSIF r.proname = 'is_admin' THEN
+      -- PUBLIC RLS policies call is_admin(); anon must be able to evaluate it.
+      -- The function returns false when auth.uid() is NULL.
+      EXECUTE format(
+        'GRANT EXECUTE ON FUNCTION %s TO anon, authenticated',
+        r.signature
+      );
+    ELSIF r.proname = 'is_admin_user' THEN
+      -- The authenticated videos RLS policy calls this identity predicate.
+      EXECUTE format(
+        'GRANT EXECUTE ON FUNCTION %s TO authenticated',
+        r.signature
+      );
     END IF;
   END LOOP;
 END;
 $acl_hardening$;
-
 COMMIT;
