@@ -156,10 +156,27 @@ The current spot check does not prove every external client or all inline script
 - `increment_download_count(uuid)` updates the counter for a published file without tying the target ID to a user. The feature migration restricts this RPC to authenticated users; consider rate limiting or a trusted server-side counter if download metrics must resist manipulation.
 - `check_growth_achievements`, `check_activity_badges`, and `refresh_growth_level` must retain their new self-or-admin checks when future edits are made.
 
+
+### 10. Final migration review — blocker found
+
+A fresh live catalog query enumerated all 36 public `SECURITY DEFINER` functions (20 non-trigger routines and 6 trigger routines plus other public privileged functions; exact total from the query: 36). The migration's final dynamic ACL loop currently:
+- revokes `PUBLIC` and `anon` from every non-trigger SECURITY DEFINER function;
+- grants `authenticated` to every non-trigger SECURITY DEFINER function except `award_growth_points` and `_refresh_growth_level_internal`;
+- separately grants `anon` on `is_admin()`;
+- revokes all API-role EXECUTE from trigger functions.
+
+**This blanket authenticated grant is a production blocker.** It can expose internal or admin-oriented SECURITY DEFINER functions to every logged-in user unless each function body independently enforces the correct authorization. A list of names or a prior high-level scan is not enough to justify this grant.
+
+The production catalog currently shows 36 public SECURITY DEFINER routines, including admin RPCs, growth functions, order and competition functions, helper functions, and trigger functions. The ACL loop must be replaced with a reviewed explicit allowlist of intended API RPC signatures, with all internal helpers and admin functions separately granted only after per-function authorization review. Trigger functions should remain non-callable directly by API roles; existing trigger execution must be regression-tested.
+
+The isolated tests currently verify several key growth and admin paths, but do not cover every SECURITY DEFINER function that the blanket loop would grant to `authenticated`. Therefore the current CI pass does not clear this blocker.
+
+**Decision:** do not apply this migration to production and do not merge it as a production-ready security fix yet. No production changes have been made.
+
 ## Important caveats
 
 - `anon_can_execute = true` indicates a database privilege, not proof of successful business operation.
 - The read-only review covers all 16 admin functions and the other public SECURITY DEFINER routines at a high level. It does not replace exhaustive call-site tracing for external clients or production JWT testing.
 - The existing migration is still a branch-only draft; the successful CI run used disposable PostgreSQL databases and did not modify the live project.
-- The migration's blanket authenticated grant to non-trigger SECURITY DEFINER functions still requires a complete function-body authorization review before production use.
+- The migration's blanket authenticated grant to non-trigger SECURITY DEFINER functions is a confirmed production blocker; replace it with a reviewed explicit allowlist and expand regression coverage.
 - No production change has been made.
