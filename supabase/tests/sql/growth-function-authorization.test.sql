@@ -167,69 +167,69 @@ GRANT SELECT ON public.profiles TO authenticated;
 -- allowlist. Their bodies are irrelevant here; this fixture tests ACL behavior.
 CREATE FUNCTION public.admin_activity_analytics() RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_adjust_growth_points(uuid,integer,text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_cancel_order(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_complete_order(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_delete_video(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_mark_competition_member_attendance(uuid,uuid,text,text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_mark_competition_attendance(uuid,text,text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_mark_order_paid(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_promote_competition_waitlist(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_reset_growth_member(uuid,text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_settle_competition(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.admin_upsert_video(jsonb) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.close_my_support_ticket(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.create_cash_order(uuid,integer,text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.use_growth_coupon(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.checkin_competition(uuid,text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.join_competition_waitlist(uuid,text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.record_growth_activity() RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 CREATE FUNCTION public.redeem_growth_reward(uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 
 -- A SECURITY DEFINER routine outside the allowlist must remain unavailable.
 CREATE FUNCTION public.ci_unlisted_definer() RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
-AS $ BEGIN RETURN; END $;
+AS $stub$ BEGIN RETURN; END $stub$;
 
 INSERT INTO public.growth_levels(code,name,min_points,sort_order)
 VALUES ('newbie','新手',0,0),('sprout','萌芽',10,1);
