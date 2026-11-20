@@ -15,3 +15,6 @@ verify_jwt = true
 
 [functions.maintenance-event-action]
 verify_jwt = true
+
+[functions.public-activity-leaderboard]
+verify_jwt = false
