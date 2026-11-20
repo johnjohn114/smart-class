@@ -115,6 +115,51 @@ def main():
     assert_true(status == 200 and body.get("ok") is True,
                 "GoTrue-issued admin token can execute the admin list RPC")
 
+    # Keyset pagination must return every matching event exactly once.
+    page_start = datetime.now(timezone.utc) + timedelta(days=45)
+    page_end = page_start + timedelta(hours=3)
+    page_events = []
+    for offset, title in ((0, "Cursor page first"), (1, "Cursor page second")):
+        starts_at = page_start + timedelta(hours=offset)
+        payload = {
+            "title": title,
+            "message": "Cursor pagination integration test",
+            "is_global": True,
+            "scope_codes": [],
+            "starts_at": iso(starts_at),
+            "ends_at": iso(starts_at + timedelta(minutes=20)),
+            "status": "draft",
+            "reason": "admin list cursor integration test",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        status, created = rpc("maintenance_event_create", payload, admin)
+        assert_true(status == 200 and created.get("ok") is True,
+                    f"created pagination fixture: {title}")
+        page_events.append(created["data"]["event_id"])
+
+    list_filter = {
+        "from": iso(page_start - timedelta(minutes=1)),
+        "to": iso(page_end),
+        "limit": 1,
+    }
+    status, first_page = rpc("maintenance_admin_list", list_filter, admin)
+    first_data = first_page.get("data", {}) if isinstance(first_page, dict) else {}
+    first_items = first_data.get("events", [])
+    cursor = first_data.get("next_cursor")
+    assert_true(status == 200 and len(first_items) == 1 and bool(cursor),
+                "admin list returns one event and a next_cursor when another page exists")
+
+    second_filter = dict(list_filter)
+    second_filter["cursor"] = cursor
+    status, second_page = rpc("maintenance_admin_list", second_filter, admin)
+    second_data = second_page.get("data", {}) if isinstance(second_page, dict) else {}
+    second_items = second_data.get("events", [])
+    assert_true(status == 200 and len(second_items) == 1
+                and first_items[0]["id"] != second_items[0]["id"]
+                and {first_items[0]["id"], second_items[0]["id"]} == set(page_events)
+                and not second_data.get("next_cursor"),
+                "admin list cursor returns the remaining event exactly once and ends pagination")
+
     # A modified token must not be accepted by PostgREST.
     tampered = admin[:-1] + ("A" if admin[-1] != "A" else "B")
     status, _ = rpc("maintenance_admin_list", {}, tampered)
@@ -337,6 +382,35 @@ def main():
     assert_true(status == 400 and isinstance(early_complete, dict)
                 and early_complete.get("message") == "VALIDATION_ERROR",
                 "scheduled event cannot be completed before its end time")
+
+    # A scheduled event whose end time has passed can be completed.
+    past_start = datetime.now(timezone.utc) - timedelta(hours=2)
+    past_end = past_start + timedelta(minutes=30)
+    past_event_payload = {
+        "title": "Completed lifecycle fixture",
+        "message": "Lifecycle completion test",
+        "is_global": True,
+        "scope_codes": [],
+        "starts_at": iso(past_start),
+        "ends_at": iso(past_end),
+        "status": "scheduled",
+        "reason": "complete lifecycle integration test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, past_event = rpc("maintenance_event_create", past_event_payload, admin)
+    assert_true(status == 200 and past_event.get("ok") is True,
+                "created an already-ended scheduled event for completion test")
+    complete_request = {
+        "event_id": past_event["data"]["event_id"],
+        "expected_version": 1,
+        "action": "complete",
+        "reason": "GoTrue complete action test",
+        "idempotency_key": str(uuid.uuid4()),
+    }
+    status, completed = rpc("maintenance_event_action", complete_request, admin)
+    assert_true(status == 200 and completed.get("data", {}).get("status") == "completed"
+                and completed.get("data", {}).get("version") == 2,
+                "ended scheduled event can be completed through lifecycle action RPC")
 
     cancel_request = {
         "event_id": event_id,
