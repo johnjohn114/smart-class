@@ -33,6 +33,6 @@ Member IDs, email addresses, and unrelated profile data are not returned. Member
 ## Validation
 
 - Deno tests verify that all five approved fields are preserved and that user IDs and unrelated profile data are excluded.
-- SQL regression tests use a disposable PostgreSQL database and synthetic users only.
+- SQL regression tests use a disposable PostgreSQL database and synthetic users only; they reproduce and verify removal of the unnecessary anonymous base-table grants.
 - No production SQL or Edge Function deployment is performed by this change.
 - Supabase CLI is not installed in the current execution environment, so the SQL is kept as a reviewable draft under `supabase/sql` rather than claimed as a generated migration. Before production rollout, create a formal migration, review it, and apply it only after separate explicit approval.
