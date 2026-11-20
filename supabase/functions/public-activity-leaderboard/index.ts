@@ -43,7 +43,7 @@ export async function handleRequest(req: Request): Promise<Response> {
 
   const { data, error } = await adminClient
     .from("activity_member_stats")
-    .select("nickname,attended_count,activity_points")
+    .select("nickname,attended_count,late_count,no_show_count,activity_points")
     .order("activity_points", { ascending: false })
     .order("attended_count", { ascending: false })
     .order("nickname", { ascending: true })
