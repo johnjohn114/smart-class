@@ -740,7 +740,7 @@ async function loadActivityLeaderboard(){
     const result=await r.json(),rows=Array.isArray(result.rows)?result.rows:[];
     const totals=result.summary||{};
     if(summary)summary.innerHTML='<div class="leaderboardStat"><b>'+Number(totals.total_members||0)+'</b><span>活動會員</span></div><div class="leaderboardStat"><b>'+Number(totals.total_attended||0)+'</b><span>累計出席</span></div><div class="leaderboardStat"><b>'+Number(totals.total_activity_points||0)+'</b><span>活動積分</span></div>';
-    box.innerHTML=rows.length?rows.slice(0,20).map((x,i)=>'<article class="leaderboardRow'+(i<3?' topRank':'')+'"><div class="leaderboardRank">'+(i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅')+' <b>#'+(i+1)+'</b></div><div class="leaderboardPlayer"><h3>'+esc(x.nickname||'會員')+'</h3><div class="leaderboardMeta">活動積分 <b>'+Number(x.activity_points||0)+'</b> · 出席 '+Number(x.attended_count||0)+' 場</div></div></article>').join(''):'<div class="empty">目前還沒有活動達人榜資料。</div>';
+    box.innerHTML=rows.length?rows.slice(0,20).map((x,i)=>'<article class="leaderboardRow'+(i<3?' topRank':'')+'"><div class="leaderboardRank">'+(i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅')+' <b>#'+(i+1)+'</b></div><div class="leaderboardPlayer"><h3>'+esc(x.nickname||'會員')+'</h3><div class="leaderboardMeta">活動積分 <b>'+Number(x.activity_points||0)+'</b> · 出席 '+Number(x.attended_count||0)+' 場 · 遲到 '+Number(x.late_count||0)+' 次 · 未到 '+Number(x.no_show_count||0)+' 次</div></div></article>').join(''):'<div class="empty">目前還沒有活動達人榜資料。</div>';
   }catch(error){
     box.innerHTML='<div class="empty">活動排行榜暫時無法載入，請稍後再試。</div>';
     if(summary)summary.innerHTML='';
