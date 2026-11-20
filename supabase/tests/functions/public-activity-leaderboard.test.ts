@@ -27,13 +27,15 @@ Deno.test("public leaderboard exposes only the approved fields", () => {
   if (Object.keys(result.rows[0]).sort().join(",") !== "activity_points,attended_count,late_count,nickname,no_show_count") {
     throw new Error("unexpected public leaderboard fields");
   }
-  if (JSON.stringify(result).includes("private-user-id")) {
-    throw new Error("user IDs must not be included in public output");
-  }
   if (result.rows[0].late_count !== 2 || result.rows[0].no_show_count !== 1) {
-    throw new Error("public attendance counters must be preserved");
+    throw new Error("first member's public attendance counters must be preserved");
   }
-  if (JSON.stringify(result).includes("private-user-id") || JSON.stringify(result).includes("private@example.invalid")) {
+  if (result.rows[1].late_count !== 0 || result.rows[1].no_show_count !== 9) {
+    throw new Error("second member's public attendance counters must be preserved");
+  }
+  if (JSON.stringify(result).includes("private-user-id") ||
+      JSON.stringify(result).includes("another-private-id") ||
+      JSON.stringify(result).includes("private@example.invalid")) {
     throw new Error("private identifiers and profile data must not be included in public output");
   }
   if (
