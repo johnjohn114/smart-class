@@ -8,12 +8,16 @@ const corsHeaders = {
 };
 
 function json(body: unknown, status = 200) {
+  const cacheControl = status >= 200 && status < 300
+    ? "public, max-age=60"
+    : "no-store";
+
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       ...corsHeaders,
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "public, max-age=60",
+      "Cache-Control": cacheControl,
       "X-Content-Type-Options": "nosniff",
     },
   });
@@ -42,6 +46,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     .select("nickname,attended_count,activity_points")
     .order("activity_points", { ascending: false })
     .order("attended_count", { ascending: false })
+    .order("nickname", { ascending: true })
     .limit(100);
 
   if (error) {
