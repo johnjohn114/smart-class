@@ -78,7 +78,11 @@ BEGIN
   IF has_table_privilege('anon', 'public.competition_attendance', 'SELECT')
      OR has_table_privilege('anon', 'public.competition_attendance', 'INSERT')
      OR has_table_privilege('anon', 'public.competition_attendance', 'UPDATE')
-     OR has_table_privilege('anon', 'public.competition_attendance', 'DELETE') THEN
+     OR has_table_privilege('anon', 'public.competition_attendance', 'DELETE')
+     OR has_table_privilege('anon', 'public.competition_attendance', 'TRUNCATE')
+     OR has_table_privilege('anon', 'public.competition_attendance', 'REFERENCES')
+     OR has_table_privilege('anon', 'public.competition_attendance', 'TRIGGER')
+     OR has_table_privilege('anon', 'public.competition_attendance', 'MAINTAIN') THEN
     RAISE EXCEPTION 'anon unexpectedly retains attendance table privileges';
   END IF;
 END
