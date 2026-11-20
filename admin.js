@@ -998,6 +998,10 @@ document.addEventListener('DOMContentLoaded',()=>{bindMobileAdminNav();bind();co
 // ===== 維護管理：所有寫入操作均由 Edge Function 與資料庫再次驗證管理員權限 =====
 let maintenanceEventsCache = [];
 let maintenanceEditingScheduleLocked = false;
+let maintenancePageCursors = [null];
+let maintenanceCurrentPage = 0;
+let maintenanceNextCursor = null;
+let maintenanceListRequestId = 0;
 
 function maintenanceUuid() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -1143,24 +1147,77 @@ function renderMaintenanceEvents() {
   });
 }
 
-async function loadMaintenanceEvents() {
+async function loadMaintenanceEvents(options = {}) {
   const host = $('maintenanceEventList');
   if (!host) return;
+
+  if (options.reset === true) {
+    maintenancePageCursors = [null];
+    maintenanceCurrentPage = 0;
+    maintenanceNextCursor = null;
+  }
+
+  const requestId = ++maintenanceListRequestId;
+  const pager = $('maintenancePagination');
   host.innerHTML = '<div class="loading">正在讀取維護紀錄…</div>';
+  if (pager) pager.textContent = '';
 
   try {
     const status = $('maintenanceStatusFilter')?.value || 'all';
     const query = new URLSearchParams({ limit: '100' });
     if (status !== 'all') query.set('status', status);
 
+    const cursor = maintenancePageCursors[maintenanceCurrentPage];
+    if (cursor) query.set('cursor', cursor);
+
     const data = await maintenanceAdminRequest(
       'maintenance-admin-list?' + query.toString()
     );
+    if (requestId !== maintenanceListRequestId) return;
+
     maintenanceEventsCache = Array.isArray(data?.events) ? data.events : [];
+    maintenanceNextCursor =
+      typeof data?.next_cursor === 'string' && data.next_cursor
+        ? data.next_cursor
+        : null;
+
     renderMaintenanceEvents();
+    renderMaintenancePagination();
   } catch (error) {
+    if (requestId !== maintenanceListRequestId) return;
     host.innerHTML = '<div class="empty">❌ 載入維護紀錄失敗：' + esc(error.message) + '</div>';
+    if (pager) pager.textContent = '';
   }
+}
+
+function renderMaintenancePagination() {
+  const host = $('maintenancePagination');
+  if (!host) return;
+
+  if (maintenanceCurrentPage === 0 && !maintenanceNextCursor) {
+    host.textContent = '';
+    return;
+  }
+
+  host.innerHTML =
+    '<button class="btn secondary" id="maintenancePrevPage" type="button"' +
+      (maintenanceCurrentPage === 0 ? ' disabled' : '') + '>上一頁</button>' +
+    '<span class="sub" aria-live="polite">第 ' + (maintenanceCurrentPage + 1) + ' 頁</span>' +
+    '<button class="btn secondary" id="maintenanceNextPage" type="button"' +
+      (!maintenanceNextCursor ? ' disabled' : '') + '>下一頁</button>';
+
+  $('maintenancePrevPage')?.addEventListener('click', () => {
+    if (maintenanceCurrentPage === 0) return;
+    maintenanceCurrentPage -= 1;
+    loadMaintenanceEvents();
+  });
+
+  $('maintenanceNextPage')?.addEventListener('click', () => {
+    if (!maintenanceNextCursor) return;
+    maintenancePageCursors[maintenanceCurrentPage + 1] = maintenanceNextCursor;
+    maintenanceCurrentPage += 1;
+    loadMaintenanceEvents();
+  });
 }
 
 function maintenanceSyncScopeOptions() {
@@ -1286,7 +1343,7 @@ async function saveMaintenanceEvent() {
     ));
     msg('maintenanceMsg', eventId ? '✅ 維護事件已更新。' : '✅ 維護草稿已建立；確認時間與範圍後，可在事件清單安排維護。');
     maintenanceClearForm();
-    await loadMaintenanceEvents();
+    await loadMaintenanceEvents({ reset: true });
   } catch (error) {
     msg('maintenanceMsg', '❌ ' + error.message);
   } finally {
@@ -1325,18 +1382,18 @@ async function maintenanceRunAction(eventId, action) {
       Object.entries(actionBody).filter(([key]) => key !== 'idempotency_key')
     ));
     msg('maintenanceMsg', '✅ 已完成：' + (labels[action] || action));
-    await loadMaintenanceEvents();
+    await loadMaintenanceEvents({ reset: true });
   } catch (error) {
     msg('maintenanceMsg', '❌ ' + error.message);
   }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('refreshMaintenanceEvents')?.addEventListener('click', loadMaintenanceEvents);
-  $('maintenanceStatusFilter')?.addEventListener('change', loadMaintenanceEvents);
+  $('refreshMaintenanceEvents')?.addEventListener('click', () => loadMaintenanceEvents({ reset: true }));
+  $('maintenanceStatusFilter')?.addEventListener('change', () => loadMaintenanceEvents({ reset: true }));
   $('saveMaintenanceEvent')?.addEventListener('click', saveMaintenanceEvent);
   $('clearMaintenanceForm')?.addEventListener('click', maintenanceClearForm);
   $('maintenanceGlobal')?.addEventListener('change', maintenanceSyncScopeOptions);
-  document.querySelector('[data-tab="maintenanceTab"]')?.addEventListener('click', loadMaintenanceEvents);
+  document.querySelector('[data-tab="maintenanceTab"]')?.addEventListener('click', () => loadMaintenanceEvents({ reset: true }));
   maintenanceSyncScopeOptions();
 });
