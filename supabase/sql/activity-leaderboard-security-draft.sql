@@ -30,7 +30,7 @@ LEFT JOIN public.profiles AS p ON p.id = a.user_id
 GROUP BY a.user_id;
 
 REVOKE ALL PRIVILEGES ON TABLE public.activity_member_stats
-  FROM PUBLIC, anon;
+  FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.activity_member_stats
   TO authenticated, service_role;
 
