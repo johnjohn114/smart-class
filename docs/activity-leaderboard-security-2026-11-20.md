@@ -34,5 +34,6 @@ Member IDs, email addresses, and unrelated profile data are not returned. Member
 
 - Deno tests verify that all five approved fields are preserved and that user IDs and unrelated profile data are excluded.
 - SQL regression tests use a disposable PostgreSQL database and synthetic users only; they reproduce and verify removal of the unnecessary anonymous base-table grants.
-- No production SQL or Edge Function deployment is performed by this change.
-- Supabase CLI is not installed in the current execution environment, so the SQL is kept as a reviewable draft under `supabase/sql` rather than claimed as a generated migration. Before production rollout, create a formal migration, review it, and apply it only after separate explicit approval.
+- The candidate migration is `supabase/migrations/202611200001_activity_leaderboard_security.sql`; the isolated PostgreSQL regression test applies this exact file before checking ACL and RLS behavior.
+- No production SQL or Edge Function deployment is performed by this change. The migration is committed for review only and requires separate explicit approval before rollout.
+- Production has no migration-history table and the migration list is empty. Do not use a blind `db push`; first reconcile the existing live schema and the duplicate growth-function forward migrations in PR #25, then choose a controlled migration application plan.
