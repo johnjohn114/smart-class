@@ -85,6 +85,8 @@ FROM public.competition_attendance AS a
 LEFT JOIN public.profiles AS p ON p.id = a.user_id
 GROUP BY a.user_id;
 
+-- Match the proposed production SQL: remove the live anonymous base-table grant.
+REVOKE ALL PRIVILEGES ON TABLE public.competition_attendance FROM anon;
 REVOKE ALL PRIVILEGES ON TABLE public.activity_member_stats FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.activity_member_stats TO authenticated, service_role;
 
