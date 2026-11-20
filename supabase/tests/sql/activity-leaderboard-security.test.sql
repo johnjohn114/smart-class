@@ -1,6 +1,5 @@
 -- Disposable PostgreSQL 17 regression test for activity_member_stats.
--- Run only in a fresh test database; this script rolls back all objects/data.
-BEGIN;
+-- Run only in a fresh disposable test database; CI discards the database after the test.
 
 DO $$
 BEGIN
@@ -142,4 +141,3 @@ BEGIN
 END
 $$;
 
-ROLLBACK;
