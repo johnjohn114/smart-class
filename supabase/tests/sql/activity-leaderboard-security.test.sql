@@ -69,26 +69,9 @@ INSERT INTO public.competition_attendance(user_id, status, points_awarded, compl
   ('11111111-1111-4111-8111-111111111111', 'late', 2, 3),
   ('22222222-2222-4222-8222-222222222222', 'no_show', 0, 0);
 
-CREATE VIEW public.activity_member_stats
-WITH (security_invoker = true)
-AS
-SELECT
-  a.user_id,
-  MAX(COALESCE(NULLIF(BTRIM(p.nickname), ''), '會員')) AS nickname,
-  COUNT(*) FILTER (WHERE a.status = ANY (ARRAY['checked_in'::text, 'late'::text]))::integer AS attended_count,
-  COUNT(*) FILTER (WHERE a.status = 'late'::text)::integer AS late_count,
-  COUNT(*) FILTER (WHERE a.status = 'no_show'::text)::integer AS no_show_count,
-  COALESCE(SUM(a.points_awarded), 0::bigint)::integer AS checkin_points,
-  COALESCE(SUM(a.completion_points_awarded), 0::bigint)::integer AS completion_points,
-  (COALESCE(SUM(a.points_awarded), 0::bigint) + COALESCE(SUM(a.completion_points_awarded), 0::bigint))::integer AS activity_points
-FROM public.competition_attendance AS a
-LEFT JOIN public.profiles AS p ON p.id = a.user_id
-GROUP BY a.user_id;
+-- Apply the exact candidate migration under test, not a hand-copied approximation.
+\ir ../../migrations/202611200001_activity_leaderboard_security.sql
 
--- Match the proposed production SQL: remove the live anonymous base-table grant.
-REVOKE ALL PRIVILEGES ON TABLE public.competition_attendance FROM anon;
-REVOKE ALL PRIVILEGES ON TABLE public.activity_member_stats FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON TABLE public.activity_member_stats TO authenticated, service_role;
 
 -- Anonymous access must be removed from both the base attendance table and view.
 DO $anon_acl$
