@@ -1,6 +1,8 @@
 export type PublicLeaderboardRow = {
   nickname: string;
   attended_count: number;
+  late_count: number;
+  no_show_count: number;
   activity_points: number;
 };
 
@@ -11,7 +13,7 @@ function toInteger(value: unknown): number {
 
 /**
  * Build the only data shape allowed to leave the public leaderboard endpoint.
- * Deliberately excludes user_id, late_count, no_show_count and all profile data.
+ * Excludes user identifiers and all profile data while preserving the public attendance counters.
  */
 export function buildPublicLeaderboard(
   sourceRows: readonly Record<string, unknown>[],
@@ -23,6 +25,8 @@ export function buildPublicLeaderboard(
     return {
       nickname: rawNickname || "會員",
       attended_count: toInteger(row.attended_count),
+      late_count: toInteger(row.late_count),
+      no_show_count: toInteger(row.no_show_count),
       activity_points: toInteger(row.activity_points),
     };
   });
