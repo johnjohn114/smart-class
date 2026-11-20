@@ -13,7 +13,7 @@ WITH (security_invoker = true)
 AS
 SELECT
   a.user_id,
-  COALESCE(NULLIF(BTRIM(p.nickname), ''), '會員') AS nickname,
+  MAX(COALESCE(NULLIF(BTRIM(p.nickname), ''), '會員')) AS nickname,
   COUNT(*) FILTER (
     WHERE a.status = ANY (ARRAY['checked_in'::text, 'late'::text])
   )::integer AS attended_count,
