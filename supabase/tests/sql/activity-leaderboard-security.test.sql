@@ -54,6 +54,9 @@ USING (user_id = auth.uid());
 
 GRANT SELECT ON public.profiles, public.competition_attendance
 TO authenticated, service_role;
+-- Reproduce the unnecessary anonymous grants found in production so the
+-- migration proves it removes them rather than relying only on RLS.
+GRANT ALL PRIVILEGES ON TABLE public.competition_attendance TO anon;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public
 TO authenticated, service_role;
 
@@ -84,6 +87,18 @@ GROUP BY a.user_id;
 
 REVOKE ALL PRIVILEGES ON TABLE public.activity_member_stats FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.activity_member_stats TO authenticated, service_role;
+
+-- Anonymous access must be removed from both the base attendance table and view.
+DO $anon_acl$
+BEGIN
+  IF has_table_privilege('anon', 'public.competition_attendance', 'SELECT')
+     OR has_table_privilege('anon', 'public.competition_attendance', 'INSERT')
+     OR has_table_privilege('anon', 'public.competition_attendance', 'UPDATE')
+     OR has_table_privilege('anon', 'public.competition_attendance', 'DELETE') THEN
+    RAISE EXCEPTION 'anon unexpectedly retains attendance table privileges';
+  END IF;
+END
+$anon_acl$;
 
 -- Anonymous access must be denied at the view ACL layer.
 SET ROLE anon;
