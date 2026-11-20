@@ -16,6 +16,7 @@ Deno.test("public leaderboard exposes only the approved fields", () => {
       nickname: "   ",
       attended_count: 1,
       activity_points: 8,
+      late_count: 0,
       no_show_count: 9,
     },
   ]);
@@ -23,14 +24,17 @@ Deno.test("public leaderboard exposes only the approved fields", () => {
   if (result.rows.length !== 2) throw new Error("expected two leaderboard rows");
   if (result.rows[0].nickname !== "星星會員") throw new Error("nickname should be trimmed");
   if (result.rows[1].nickname !== "會員") throw new Error("blank nickname must not expose a user ID");
-  if (Object.keys(result.rows[0]).sort().join(",") !== "activity_points,attended_count,nickname") {
+  if (Object.keys(result.rows[0]).sort().join(",") !== "activity_points,attended_count,late_count,nickname,no_show_count") {
     throw new Error("unexpected public leaderboard fields");
   }
   if (JSON.stringify(result).includes("private-user-id")) {
     throw new Error("user IDs must not be included in public output");
   }
-  if (JSON.stringify(result).includes("no_show_count") || JSON.stringify(result).includes("late_count")) {
-    throw new Error("private attendance detail must not be included in public output");
+  if (result.rows[0].late_count !== 2 || result.rows[0].no_show_count !== 1) {
+    throw new Error("public attendance counters must be preserved");
+  }
+  if (JSON.stringify(result).includes("private-user-id") || JSON.stringify(result).includes("private@example.invalid")) {
+    throw new Error("private identifiers and profile data must not be included in public output");
   }
   if (
     result.summary.total_members !== 2 ||
