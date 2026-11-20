@@ -163,6 +163,74 @@ CREATE TABLE public.user_activity_badges (
 
 GRANT SELECT ON public.profiles TO authenticated;
 
+-- Minimal stubs for the remaining production RPC signatures in the reviewed
+-- allowlist. Their bodies are irrelevant here; this fixture tests ACL behavior.
+CREATE FUNCTION public.admin_activity_analytics() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_adjust_growth_points(uuid,integer,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_cancel_order(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_complete_order(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_delete_video(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_mark_competition_member_attendance(uuid,uuid,text,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_mark_competition_attendance(uuid,text,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_mark_order_paid(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_promote_competition_waitlist(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_reset_growth_member(uuid,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_settle_competition(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.admin_upsert_video(jsonb) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.close_my_support_ticket(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.create_cash_order(uuid,integer,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.use_growth_coupon(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.checkin_competition(uuid,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.join_competition_waitlist(uuid,text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.record_growth_activity() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+CREATE FUNCTION public.redeem_growth_reward(uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+
+-- A SECURITY DEFINER routine outside the allowlist must remain unavailable.
+CREATE FUNCTION public.ci_unlisted_definer() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $stub$ BEGIN RETURN; END $stub$;
+
 INSERT INTO public.growth_levels(code,name,min_points,sort_order)
 VALUES ('newbie','新手',0,0),('sprout','萌芽',10,1);
 INSERT INTO public.profiles(id,role,growth_points,growth_level) VALUES
@@ -365,7 +433,6 @@ RESET ROLE;
 
 -- Admin may manage rewards and refresh another member's level.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
-SET ROLE authenticated;
 DO $admin_allowed$
 DECLARE
   result jsonb;
@@ -387,11 +454,9 @@ BEGIN
   IF level_code <> 'newbie' THEN RAISE EXCEPTION 'FAIL: admin could not refresh another member level'; END IF;
 END
 $admin_allowed$;
-RESET ROLE;
 
 -- An authenticated SQL role without a user JWT must never pass admin guards.
 SELECT set_config('request.jwt.claim.sub','',false);
-SET ROLE authenticated;
 DO $missing_identity_denied$
 DECLARE denied boolean := false;
 BEGIN
@@ -414,11 +479,9 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: admin upsert accepted a missing auth.uid()'; END IF;
 END
 $missing_identity_denied$;
-RESET ROLE;
 
 -- A normal authenticated member cannot use admin reward RPCs.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
-SET ROLE authenticated;
 DO $member_admin_denied$
 DECLARE denied boolean := false;
 BEGIN
@@ -430,7 +493,6 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: non-admin member executed admin delete'; END IF;
 END
 $member_admin_denied$;
-RESET ROLE;
 
 
 -- Revoking API-role EXECUTE does not disable an already-created trigger.
@@ -460,8 +522,6 @@ BEGIN
   FOREACH sig IN ARRAY ARRAY[
     'public.award_growth_points(uuid,integer,text,text,text,text,uuid)',
     'public.increment_download_count(uuid)',
-    'public.admin_delete_growth_reward(uuid)',
-    'public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)',
     'public._refresh_growth_level_internal(uuid)',
     'public.refresh_growth_level(uuid)',
     'public.check_growth_achievements(uuid)',
@@ -483,4 +543,104 @@ BEGIN
 END
 $all_anon_denied$;
 
+
+-- Verify every reviewed API allowlist signature is executable by authenticated
+-- and none is executable by anon. The production migration has a strict
+-- signature-presence guard, so this fixture supplies all allowlisted stubs.
+DO $all_allowlisted_acl$
+DECLARE sig text;
+BEGIN
+  FOREACH sig IN ARRAY ARRAY[
+    'public.admin_activity_analytics()',
+    'public.admin_adjust_growth_points(uuid,integer,text)',
+    'public.admin_cancel_order(uuid)',
+    'public.admin_complete_order(uuid)',
+    'public.admin_delete_video(uuid)',
+    'public.admin_grant_competition_reward(uuid,text,text,text,integer,uuid)',
+    'public.admin_mark_competition_member_attendance(uuid,uuid,text,text)',
+    'public.admin_mark_order_paid(uuid)',
+    'public.admin_promote_competition_waitlist(uuid)',
+    'public.admin_reset_growth_member(uuid,text)',
+    'public.admin_settle_competition(uuid)',
+    'public.admin_upsert_video(jsonb)',
+    'public.check_growth_achievements(uuid)',
+    'public.check_activity_badges(uuid)',
+    'public.refresh_growth_level(uuid)',
+    'public.close_my_support_ticket(uuid)',
+    'public.create_cash_order(uuid,integer,text)',
+    'public.use_growth_coupon(uuid)',
+    'public.checkin_competition(uuid,text)',
+    'public.join_competition_waitlist(uuid,text)',
+    'public.record_growth_activity()',
+    'public.complete_growth_task(text)',
+    'public.redeem_growth_reward(uuid)',
+    'public.increment_download_count(uuid)'
+  ] LOOP
+    IF NOT has_function_privilege('authenticated',sig,'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: authenticated lacks allowlisted EXECUTE on %', sig;
+    END IF;
+    IF has_function_privilege('anon',sig,'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: anon retains allowlisted EXECUTE on %', sig;
+    END IF;
+  END LOOP;
+  IF has_function_privilege('authenticated','public.ci_unlisted_definer()','EXECUTE')
+     OR has_function_privilege('anon','public.ci_unlisted_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: unlisted SECURITY DEFINER routine remains exposed';
+  END IF;
+END
+$all_allowlisted_acl$;
+
 \echo 'PASS: growth function authorization regression tests'
+
+
+-- Legacy admin endpoints without confirmed frontend call sites remain private.
+DO $unconfirmed_admin_acl$
+BEGIN
+  IF has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public.admin_delete_growth_reward(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE')
+     OR has_function_privilege('anon','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE')
+     OR has_function_privilege('authenticated','public.admin_mark_competition_attendance(uuid,text,text)','EXECUTE')
+     OR has_function_privilege('anon','public.admin_mark_competition_attendance(uuid,text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: unconfirmed legacy admin RPC remains directly exposed';
+  END IF;
+  IF to_regprocedure('public.admin_apply_competition_rewards(uuid)') IS NOT NULL
+     AND (has_function_privilege('authenticated','public.admin_apply_competition_rewards(uuid)','EXECUTE')
+       OR has_function_privilege('anon','public.admin_apply_competition_rewards(uuid)','EXECUTE')) THEN
+    RAISE EXCEPTION 'FAIL: internal competition reward helper remains directly exposed';
+  END IF;
+END
+$unconfirmed_admin_acl$;
+
+-- Explicit allowlist regression checks: reviewed member RPCs remain available,
+-- while privileged helper/admin-internal endpoints are not directly exposed.
+DO $explicit_allowlist$
+BEGIN
+  IF NOT has_function_privilege('authenticated','public.check_growth_achievements(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated lost the self-scoped achievement RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated lost the self-scoped level RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.check_activity_badges(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated lost the self-scoped activity badge RPC';
+  END IF;
+  IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can execute the internal points mutation helper';
+  END IF;
+  IF to_regprocedure('public.admin_apply_competition_rewards(uuid)') IS NOT NULL
+     AND has_function_privilege('authenticated','public.admin_apply_competition_rewards(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can execute the internal competition reward helper';
+  END IF;
+  IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: authenticated can execute the internal growth level helper';
+  END IF;
+  IF has_function_privilege('anon','public.is_admin()','EXECUTE') IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FAIL: anon cannot evaluate public RLS policies using is_admin()';
+  END IF;
+  IF to_regprocedure('public.is_admin_user()') IS NOT NULL
+     AND has_function_privilege('authenticated','public.is_admin_user()','EXECUTE') IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FAIL: authenticated cannot evaluate videos RLS policy using is_admin_user()';
+  END IF;
+END
+$explicit_allowlist$;
