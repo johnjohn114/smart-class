@@ -478,3 +478,26 @@ Deno.test("handler: distinguishes invalid credentials from Auth service outage",
   }
 });
 
+
+
+Deno.test("admin list: accepts an opaque pagination cursor", () => {
+  const cursor = "MjAyNi0xMS0yMFQxMDowMDowMFp8OWY0YzdhMmUtMWQ2My00YTgwLTliMjEtN2M2ZTVkNGYzYTIw";
+  const result = parseAdminListRequest(
+    new Request("https://local.test/list?limit=100&cursor=" + encodeURIComponent(cursor)),
+  );
+  if (result.limit !== 100 || result.cursor !== cursor) {
+    throw new Error("pagination cursor must be preserved");
+  }
+});
+
+Deno.test("admin list: rejects duplicate cursor parameters", () => {
+  let rejected = false;
+  try {
+    parseAdminListRequest(
+      new Request("https://local.test/list?cursor=first&cursor=second"),
+    );
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("duplicate cursor must be rejected");
+});
