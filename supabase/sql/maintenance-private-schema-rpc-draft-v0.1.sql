@@ -128,14 +128,14 @@ CREATE POLICY maintenance_scopes_public_enabled_select
   ON private.maintenance_scopes FOR SELECT TO anon, authenticated
   USING (enabled = true);
 CREATE POLICY maintenance_scopes_admin_select
-  ON private.maintenance_scopes FOR SELECT TO maintenance_rpc_executor
+  ON private.maintenance_scopes FOR SELECT TO authenticated, maintenance_rpc_executor
   USING (auth.uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_events_public_active_select
   ON private.maintenance_events FOR SELECT TO anon, authenticated
   USING (status = 'scheduled' AND starts_at <= pg_catalog.now() AND ends_at > pg_catalog.now());
 CREATE POLICY maintenance_events_admin_select
-  ON private.maintenance_events FOR SELECT TO maintenance_rpc_executor
+  ON private.maintenance_events FOR SELECT TO authenticated, maintenance_rpc_executor
   USING (auth.uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_events_admin_insert
   ON private.maintenance_events FOR INSERT TO maintenance_rpc_executor
@@ -146,7 +146,7 @@ CREATE POLICY maintenance_events_admin_update
   WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_event_private_notes_admin_select
-  ON private.maintenance_event_private_notes FOR SELECT TO maintenance_rpc_executor
+  ON private.maintenance_event_private_notes FOR SELECT TO authenticated, maintenance_rpc_executor
   USING (auth.uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_insert
   ON private.maintenance_event_private_notes FOR INSERT TO maintenance_rpc_executor
@@ -164,7 +164,7 @@ CREATE POLICY maintenance_event_scopes_public_select
       AND e.starts_at <= pg_catalog.now() AND e.ends_at > pg_catalog.now()
   ));
 CREATE POLICY maintenance_event_scopes_admin_select
-  ON private.maintenance_event_scopes FOR SELECT TO maintenance_rpc_executor
+  ON private.maintenance_event_scopes FOR SELECT TO authenticated, maintenance_rpc_executor
   USING (auth.uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_scopes_admin_insert
   ON private.maintenance_event_scopes FOR INSERT TO maintenance_rpc_executor
@@ -174,14 +174,14 @@ CREATE POLICY maintenance_event_scopes_admin_delete
   USING (auth.uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_audit_admin_select
-  ON private.maintenance_audit_logs FOR SELECT TO maintenance_rpc_executor
+  ON private.maintenance_audit_logs FOR SELECT TO authenticated, maintenance_rpc_executor
   USING (auth.uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_audit_admin_insert
   ON private.maintenance_audit_logs FOR INSERT TO maintenance_rpc_executor
   WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin() AND admin_id = auth.uid());
 
 CREATE POLICY maintenance_idempotency_admin_select
-  ON private.maintenance_idempotency FOR SELECT TO maintenance_rpc_executor
+  ON private.maintenance_idempotency FOR SELECT TO authenticated, maintenance_rpc_executor
   USING (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
 CREATE POLICY maintenance_idempotency_admin_insert
   ON private.maintenance_idempotency FOR INSERT TO maintenance_rpc_executor
@@ -202,6 +202,8 @@ GRANT SELECT (event_id,scope_code) ON private.maintenance_event_scopes TO anon;
 
 GRANT SELECT ON private.maintenance_events, private.maintenance_event_scopes,
   private.maintenance_scopes TO authenticated;
+GRANT SELECT ON private.maintenance_event_private_notes,
+  private.maintenance_audit_logs, private.maintenance_idempotency TO authenticated;
 
 -- Only the dedicated RPC owner receives the table privileges needed for validated mutations.
 GRANT USAGE ON SCHEMA public, private, auth TO maintenance_rpc_executor;
