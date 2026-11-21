@@ -17,6 +17,8 @@ import javax.crypto.spec.GCMParameterSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private class SupabaseHttpException(val statusCode: Int, message: String) : IllegalStateException(message)
+
 data class MemberSession(
     val userId: String,
     val email: String,
@@ -61,25 +63,33 @@ class SupabaseAuthRepository(context: Context) {
         val saved = sessionStore.read() ?: return@withContext null
         try {
             loadMember(saved.first)
-        } catch (_: Exception) {
-            try {
-                val refreshed = request(
+        } catch (error: SupabaseHttpException) {
+            // Only refresh an expired/invalid access token. Do not erase a valid
+            // saved session because of temporary network or profile-query errors.
+            if (error.statusCode != 401) throw error
+
+            val refreshed = try {
+                request(
                     path = "/auth/v1/token?grant_type=refresh_token",
                     method = "POST",
                     body = JSONObject().put("refresh_token", saved.second)
                 )
-                val access = refreshed.optString("access_token")
-                val refresh = refreshed.optString("refresh_token")
-                if (access.isBlank() || refresh.isBlank()) {
+            } catch (refreshError: SupabaseHttpException) {
+                if (refreshError.statusCode in 400..401) {
                     sessionStore.clear()
                     return@withContext null
                 }
-                sessionStore.save(access, refresh)
-                loadMember(access)
-            } catch (_: Exception) {
-                sessionStore.clear()
-                null
+                throw refreshError
             }
+            val access = refreshed.optString("access_token")
+            val refresh = refreshed.optString("refresh_token")
+            if (access.isBlank() || refresh.isBlank()) {
+                sessionStore.clear()
+                return@withContext null
+            }
+            // Persist the rotated refresh token before making profile requests.
+            sessionStore.save(access, refresh)
+            loadMember(access)
         }
     }
 
@@ -88,7 +98,7 @@ class SupabaseAuthRepository(context: Context) {
         if (saved != null) {
             runCatching {
                 request(
-                    path = "/auth/v1/logout",
+                    path = "/auth/v1/logout?scope=local",
                     method = "POST",
                     accessToken = saved.first
                 )
@@ -166,7 +176,7 @@ class SupabaseAuthRepository(context: Context) {
                         }
                     }
                 }.getOrDefault("")
-                throw IllegalStateException(detail.ifBlank { "連線失敗（HTTP $status），請稍後再試。" })
+                throw SupabaseHttpException(status, detail.ifBlank { "連線失敗（HTTP $status），請稍後再試。" })
             }
             return if (response.isBlank()) JSONObject() else JSONObject(response)
         } finally {
@@ -187,7 +197,7 @@ class SupabaseAuthRepository(context: Context) {
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (status !in 200..299) {
-                throw IllegalStateException("讀取會員資料失敗（HTTP $status）。")
+                throw SupabaseHttpException(status, "讀取會員資料失敗（HTTP $status）。")
             }
             return JSONArray(response)
         } finally {
