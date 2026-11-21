@@ -133,3 +133,16 @@ If any environment has applied the old pair, do not rewrite its history; write a
 - Static draft verifier reference identified.
 - No SQL or CI files changed in this review step.
 - No evidence yet about migration history in non-production environments; this remains the decision gate before executable edits.
+
+
+## Environment inventory check — 2026-11-22
+
+Read-only account inventory found:
+- Supabase account exposes one project: `private-website` (`fsoowongtavlsrwvzbze`).
+- That project has no Supabase-managed development branches.
+- Repository history document `docs/migration-history-reconciliation-v0.2.md` explicitly states Git commit history cannot prove SQL execution, and that Dashboard SQL Editor / deployment records had not been obtained.
+- Existing repository documentation records no Supabase CLI, Docker, psql, or pg_dump in the earlier local verification environment.
+
+This narrows the known Supabase-managed environment inventory to one production project, but does not prove that no external/local/manual PostgreSQL database exists or that no one has run the Maintenance migrations there. User confirmation is still required before rewriting the timestamped migration history.
+
+No additional Supabase project or branch was created. No SQL was executed.
