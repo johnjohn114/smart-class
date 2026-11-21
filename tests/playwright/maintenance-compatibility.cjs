@@ -109,6 +109,11 @@ async function createPageErrors(page) {
     });
     assert.notEqual(freshKey, firstKey, 'cleared idempotency key should be regenerated');
 
+    // Reveal only the maintenance panel inside this isolated browser test so
+    // its real controls can be exercised. The production feature flag and tab
+    // remain disabled; no Supabase request is made.
+    await page.locator('#maintenanceTab').evaluate(el => el.classList.remove('hidden'));
+
     // Exercise the actual cursor pager without enabling the production feature
     // or contacting Supabase. The request stub returns two deterministic pages.
     await page.evaluate(async () => {
