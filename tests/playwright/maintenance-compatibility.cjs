@@ -108,6 +108,55 @@ async function createPageErrors(page) {
       });
     });
     assert.notEqual(freshKey, firstKey, 'cleared idempotency key should be regenerated');
+
+    // Exercise the actual cursor pager without enabling the production feature
+    // or contacting Supabase. The request stub returns two deterministic pages.
+    await page.evaluate(async () => {
+      window.__maintenanceListCalls = [];
+      window.maintenanceAdminRequest = async path => {
+        window.__maintenanceListCalls.push(path);
+        const url = new URL(path, window.location.origin);
+        const cursor = url.searchParams.get('cursor');
+        if (!cursor) {
+          return {
+            events: [{ id: 'page-one', title: 'Page one', message: '', scopes: [] }],
+            next_cursor: 'opaque-cursor-page-two'
+          };
+        }
+        if (cursor === 'opaque-cursor-page-two') {
+          return {
+            events: [{ id: 'page-two', title: 'Page two', message: '', scopes: [] }],
+            next_cursor: null
+          };
+        }
+        throw new Error('Unexpected pagination cursor: ' + cursor);
+      };
+      await loadMaintenanceEvents({ reset: true });
+    });
+
+    assert.equal(await page.locator('#maintenanceEventList').getAttribute('class') !== null, true);
+    assert.match(await page.locator('#maintenancePagination').innerText(), /第 1 頁/);
+    assert.equal(await page.locator('#maintenancePrevPage').isDisabled(), true);
+    assert.equal(await page.locator('#maintenanceNextPage').isDisabled(), false);
+
+    await page.locator('#maintenanceNextPage').click();
+    await page.getByText('第 2 頁').waitFor();
+    assert.match(await page.locator('#maintenanceEventList').innerText(), /Page two/);
+    assert.equal(await page.locator('#maintenancePrevPage').isDisabled(), false);
+    assert.equal(await page.locator('#maintenanceNextPage').isDisabled(), true);
+
+    await page.locator('#maintenancePrevPage').click();
+    await page.getByText('第 1 頁').waitFor();
+    assert.match(await page.locator('#maintenanceEventList').innerText(), /Page one/);
+    const paginationCalls = await page.evaluate(() => window.__maintenanceListCalls);
+    assert.equal(paginationCalls.length, 3, 'first, next, and previous page requests should run');
+    assert.equal(new URL(paginationCalls[0], window.location.origin).searchParams.has('cursor'), false);
+    assert.equal(
+      new URL(paginationCalls[1], window.location.origin).searchParams.get('cursor'),
+      'opaque-cursor-page-two',
+      'next page must send the opaque cursor unchanged'
+    );
+    assert.equal(new URL(paginationCalls[2], window.location.origin).searchParams.has('cursor'), false);
     assert.deepEqual(errors, [], 'admin runtime errors: ' + errors.join('; '));
     await page.close();
   }
