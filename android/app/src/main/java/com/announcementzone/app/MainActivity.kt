@@ -21,29 +21,42 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.launch
 
 private data class AppTab(val route: String, val title: String, val symbol: String)
 
@@ -103,6 +116,8 @@ private fun SmartClassApp(
     onNavReady: (NavHostController) -> Unit
 ) {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val authRepository = remember { SupabaseAuthRepository(context) }
     SideEffect { onNavReady(navController) }
 
     MaterialTheme(
@@ -164,18 +179,7 @@ private fun SmartClassApp(
                     )
                 }
                 composable("member") {
-                    FeatureScreen(
-                        title = "會員中心",
-                        description = "登入後管理個人資料、成長紀錄與服務。",
-                        features = listOf(
-                            "登入／登出與個人資料",
-                            "競賽、簽到、徽章與活動紀錄",
-                            "點數、等級、任務與成就",
-                            "通知、優惠券與獎勵兌換",
-                            "訂單、客服與回覆",
-                            "設定、下載與版本更新"
-                        )
-                    )
+                    MemberScreen(repository = authRepository)
                 }
             }
         }
@@ -286,5 +290,170 @@ private fun FeatureCard(
             }
             if (onClick != null) Text("›", color = BrandBlue, fontSize = 24.sp)
         }
+    }
+}
+
+
+@Composable
+private fun MemberScreen(repository: SupabaseAuthRepository) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var member by remember { mutableStateOf<MemberSession?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var working by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(repository) {
+        loading = true
+        member = repository.restoreSession()
+        loading = false
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("會員中心", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+            Text(
+                "使用原本網站的 Supabase 會員帳號登入",
+                color = Color(0xFF68708A),
+                fontSize = 14.sp
+            )
+        }
+        if (loading) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 36.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) { CircularProgressIndicator() }
+            }
+        } else if (member == null) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("會員登入", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Email") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("密碼") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        if (errorMessage.isNotBlank()) {
+                            Text(errorMessage, color = Color(0xFFB3261E), fontSize = 13.sp)
+                        }
+                        Button(
+                            onClick = {
+                                if (email.isBlank() || password.isEmpty()) {
+                                    errorMessage = "請輸入 Email 和密碼。"
+                                } else {
+                                    working = true
+                                    errorMessage = ""
+                                    scope.launch {
+                                        try {
+                                            member = repository.signIn(email, password)
+                                            password = ""
+                                        } catch (error: Exception) {
+                                            errorMessage = error.message ?: "登入失敗，請稍後再試。"
+                                        } finally {
+                                            working = false
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !working,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (working) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.height(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White
+                                )
+                            } else {
+                                Text("登入")
+                            }
+                        }
+                        Text(
+                            "這裡不會要求你建立新帳號；請使用原本網站的會員帳號。",
+                            color = Color(0xFF68708A),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        } else {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Text("登入成功", color = Color(0xFF247044), fontWeight = FontWeight.SemiBold)
+                        Text(
+                            member?.nickname?.takeIf { it.isNotBlank() } ?: "會員",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BrandBlue
+                        )
+                        MemberInfoRow("會員編號", member?.memberNumber ?: "—")
+                        MemberInfoRow("Email", member?.email ?: "—")
+                        MemberInfoRow("帳號身分", member?.role ?: "一般會員")
+                        TextButton(
+                            onClick = {
+                                working = true
+                                scope.launch {
+                                    repository.signOut()
+                                    member = null
+                                    working = false
+                                }
+                            },
+                            enabled = !working
+                        ) { Text("登出") }
+                    }
+                }
+            }
+            item {
+                Text("會員功能", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                Text(
+                    "個人資料、競賽紀錄、簽到、徽章、成長點數、通知、優惠券、獎勵、訂單與客服等功能將陸續接入。",
+                    color = Color(0xFF68708A),
+                    fontSize = 13.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemberInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = Color(0xFF68708A), fontSize = 13.sp)
+        Text(value, color = Color(0xFF20264F), fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
