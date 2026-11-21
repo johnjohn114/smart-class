@@ -28,6 +28,7 @@ jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string';
 starts_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 ends_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);
+jsonb_typeof(item.value) IS DISTINCT FROM 'string';
 """
 
 UPDATE_BODY = """
@@ -40,6 +41,7 @@ jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string';
 starts_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 ends_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);
+jsonb_typeof(item.value) IS DISTINCT FROM 'string';
 """
 
 GOOD = (
