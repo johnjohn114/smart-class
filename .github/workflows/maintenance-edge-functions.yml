@@ -270,7 +270,12 @@ jobs:
       - name: Verify Edge runtime through GoTrue and PostgREST
         env:
           GOTRUE_URL: http://127.0.0.1:9999
-        run: python supabase/tests/functions/test_maintenance_runtime_integration.py
+        run: |
+          python supabase/tests/functions/test_maintenance_runtime_integration.py || {
+            cat /tmp/maintenance-edge-runtime.log
+            cat /tmp/maintenance-proxy.log
+            exit 1
+          }
 
       - name: Verify GoTrue-issued JWT, roles, RPC, RLS and concurrency
         env:
