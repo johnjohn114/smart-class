@@ -112,3 +112,28 @@ Required order:
 5. Only then request separate approval for production migration, Edge Function deployment, smoke tests, and feature-flag activation.
 
 This addendum records review findings only. It does not modify runtime code or production Supabase.
+
+
+## Historical migration-by-migration reconciliation — 2026-11-22
+
+The following comparison adds catalog evidence from production. It remains read-only.
+
+| Repository migration file | Live evidence | Assessment |
+|---|---|---|
+| 202610310001_app_releases.sql | The live app_releases columns, constraints, unique version index, and five RLS policies match this file's shape and policy model. | Strong match, but do not mark applied until every grant/default and table property is compared. |
+| 20261031_app_releases.sql | Live app_releases has no is_latest column, no is_app_release_admin() helper, and no published index referencing is_latest. | Not equivalent to live schema. Its index statement would fail against the current table shape. The filename also does not follow the documented 14-digit timestamp convention; validate CLI recognition before any migration operation. |
+| 202611160001_growth_function_authorization_hardening.sql | Several target growth functions exist, but live public default function privileges still grant anon/authenticated EXECUTE, and sampled functions such as admin_delete_growth_reward and refresh_growth_level still have anon EXECUTE. | The hardening effects are not present as a complete set. Do not mark applied. The function definitions and all ACLs need a per-function diff before deciding whether any parts were applied manually. |
+| 202611170001_default_privileges_and_trigger_hardening.sql | Live postgres default ACLs in public still grant anon/authenticated/service_role table privileges, sequence privileges, and function EXECUTE. | The intended default-privilege hardening is not present. Do not mark applied. |
+| 20261117121103_maintenance_system_initial.sql | private schema, all six Maintenance tables, Maintenance RPCs, and supporting role/policies are absent. | Not applied. |
+| 20261121140000_maintenance_rpc_least_privilege_upgrade.sql | maintenance_rpc_executor, Maintenance tables, and Maintenance RPCs are absent. | Not applied; it depends on the initial Maintenance migration. |
+| 26.11.3_calendar_fields.sql | All four calendar columns, both named check constraints, and the partial calendar index exist with matching definitions. | Strong match, but do not mark applied until the full ALTER/index effects and migration filename recognition are verified. |
+
+### Important baseline conclusion
+
+A migration file's apparent match to the live schema is not sufficient evidence to mark it applied. The live project has no visible migration history table, while at least two migration files do not match the live schema and two hardening migrations' intended ACL/default-ACL effects are absent. The baseline must be reconstructed from a full schema-only comparison and file-by-file evidence; no blanket migration repair status applied operation is safe.
+
+### CLI documentation note
+
+Current Supabase CLI documentation explains that migration repair changes only the migration-history records and does not execute or reverse SQL. Therefore it must only be used after independently proving that each migration's effects are already present (or absent for a reverted status). CLI v3 also changed hosted-command targeting and confirmation behavior; any later operator run must use explicit remote targeting and inspect the installed CLI version first.
+
+No migration history was repaired and no remote command was run.
