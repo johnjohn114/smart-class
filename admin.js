@@ -1010,6 +1010,26 @@ function maintenanceUuid() {
     hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
 }
 
+// Reuse one key for an identical logical operation after a timeout/network error.
+// A changed payload gets a new key; a successful operation releases its key.
+const maintenancePendingIdempotency = new Map();
+
+function maintenanceIdempotencyKey(operation, payload) {
+  const signature = operation + ':' + JSON.stringify(payload);
+  if (!maintenancePendingIdempotency.has(signature)) {
+    if (maintenancePendingIdempotency.size >= 100) {
+      const oldest = maintenancePendingIdempotency.keys().next().value;
+      if (oldest) maintenancePendingIdempotency.delete(oldest);
+    }
+    maintenancePendingIdempotency.set(signature, maintenanceUuid());
+  }
+  return maintenancePendingIdempotency.get(signature);
+}
+
+function maintenanceClearIdempotencyKey(operation, payload) {
+  maintenancePendingIdempotency.delete(operation + ':' + JSON.stringify(payload));
+}
+
 async function maintenanceAdminRequest(path, options = {}) {
   const session = recoverStoredSession();
   const token = session.access || localStorage.getItem('access_token') ||
@@ -1237,7 +1257,6 @@ async function saveMaintenanceEvent() {
     message,
     internal_note: internalNote,
     reason,
-    idempotency_key: maintenanceUuid()
   };
 
   // Active scheduled events may change descriptive fields only; the database rejects schedule changes.
@@ -1254,15 +1273,17 @@ async function saveMaintenanceEvent() {
   } else {
     body.status = 'draft';
   }
+  const operation = eventId ? 'maintenance-event-update' : 'maintenance-event-create';
+  body.idempotency_key = maintenanceIdempotencyKey(operation, body);
 
   if (button) button.disabled = true;
   msg('maintenanceMsg', eventId ? '⏳ 正在儲存修改…' : '⏳ 正在建立維護草稿…');
 
   try {
-    await maintenanceAdminRequest(
-      eventId ? 'maintenance-event-update' : 'maintenance-event-create',
-      { method: 'POST', body }
-    );
+    await maintenanceAdminRequest(operation, { method: 'POST', body });
+    maintenanceClearIdempotencyKey(operation, Object.fromEntries(
+      Object.entries(body).filter(([key]) => key !== 'idempotency_key')
+    ));
     msg('maintenanceMsg', eventId ? '✅ 維護事件已更新。' : '✅ 維護草稿已建立；確認時間與範圍後，可在事件清單安排維護。');
     maintenanceClearForm();
     await loadMaintenanceEvents();
@@ -1287,17 +1308,22 @@ async function maintenanceRunAction(eventId, action) {
   const labels = { schedule: '安排維護', cancel: '取消排程', complete: '完成維護' };
   if (!confirm('確定要「' + (labels[action] || action) + '」嗎？')) return;
 
+  const actionBody = {
+    event_id: event.id,
+    expected_version: Number(event.version),
+    action,
+    reason
+  };
+  actionBody.idempotency_key = maintenanceIdempotencyKey('maintenance-event-action', actionBody);
+
   try {
     await maintenanceAdminRequest('maintenance-event-action', {
       method: 'POST',
-      body: {
-        event_id: event.id,
-        expected_version: Number(event.version),
-        action,
-        reason,
-        idempotency_key: maintenanceUuid()
-      }
+      body: actionBody
     });
+    maintenanceClearIdempotencyKey('maintenance-event-action', Object.fromEntries(
+      Object.entries(actionBody).filter(([key]) => key !== 'idempotency_key')
+    ));
     msg('maintenanceMsg', '✅ 已完成：' + (labels[action] || action));
     await loadMaintenanceEvents();
   } catch (error) {
