@@ -51,7 +51,56 @@ BEGIN
     RAISE EXCEPTION 'FAIL: anon cannot execute the public status RPC';
   END IF;
 END
-$$;
+$;
+
+-- The admin RPC owner is non-login, non-superuser, and cannot bypass RLS.
+DO $
+DECLARE
+  executor record;
+  table_name text;
+  function_name text;
+BEGIN
+  SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole
+    INTO executor FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor';
+  IF executor.rolcanlogin OR executor.rolsuper OR executor.rolbypassrls
+     OR executor.rolcreatedb OR executor.rolcreaterole THEN
+    RAISE EXCEPTION 'FAIL: maintenance RPC executor has elevated role attributes';
+  END IF;
+
+  FOREACH table_name IN ARRAY ARRAY[
+    'maintenance_scopes','maintenance_events','maintenance_event_private_notes',
+    'maintenance_event_scopes','maintenance_audit_logs','maintenance_idempotency'
+  ] LOOP
+    IF pg_catalog.has_table_privilege('authenticated','private.'||table_name,'INSERT')
+       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'UPDATE')
+       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'DELETE') THEN
+      RAISE EXCEPTION 'FAIL: authenticated has direct write privilege on %', table_name;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='private' AND c.relname=table_name
+        AND c.relrowsecurity AND c.relforcerowsecurity
+        AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor')
+    ) THEN
+      RAISE EXCEPTION 'FAIL: table % must FORCE RLS and not be owned by executor', table_name;
+    END IF;
+  END LOOP;
+
+  FOREACH function_name IN ARRAY ARRAY[
+    'maintenance_admin_list','maintenance_event_create',
+    'maintenance_event_update','maintenance_event_action'
+  ] LOOP
+    IF (SELECT r.rolname
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+        WHERE n.nspname='public' AND p.proname=function_name) <> 'maintenance_rpc_executor' THEN
+      RAISE EXCEPTION 'FAIL: admin RPC % is not owned by dedicated executor', function_name;
+    END IF;
+  END LOOP;
+END
+$;
 
 -- Anonymous caller can read the public status function, but no maintenance is active yet.
 SET ROLE anon;
