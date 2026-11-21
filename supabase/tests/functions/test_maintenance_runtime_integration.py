@@ -129,7 +129,7 @@ def main():
 if __name__ == "__main__":
     for _ in range(30):
         try:
-            status, _ = request(EDGE + "/maintenance-status")
+            status, _ = request("http://127.0.0.1:8002/__health")
             if status == 200:
                 break
         except Exception:
