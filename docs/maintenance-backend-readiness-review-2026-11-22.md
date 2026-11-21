@@ -137,3 +137,58 @@ A migration file's apparent match to the live schema is not sufficient evidence 
 Current Supabase CLI documentation explains that migration repair changes only the migration-history records and does not execute or reverse SQL. Therefore it must only be used after independently proving that each migration's effects are already present (or absent for a reverted status). CLI v3 also changed hosted-command targeting and confirmation behavior; any later operator run must use explicit remote targeting and inspect the installed CLI version first.
 
 No migration history was repaired and no remote command was run.
+
+
+## Proposed migration cleanup plan — review only
+
+This section is a plan, not an instruction to run SQL. No historical migration file or runtime code was changed as part of this review.
+
+### A. Preserve history; do not silently rewrite old files
+
+1. Keep the seven existing SQL files intact while reconstructing their actual execution history and effects.
+2. Treat the two app-release scripts as competing historical definitions, not as sequential migrations:
+   - `202610310001_app_releases.sql` is the best match for the current live table shape and current five policies.
+   - `20261031_app_releases.sql` describes a different table contract (`is_latest`, HTTPS URL check, helper function and different policy names). It is not a safe follow-on migration for the current live table.
+3. Before any CLI history operation, confirm the installed Supabase CLI version and how it parses the non-standard eight-digit filename `20261031_app_releases.sql` and the dotted filename `26.11.3_calendar_fields.sql`. Do not rename them in place until their source-control and deployment history is understood.
+4. The calendar migration's columns, constraints and index are present in production. Capture a full schema-only definition and verify grants, RLS state, and exact constraint/index definitions before considering a history baseline entry.
+5. The two hardening migrations are not equivalent to the current live ACL/default-ACL state. Do not mark them applied. Review their complete function definitions, object ACLs, and default ACL side effects before applying them in an isolated clone.
+
+### B. Establish a trustworthy baseline
+
+1. Export a schema-only snapshot from production using a trusted Supabase backup/export process; do not include row data or secrets in the public GitHub repository.
+2. Compare all seven files with the live catalog, including table columns/defaults/constraints/indexes, RLS and policies, function bodies/security modes/search_path/ACLs, triggers, sequences, and default privileges.
+3. Build an evidence table for each file with one of: fully present and equivalent, partially present/drifted, absent, or not safely classifiable.
+4. Only fully present and equivalent files may be considered for a migration-history repair entry. Partially present/drifted files must be split into a reviewed forward-fix migration; absent files may be scheduled as new migrations after their dependencies are validated.
+5. Never use a blanket repair-all-applied operation. Never use history repair as a substitute for executing SQL.
+
+### C. Resolve the app-release migration conflict
+
+1. Keep the live `app_releases` contract as the source of truth unless a separately approved product change requires a schema redesign.
+2. Do not apply the legacy `is_latest` script to production. First determine whether any client code or historical release notes depend on `is_latest`, `is_app_release_admin()`, or its alternate policy names.
+3. If the second script is obsolete, move it out of the active migration queue only through a reviewed repository change that preserves the original SQL in an archival location and documents why it is not runnable against the live contract. Do not delete the historical source.
+4. Confirm migration filename/version conventions with the actual CLI before choosing an archive or replacement filename.
+
+### D. Harden existing application permissions separately from Maintenance
+
+1. Review the growth hardening migration function-by-function against production definitions. In particular, compare every `CREATE OR REPLACE FUNCTION` body, SECURITY DEFINER/INVOKER mode, `search_path`, owner, and EXECUTE ACL.
+2. Review the default-privilege migration as a separate, high-impact change: it changes future object defaults for the postgres owner in public and removes direct API-role EXECUTE from several trigger functions. Test new table/sequence/function creation and all affected app workflows in an isolated PostgreSQL 17 environment.
+3. Preserve Supabase-managed schemas and defaults; do not expand the change to storage or other platform-owned schemas without a separate review.
+4. Run regression tests for visitor creation, profile triggers, growth tasks/rewards, registration, announcements, app releases, and all RPCs before approving these hardening migrations.
+
+### E. Rebuild Maintenance as one secure release unit
+
+1. Produce one final initial Maintenance migration whose first committed state already has the executor role, FORCE RLS, restricted table grants, safe mutation policies, and SECURITY DEFINER admin RPCs.
+2. Remove the temporary direct authenticated INSERT/UPDATE/DELETE grants and temporary SECURITY INVOKER write-RPC state from the initial deployment path. The least-privilege upgrade migration must not be required to make the initial deployment safe.
+3. Keep the public status RPC SECURITY INVOKER and keep the private schema excluded from Data API Exposed schemas.
+4. Run the existing disposable PostgreSQL + GoTrue/PostgREST + Deno/Playwright test suite against only the final migration sequence. Include a failure-injection check proving that no partially applied intermediate state can be committed.
+5. Keep production deployment, Edge Function deployment, feature-flag activation, and PR merge as separate approval gates.
+
+### F. Next implementation sequence
+
+- Step 1: Complete the schema-only production export and the exact per-function/default-ACL diff. Read-only only.
+- Step 2: Prepare a repository-only migration archive/baseline proposal with a file-by-file evidence ledger; do not run remote migration repair.
+- Step 3: Create a separate integration branch change for the app-release conflict and secure Maintenance migration consolidation.
+- Step 4: Run isolated tests and compare the resulting schema/ACLs with the approved target.
+- Step 5: Present the diff and test results for review before any production operation.
+
+**Current permission boundary:** this approval covers analysis and repository review planning only. It does not authorize production SQL, migration repair, Edge Function deployment, feature flag changes, PR merge, or changes to the live site.
