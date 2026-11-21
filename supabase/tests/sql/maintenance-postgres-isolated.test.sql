@@ -51,10 +51,10 @@ BEGIN
     RAISE EXCEPTION 'FAIL: anon cannot execute the public status RPC';
   END IF;
 END
-$;
+$$;
 
 -- The admin RPC owner is non-login, non-superuser, and cannot bypass RLS.
-DO $
+DO $$
 DECLARE
   executor record;
   table_name text;
@@ -100,7 +100,7 @@ BEGIN
     END IF;
   END LOOP;
 END
-$;
+$$;
 
 -- Anonymous caller can read the public status function, but no maintenance is active yet.
 SET ROLE anon;
