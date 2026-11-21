@@ -41,8 +41,9 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         )
     for rpc, body in bodies.items():
         checks[f"rpc:{rpc}"] = bool(body)
-        checks[f"invoker:{rpc}"] = bool(
-            body and re.search(r"SECURITY\s+INVOKER", body, re.I)
+        expected_security = "INVOKER" if rpc == "maintenance_status_public" else "DEFINER"
+        checks[f"security:{rpc}"] = bool(
+            body and re.search(rf"SECURITY\s+{expected_security}", body, re.I)
             and re.search(r"SET\s+search_path\s*=\s*''", body, re.I)
         )
 
@@ -90,7 +91,36 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["no_service_role_grants"] = not bool(
         re.search(r"GRANT\b[^;]*\bTO\s+[^;]*service_role", sql, re.I | re.S)
     )
-    checks["no_security_definer"] = not bool(re.search(r"SECURITY\s+DEFINER", sql, re.I))
+    checks["dedicated_executor_role"] = bool(re.search(
+        r"CREATE ROLE maintenance_rpc_executor\s+NOLOGIN NOINHERIT NOSUPERUSER "
+        r"NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS", sql, re.I
+    ))
+    checks["executor_owns_only_functions"] = all(
+        f"ALTER FUNCTION public.{rpc}(jsonb) OWNER TO maintenance_rpc_executor;" in sql
+        for rpc in ("maintenance_admin_list", "maintenance_event_create",
+                    "maintenance_event_update", "maintenance_event_action")
+    )
+    checks["force_rls_all_tables"] = all(
+        f"ALTER TABLE private.{table} FORCE ROW LEVEL SECURITY;" in sql
+        for table in TABLES
+    )
+    checks["admin_policies_target_executor"] = all(
+        re.search(rf"CREATE POLICY {policy}\b.*?TO maintenance_rpc_executor", sql, re.I | re.S)
+        for policy in (
+            "maintenance_scopes_admin_select", "maintenance_events_admin_select",
+            "maintenance_events_admin_insert", "maintenance_events_admin_update",
+            "maintenance_event_private_notes_admin_select",
+            "maintenance_event_private_notes_admin_insert",
+            "maintenance_event_private_notes_admin_update",
+            "maintenance_event_scopes_admin_select", "maintenance_event_scopes_admin_insert",
+            "maintenance_event_scopes_admin_delete", "maintenance_audit_admin_select",
+            "maintenance_audit_admin_insert", "maintenance_idempotency_admin_select",
+            "maintenance_idempotency_admin_insert",
+        )
+    )
+    checks["no_authenticated_direct_write_grants"] = not bool(re.search(
+        r"GRANT\s+(?:INSERT|UPDATE|DELETE|ALL)[^;]*\bTO\s+authenticated", sql, re.I | re.S
+    ))
     checks["audit_update_delete_guard"] = "BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs" in sql
     checks["audit_truncate_guard"] = "BEFORE TRUNCATE ON private.maintenance_audit_logs" in sql
     checks["idempotency_unique_actor_key"] = "PRIMARY KEY(actor_id, idempotency_key)" in sql
@@ -114,15 +144,13 @@ def inspect_sql(sql: str) -> dict[str, bool]:
             (action_body, "'site_core'=ANY(v_codes)"),
         )
     ) and sql.count("es.scope_code='site_core' OR es.scope_code=ANY(v_codes)") >= 3
-    checks["notes_column_scoped_insert"] = (
-        "GRANT INSERT (event_id,internal_note)" in sql
-        and "ON private.maintenance_event_private_notes TO authenticated;" in sql
-    )
-    checks["notes_column_scoped_update"] = (
-        "GRANT UPDATE (internal_note,updated_at)" in sql
-        and "ON private.maintenance_event_private_notes TO authenticated;" in sql
-        and "GRANT SELECT, INSERT, UPDATE ON private.maintenance_event_private_notes" not in sql
-        and "GRANT UPDATE ON private.maintenance_event_private_notes" not in sql
+    checks["executor_minimum_write_grants"] = all(
+        marker in sql for marker in (
+            "GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;",
+            "GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO maintenance_rpc_executor;",
+            "GRANT INSERT, DELETE ON private.maintenance_event_scopes TO maintenance_rpc_executor;",
+            "GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO maintenance_rpc_executor;",
+        )
     )
     checks["notes_admin_only_rls"] = (
         "CREATE POLICY maintenance_event_private_notes_admin_select" in sql
