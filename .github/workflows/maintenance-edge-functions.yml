@@ -186,10 +186,12 @@ jobs:
             -v member_id="$TEST_MEMBER_ID" \
             -f supabase/tests/sql/maintenance-gotrue-bootstrap.sql
 
-      - name: Apply maintenance SQL draft to disposable GoTrue database
+      - name: Apply ordered maintenance migrations to disposable GoTrue database
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261117121103_maintenance_system_initial.sql
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261117121103_maintenance_system_initial.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261121140000_maintenance_rpc_least_privilege_upgrade.sql
 
       - name: Start PostgREST against GoTrue database
         run: |
