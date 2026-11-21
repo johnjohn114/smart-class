@@ -127,14 +127,17 @@ def main():
     print("PASS: Deno Edge handler / GoTrue / PostgREST runtime integration suite")
 
 if __name__ == "__main__":
+    import urllib.request
+    last_error = "no response"
     for _ in range(30):
         try:
-            status, _ = request("http://127.0.0.1:8002/__health")
-            if status == 200:
-                break
-        except Exception:
-            pass
+            with urllib.request.urlopen("http://127.0.0.1:8002/__health", timeout=3) as response:
+                if response.status == 200:
+                    break
+                last_error = f"HTTP {response.status}"
+        except Exception as error:
+            last_error = repr(error)
         time.sleep(1)
     else:
-        raise SystemExit("Deno maintenance runtime did not become ready")
+        raise SystemExit(f"Deno maintenance runtime did not become ready: {last_error}")
     main()
