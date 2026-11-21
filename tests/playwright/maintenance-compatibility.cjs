@@ -159,13 +159,13 @@ async function createPageErrors(page) {
     assert.match(await page.locator('#maintenanceEventList').innerText(), /Page one/);
     const paginationCalls = await page.evaluate(() => window.__maintenanceListCalls);
     assert.equal(paginationCalls.length, 3, 'first, next, and previous page requests should run');
-    assert.equal(new URL(paginationCalls[0], window.location.origin).searchParams.has('cursor'), false);
+    assert.equal(new URL(paginationCalls[0], BASE_URL).searchParams.has('cursor'), false);
     assert.equal(
-      new URL(paginationCalls[1], window.location.origin).searchParams.get('cursor'),
+      new URL(paginationCalls[1], BASE_URL).searchParams.get('cursor'),
       'opaque-cursor-page-two',
       'next page must send the opaque cursor unchanged'
     );
-    assert.equal(new URL(paginationCalls[2], window.location.origin).searchParams.has('cursor'), false);
+    assert.equal(new URL(paginationCalls[2], BASE_URL).searchParams.has('cursor'), false);
     assert.deepEqual(errors, [], 'admin runtime errors: ' + errors.join('; '));
     await page.close();
   }
