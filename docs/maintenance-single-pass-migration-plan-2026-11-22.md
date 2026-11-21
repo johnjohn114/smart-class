@@ -88,3 +88,48 @@ The Playwright browser compatibility test was inspected and exercises the featur
 - Existing single-pass SQL draft located and reviewed in sections.
 - No new executable migration created yet; this is intentional pending migration-history and CI-reference checks.
 - No production SQL executed, no deployment, no feature flag change, no merge.
+
+
+## CI and repository reference inventory — 2026-11-22
+
+Inspected the recursive Git tree at integration commit `5cd64d061768147cf0e57b4bf93f7902b3166b1b`, the workflow directory, SQL test directory, and relevant test runner files.
+
+### Direct references to the two current Maintenance migration files
+
+1. `.github/workflows/maintenance-edge-functions.yml`
+   - GoTrue/PostgREST job applies both files sequentially with explicit `psql -f` commands.
+2. `supabase/tests/sql/maintenance-postgres-isolated.test.sql`
+   - Includes both files using psql `\\ir` directives.
+3. `supabase/migrations/`
+   - Both migration files are present as ordered migration history entries.
+
+### Draft-based static guardrail references
+
+- `scripts/verify_maintenance_sql_draft.py` reads `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`.
+- `tests/test_verify_maintenance_sql_draft.py` tests that static verifier; it does not itself directly name either timestamped migration.
+- `maintenance-edge-functions.yml` runs both the verifier and its unit tests, and watches changes under `supabase/sql/**` and `supabase/migrations/**`.
+
+### Separate migration-generation workflow
+
+- `.github/workflows/generate-maintenance-v1-migration.yml` generates a timestamped shell on the separate branch `migration/maintenance-v1-20261117`. It does not apply either current Maintenance migration in the integration workflow, but its branch-specific behavior should be checked before retiring or reusing that migration branch.
+
+### Important environment-history limitation
+
+Repository and CI inspection cannot establish whether a migration has been applied to a developer, preview, staging, or other shared database. The production read-only inspection found no Maintenance objects, but that is only evidence about the inspected production project. Before squashing/replacing timestamped migration files, obtain an explicit inventory of all databases/environments and their migration history. If any environment has applied either file, preserve its history and use a forward-upgrade path for that environment.
+
+### Required coordinated edits once history is known
+
+If all target environments are confirmed clean and unapplied, update together:
+- replace/squash the two timestamped migration files with the final single-pass bootstrap (preserving a clear migration timestamp);
+- change the two direct apply references in the workflow and isolated SQL harness to the single new file;
+- retain/update static draft verification so the tested SQL source and migration cannot silently drift (prefer testing the actual migration file or asserting byte-for-byte generation/source parity);
+- run both PostgreSQL isolated and GoTrue/PostgREST integration jobs, plus Deno, feature-gate, Playwright, and static SQL checks.
+
+If any environment has applied the old pair, do not rewrite its history; write a forward migration and retain the old migration references for fresh installs unless a carefully coordinated baseline/squash strategy is documented for every environment.
+
+## Updated status
+
+- Exact direct migration references identified: 2 execution locations plus migration directory entries.
+- Static draft verifier reference identified.
+- No SQL or CI files changed in this review step.
+- No evidence yet about migration history in non-production environments; this remains the decision gate before executable edits.
