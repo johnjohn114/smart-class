@@ -421,3 +421,60 @@ Deno.test("handler: blocks unapproved origins", async () => {
   }
 });
 
+Deno.test("request body: rejects invalid UTF-8", async () => {
+  const req = new Request("https://local.test/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: new Uint8Array([0xff, 0x7b, 0x7d]),
+  });
+  let rejected = false;
+  try {
+    await parseCreateRequest(req);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("invalid UTF-8 must be rejected");
+});
+
+Deno.test("handler: distinguishes invalid credentials from Auth service outage", async () => {
+  const originalFetch = globalThis.fetch;
+  const previousUrl = Deno.env.get("SUPABASE_URL");
+  const previousKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  Deno.env.set("SUPABASE_URL", "https://auth-test.invalid");
+  Deno.env.set("SUPABASE_PUBLISHABLE_KEY", "test-publishable-key");
+
+  const handler = createMaintenanceHandler({
+    method: "POST",
+    auth: "required",
+    rpc: "maintenance_event_create",
+    parse: () => ({}),
+  });
+
+  try {
+    globalThis.fetch = async () => new Response("{}", { status: 401 });
+    const invalid = await handler(new Request("https://local.test/create", {
+      method: "POST",
+      headers: { Authorization: "Bearer invalid-token" },
+    }));
+    if (invalid.status !== 401) {
+      throw new Error("invalid credentials must return 401");
+    }
+
+    globalThis.fetch = async () => new Response("{}", { status: 503 });
+    const unavailable = await handler(new Request("https://local.test/create", {
+      method: "POST",
+      headers: { Authorization: "Bearer valid-looking-token" },
+    }));
+    const body = await unavailable.json();
+    if (unavailable.status !== 503 || body.error?.code !== "AUTH_UNAVAILABLE") {
+      throw new Error("Auth service outage must return 503 AUTH_UNAVAILABLE");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", previousUrl);
+    if (previousKey === undefined) Deno.env.delete("SUPABASE_PUBLISHABLE_KEY");
+    else Deno.env.set("SUPABASE_PUBLISHABLE_KEY", previousKey);
+  }
+});
+
