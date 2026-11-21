@@ -421,3 +421,158 @@ Deno.test("handler: blocks unapproved origins", async () => {
   }
 });
 
+Deno.test("request body: rejects invalid UTF-8", async () => {
+  const req = new Request("https://local.test/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: new Uint8Array([0xff, 0x7b, 0x7d]),
+  });
+  let rejected = false;
+  try {
+    await parseCreateRequest(req);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("invalid UTF-8 must be rejected");
+});
+
+Deno.test("handler: distinguishes invalid credentials from Auth service outage", async () => {
+  const originalFetch = globalThis.fetch;
+  const previousUrl = Deno.env.get("SUPABASE_URL");
+  const previousKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  Deno.env.set("SUPABASE_URL", "https://auth-test.invalid");
+  Deno.env.set("SUPABASE_PUBLISHABLE_KEY", "test-publishable-key");
+
+  const handler = createMaintenanceHandler({
+    method: "POST",
+    auth: "required",
+    rpc: "maintenance_event_create",
+    parse: () => ({}),
+  });
+
+  try {
+    globalThis.fetch = async () => new Response("{}", { status: 401 });
+    const invalid = await handler(new Request("https://local.test/create", {
+      method: "POST",
+      headers: { Authorization: "Bearer invalid-token" },
+    }));
+    if (invalid.status !== 401) {
+      throw new Error("invalid credentials must return 401");
+    }
+
+    globalThis.fetch = async () => new Response("{}", { status: 503 });
+    const unavailable = await handler(new Request("https://local.test/create", {
+      method: "POST",
+      headers: { Authorization: "Bearer valid-looking-token" },
+    }));
+    const body = await unavailable.json();
+    if (unavailable.status !== 503 || body.error?.code !== "AUTH_UNAVAILABLE") {
+      throw new Error("Auth service outage must return 503 AUTH_UNAVAILABLE");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", previousUrl);
+    if (previousKey === undefined) Deno.env.delete("SUPABASE_PUBLISHABLE_KEY");
+    else Deno.env.set("SUPABASE_PUBLISHABLE_KEY", previousKey);
+  }
+});
+
+Deno.test("admin list: accepts an opaque pagination cursor", () => {
+  const cursor = "MjAyNi0xMS0yMFQxMDowMDowMFp8OWY0YzdhMmUtMWQ2My00YTgwLTliMjEtN2M2ZTVkNGYzYTIw";
+  const result = parseAdminListRequest(
+    new Request("https://local.test/list?limit=100&cursor=" + encodeURIComponent(cursor)),
+  );
+  if (result.limit !== 100 || result.cursor !== cursor) {
+    throw new Error("pagination cursor must be preserved");
+  }
+});
+
+Deno.test("admin list: rejects duplicate cursor parameters", () => {
+  let rejected = false;
+  try {
+    parseAdminListRequest(
+      new Request("https://local.test/list?cursor=first&cursor=second"),
+    );
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("duplicate cursor must be rejected");
+});
+
+Deno.test("handler: keeps RPC success responses in a single envelope", async () => {
+  const previousUrl = Deno.env.get("SUPABASE_URL");
+  const previousKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  const originalFetch = globalThis.fetch;
+  const statusData = {
+    is_maintenance: true,
+    admin_bypass: false,
+    title: "測試維護",
+    message: "測試公告",
+  };
+  const listData = {
+    events: [{ id: uuid, title: "測試事件", scopes: [] }],
+    next_cursor: "next-page-token",
+  };
+
+  Deno.env.set("SUPABASE_URL", "https://maintenance-contract.test");
+  Deno.env.set("SUPABASE_PUBLISHABLE_KEY", "test-publishable-key");
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/auth/v1/user")) {
+      return Response.json({ id: uuid });
+    }
+    if (url.endsWith("/rest/v1/rpc/maintenance_status_public")) {
+      return Response.json({ ok: true, data: statusData });
+    }
+    if (url.endsWith("/rest/v1/rpc/maintenance_admin_list")) {
+      return Response.json({ ok: true, data: listData });
+    }
+    return new Response("Unexpected mocked request", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const statusHandler = createMaintenanceHandler({
+      method: "GET",
+      auth: "optional",
+      rpc: "maintenance_status_public",
+      parse: parseStatusRequest,
+    });
+    const statusResponse = await statusHandler(
+      new Request("https://local.test/status?scope=site_core"),
+    );
+    const statusBody = await statusResponse.json();
+    if (
+      statusResponse.status !== 200 ||
+      JSON.stringify(statusBody) !== JSON.stringify({ ok: true, data: statusData })
+    ) {
+      throw new Error("public status must expose the RPC payload under one data envelope");
+    }
+
+    const listHandler = createMaintenanceHandler({
+      method: "GET",
+      auth: "required",
+      rpc: "maintenance_admin_list",
+      parse: parseAdminListRequest,
+    });
+    const listResponse = await listHandler(
+      new Request("https://local.test/list?limit=20", {
+        headers: { Authorization: "Bearer valid-test-token" },
+      }),
+    );
+    const listBody = await listResponse.json();
+    if (
+      listResponse.status !== 200 ||
+      JSON.stringify(listBody) !== JSON.stringify({ ok: true, data: listData })
+    ) {
+      throw new Error("admin list must expose events and next_cursor under one data envelope");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", previousUrl);
+    if (previousKey === undefined) Deno.env.delete("SUPABASE_PUBLISHABLE_KEY");
+    else Deno.env.set("SUPABASE_PUBLISHABLE_KEY", previousKey);
+  }
+});
+

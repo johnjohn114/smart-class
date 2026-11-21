@@ -998,6 +998,10 @@ document.addEventListener('DOMContentLoaded',()=>{bindMobileAdminNav();bind();co
 // ===== 維護管理：所有寫入操作均由 Edge Function 與資料庫再次驗證管理員權限 =====
 let maintenanceEventsCache = [];
 let maintenanceEditingScheduleLocked = false;
+let maintenancePageCursors = [null];
+let maintenanceCurrentPage = 0;
+let maintenanceNextCursor = null;
+let maintenanceListRequestId = 0;
 
 function maintenanceUuid() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -1008,6 +1012,76 @@ function maintenanceUuid() {
   const hex = [...bytes].map(v => v.toString(16).padStart(2, '0')).join('');
   return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' +
     hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+}
+
+// Persist pending keys for this tab across reloads without storing request contents.
+// SHA-256 fingerprints keep titles, messages, reasons, and notes out of sessionStorage.
+const maintenancePendingIdempotency = new Map();
+const MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX = 'smart-class:maintenance:idempotency:';
+
+async function maintenanceIdempotencyFingerprint(operation, payload) {
+  if (!window.crypto?.subtle) return null;
+  const source = operation + ':' + JSON.stringify(payload);
+  const digest = await window.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(source)
+  );
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function maintenanceIdempotencyKey(operation, payload) {
+  const signature = operation + ':' + JSON.stringify(payload);
+  try {
+    const fingerprint = await maintenanceIdempotencyFingerprint(operation, payload);
+    if (fingerprint) {
+      const storageKey = MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX + operation + ':' + fingerprint;
+      try {
+        const existing = window.sessionStorage.getItem(storageKey);
+        if (existing) return existing;
+
+        const storedKeys = [];
+        for (let index = 0; index < window.sessionStorage.length; index += 1) {
+          const key = window.sessionStorage.key(index);
+          if (key?.startsWith(MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX)) storedKeys.push(key);
+        }
+        while (storedKeys.length >= 100) {
+          window.sessionStorage.removeItem(storedKeys.shift());
+        }
+
+        const key = maintenanceUuid();
+        window.sessionStorage.setItem(storageKey, key);
+        return key;
+      } catch {
+        // Storage can be unavailable in private/restricted browsing contexts.
+      }
+    }
+  } catch {
+    // Web Crypto can be unavailable; use the in-memory fallback below.
+  }
+
+  if (!maintenancePendingIdempotency.has(signature)) {
+    if (maintenancePendingIdempotency.size >= 100) {
+      const oldest = maintenancePendingIdempotency.keys().next().value;
+      if (oldest) maintenancePendingIdempotency.delete(oldest);
+    }
+    maintenancePendingIdempotency.set(signature, maintenanceUuid());
+  }
+  return maintenancePendingIdempotency.get(signature);
+}
+
+async function maintenanceClearIdempotencyKey(operation, payload) {
+  const signature = operation + ':' + JSON.stringify(payload);
+  maintenancePendingIdempotency.delete(signature);
+  try {
+    const fingerprint = await maintenanceIdempotencyFingerprint(operation, payload);
+    if (fingerprint) {
+      window.sessionStorage.removeItem(
+        MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX + operation + ':' + fingerprint
+      );
+    }
+  } catch {
+    // A storage cleanup failure must not turn a successful server operation into a failure.
+  }
 }
 
 async function maintenanceAdminRequest(path, options = {}) {
@@ -1123,24 +1197,77 @@ function renderMaintenanceEvents() {
   });
 }
 
-async function loadMaintenanceEvents() {
+async function loadMaintenanceEvents(options = {}) {
   const host = $('maintenanceEventList');
   if (!host) return;
+
+  if (options.reset === true) {
+    maintenancePageCursors = [null];
+    maintenanceCurrentPage = 0;
+    maintenanceNextCursor = null;
+  }
+
+  const requestId = ++maintenanceListRequestId;
+  const pager = $('maintenancePagination');
   host.innerHTML = '<div class="loading">正在讀取維護紀錄…</div>';
+  if (pager) pager.textContent = '';
 
   try {
     const status = $('maintenanceStatusFilter')?.value || 'all';
     const query = new URLSearchParams({ limit: '100' });
     if (status !== 'all') query.set('status', status);
 
+    const cursor = maintenancePageCursors[maintenanceCurrentPage];
+    if (cursor) query.set('cursor', cursor);
+
     const data = await maintenanceAdminRequest(
       'maintenance-admin-list?' + query.toString()
     );
+    if (requestId !== maintenanceListRequestId) return;
+
     maintenanceEventsCache = Array.isArray(data?.events) ? data.events : [];
+    maintenanceNextCursor =
+      typeof data?.next_cursor === 'string' && data.next_cursor
+        ? data.next_cursor
+        : null;
+
     renderMaintenanceEvents();
+    renderMaintenancePagination();
   } catch (error) {
+    if (requestId !== maintenanceListRequestId) return;
     host.innerHTML = '<div class="empty">❌ 載入維護紀錄失敗：' + esc(error.message) + '</div>';
+    if (pager) pager.textContent = '';
   }
+}
+
+function renderMaintenancePagination() {
+  const host = $('maintenancePagination');
+  if (!host) return;
+
+  if (maintenanceCurrentPage === 0 && !maintenanceNextCursor) {
+    host.textContent = '';
+    return;
+  }
+
+  host.innerHTML =
+    '<button class="btn secondary" id="maintenancePrevPage" type="button"' +
+      (maintenanceCurrentPage === 0 ? ' disabled' : '') + '>上一頁</button>' +
+    '<span class="sub" aria-live="polite">第 ' + (maintenanceCurrentPage + 1) + ' 頁</span>' +
+    '<button class="btn secondary" id="maintenanceNextPage" type="button"' +
+      (!maintenanceNextCursor ? ' disabled' : '') + '>下一頁</button>';
+
+  $('maintenancePrevPage')?.addEventListener('click', () => {
+    if (maintenanceCurrentPage === 0) return;
+    maintenanceCurrentPage -= 1;
+    loadMaintenanceEvents();
+  });
+
+  $('maintenanceNextPage')?.addEventListener('click', () => {
+    if (!maintenanceNextCursor) return;
+    maintenancePageCursors[maintenanceCurrentPage + 1] = maintenanceNextCursor;
+    maintenanceCurrentPage += 1;
+    loadMaintenanceEvents();
+  });
 }
 
 function maintenanceSyncScopeOptions() {
@@ -1237,7 +1364,6 @@ async function saveMaintenanceEvent() {
     message,
     internal_note: internalNote,
     reason,
-    idempotency_key: maintenanceUuid()
   };
 
   // Active scheduled events may change descriptive fields only; the database rejects schedule changes.
@@ -1254,18 +1380,20 @@ async function saveMaintenanceEvent() {
   } else {
     body.status = 'draft';
   }
+  const operation = eventId ? 'maintenance-event-update' : 'maintenance-event-create';
+  body.idempotency_key = await maintenanceIdempotencyKey(operation, body);
 
   if (button) button.disabled = true;
   msg('maintenanceMsg', eventId ? '⏳ 正在儲存修改…' : '⏳ 正在建立維護草稿…');
 
   try {
-    await maintenanceAdminRequest(
-      eventId ? 'maintenance-event-update' : 'maintenance-event-create',
-      { method: 'POST', body }
-    );
+    await maintenanceAdminRequest(operation, { method: 'POST', body });
+    await maintenanceClearIdempotencyKey(operation, Object.fromEntries(
+      Object.entries(body).filter(([key]) => key !== 'idempotency_key')
+    ));
     msg('maintenanceMsg', eventId ? '✅ 維護事件已更新。' : '✅ 維護草稿已建立；確認時間與範圍後，可在事件清單安排維護。');
     maintenanceClearForm();
-    await loadMaintenanceEvents();
+    await loadMaintenanceEvents({ reset: true });
   } catch (error) {
     msg('maintenanceMsg', '❌ ' + error.message);
   } finally {
@@ -1287,17 +1415,22 @@ async function maintenanceRunAction(eventId, action) {
   const labels = { schedule: '安排維護', cancel: '取消排程', complete: '完成維護' };
   if (!confirm('確定要「' + (labels[action] || action) + '」嗎？')) return;
 
+  const actionBody = {
+    event_id: event.id,
+    expected_version: Number(event.version),
+    action,
+    reason
+  };
+  actionBody.idempotency_key = await maintenanceIdempotencyKey('maintenance-event-action', actionBody);
+
   try {
     await maintenanceAdminRequest('maintenance-event-action', {
       method: 'POST',
-      body: {
-        event_id: event.id,
-        expected_version: Number(event.version),
-        action,
-        reason,
-        idempotency_key: maintenanceUuid()
-      }
+      body: actionBody
     });
+    await maintenanceClearIdempotencyKey('maintenance-event-action', Object.fromEntries(
+      Object.entries(actionBody).filter(([key]) => key !== 'idempotency_key')
+    ));
     msg('maintenanceMsg', '✅ 已完成：' + (labels[action] || action));
     await loadMaintenanceEvents();
   } catch (error) {
@@ -1311,11 +1444,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (maintenanceEnabled) maintenanceTabButton?.removeAttribute('hidden');
   if (!maintenanceEnabled) return;
 
-  $('refreshMaintenanceEvents')?.addEventListener('click', loadMaintenanceEvents);
-  $('maintenanceStatusFilter')?.addEventListener('change', loadMaintenanceEvents);
+  $('refreshMaintenanceEvents')?.addEventListener('click', () => loadMaintenanceEvents({ reset: true }));
+  $('maintenanceStatusFilter')?.addEventListener('change', () => loadMaintenanceEvents({ reset: true }));
   $('saveMaintenanceEvent')?.addEventListener('click', saveMaintenanceEvent);
   $('clearMaintenanceForm')?.addEventListener('click', maintenanceClearForm);
   $('maintenanceGlobal')?.addEventListener('change', maintenanceSyncScopeOptions);
-  document.querySelector('[data-tab="maintenanceTab"]')?.addEventListener('click', loadMaintenanceEvents);
+  document.querySelector('[data-tab="maintenanceTab"]')?.addEventListener('click', () => loadMaintenanceEvents({ reset: true }));
   maintenanceSyncScopeOptions();
 });
