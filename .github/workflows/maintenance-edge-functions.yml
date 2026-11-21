@@ -57,6 +57,11 @@ jobs:
       - name: Run maintenance validation tests
         run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS,SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY supabase/tests/functions/maintenance-validation.test.ts
 
+      - name: Type-check and test public activity leaderboard
+        run: |
+          deno check supabase/functions/public-activity-leaderboard/index.ts supabase/tests/functions/public-activity-leaderboard.test.ts
+          deno test supabase/tests/functions/public-activity-leaderboard.test.ts
+
       - name: Run maintenance SQL static guardrails
         run: python scripts/verify_maintenance_sql_draft.py
 
@@ -223,6 +228,15 @@ jobs:
           psql postgresql://postgres:postgres@localhost:5432/growth_function_authorization_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-function-authorization.test.sql
+
+      - name: Run activity leaderboard security regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE activity_leaderboard_security_test"
+          psql postgresql://postgres:postgres@localhost:5432/activity_leaderboard_security_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/activity-leaderboard-security.test.sql
       - name: Run default privileges and trigger side-effect regression tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
