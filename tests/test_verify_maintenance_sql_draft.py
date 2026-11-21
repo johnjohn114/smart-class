@@ -142,14 +142,18 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         result = inspect_sql(broken)
         self.assertFalse(result["creator_id_not_exposed_on_events"])
 
-    def test_private_notes_grants_are_column_scoped(self):
+    def test_executor_role_is_least_privilege_and_authenticated_has_no_writes(self):
         result = inspect_sql(GOOD)
-        self.assertTrue(result["notes_column_scoped_insert"])
-        self.assertTrue(result["notes_column_scoped_update"])
+        self.assertTrue(result["dedicated_executor_role"])
+        self.assertTrue(result["executor_owns_only_functions"])
+        self.assertTrue(result["force_rls_all_tables"])
+        self.assertTrue(result["admin_policies_target_executor"])
+        self.assertTrue(result["no_authenticated_direct_write_grants"])
+        self.assertTrue(result["executor_minimum_write_grants"])
 
-        broad = GOOD + "\\nGRANT SELECT, INSERT, UPDATE ON private.maintenance_event_private_notes TO authenticated;"
-        result = inspect_sql(broad)
-        self.assertFalse(result["notes_column_scoped_update"])
+        broken = GOOD + "\\nGRANT INSERT ON private.maintenance_events TO authenticated;"
+        result = inspect_sql(broken)
+        self.assertFalse(result["no_authenticated_direct_write_grants"])
 
     def test_missing_notes_admin_policy_is_detected(self):
         result = inspect_sql(GOOD.replace(
@@ -164,9 +168,18 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         ))
         self.assertFalse(result["rls:maintenance_events"])
 
-    def test_security_definer_is_rejected(self):
-        result = inspect_sql(GOOD + "\n-- SECURITY DEFINER")
-        self.assertFalse(result["no_security_definer"])
+    def test_admin_rpc_requires_security_definer_but_public_rpc_stays_invoker(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["security:maintenance_status_public"])
+        for name in ("maintenance_admin_list", "maintenance_event_create",
+                     "maintenance_event_update", "maintenance_event_action"):
+            self.assertTrue(result[f"security:{name}"])
+
+        broken = GOOD.replace("SECURITY DEFINER", "SECURITY INVOKER", 1)
+        result = inspect_sql(broken)
+        self.assertFalse(all(result[f"security:{name}"] for name in
+                             ("maintenance_admin_list", "maintenance_event_create",
+                              "maintenance_event_update", "maintenance_event_action")))
 
     def test_service_role_grant_is_rejected(self):
         result = inspect_sql(GOOD + "\nGRANT SELECT ON private.maintenance_events TO service_role;")
