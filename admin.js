@@ -1010,12 +1010,51 @@ function maintenanceUuid() {
     hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
 }
 
-// Reuse one key for an identical logical operation after a timeout/network error.
-// A changed payload gets a new key; a successful operation releases its key.
+// Persist pending keys for this tab across reloads without storing request contents.
+// SHA-256 fingerprints keep titles, messages, reasons, and notes out of sessionStorage.
 const maintenancePendingIdempotency = new Map();
+const MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX = 'smart-class:maintenance:idempotency:';
 
-function maintenanceIdempotencyKey(operation, payload) {
+async function maintenanceIdempotencyFingerprint(operation, payload) {
+  if (!window.crypto?.subtle) return null;
+  const source = operation + ':' + JSON.stringify(payload);
+  const digest = await window.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(source)
+  );
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function maintenanceIdempotencyKey(operation, payload) {
   const signature = operation + ':' + JSON.stringify(payload);
+  try {
+    const fingerprint = await maintenanceIdempotencyFingerprint(operation, payload);
+    if (fingerprint) {
+      const storageKey = MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX + operation + ':' + fingerprint;
+      try {
+        const existing = window.sessionStorage.getItem(storageKey);
+        if (existing) return existing;
+
+        const storedKeys = [];
+        for (let index = 0; index < window.sessionStorage.length; index += 1) {
+          const key = window.sessionStorage.key(index);
+          if (key?.startsWith(MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX)) storedKeys.push(key);
+        }
+        while (storedKeys.length >= 100) {
+          window.sessionStorage.removeItem(storedKeys.shift());
+        }
+
+        const key = maintenanceUuid();
+        window.sessionStorage.setItem(storageKey, key);
+        return key;
+      } catch {
+        // Storage can be unavailable in private/restricted browsing contexts.
+      }
+    }
+  } catch {
+    // Web Crypto can be unavailable; use the in-memory fallback below.
+  }
+
   if (!maintenancePendingIdempotency.has(signature)) {
     if (maintenancePendingIdempotency.size >= 100) {
       const oldest = maintenancePendingIdempotency.keys().next().value;
@@ -1026,8 +1065,19 @@ function maintenanceIdempotencyKey(operation, payload) {
   return maintenancePendingIdempotency.get(signature);
 }
 
-function maintenanceClearIdempotencyKey(operation, payload) {
-  maintenancePendingIdempotency.delete(operation + ':' + JSON.stringify(payload));
+async function maintenanceClearIdempotencyKey(operation, payload) {
+  const signature = operation + ':' + JSON.stringify(payload);
+  maintenancePendingIdempotency.delete(signature);
+  try {
+    const fingerprint = await maintenanceIdempotencyFingerprint(operation, payload);
+    if (fingerprint) {
+      window.sessionStorage.removeItem(
+        MAINTENANCE_IDEMPOTENCY_STORAGE_PREFIX + operation + ':' + fingerprint
+      );
+    }
+  } catch {
+    // A storage cleanup failure must not turn a successful server operation into a failure.
+  }
 }
 
 async function maintenanceAdminRequest(path, options = {}) {
@@ -1274,14 +1324,14 @@ async function saveMaintenanceEvent() {
     body.status = 'draft';
   }
   const operation = eventId ? 'maintenance-event-update' : 'maintenance-event-create';
-  body.idempotency_key = maintenanceIdempotencyKey(operation, body);
+  body.idempotency_key = await maintenanceIdempotencyKey(operation, body);
 
   if (button) button.disabled = true;
   msg('maintenanceMsg', eventId ? '⏳ 正在儲存修改…' : '⏳ 正在建立維護草稿…');
 
   try {
     await maintenanceAdminRequest(operation, { method: 'POST', body });
-    maintenanceClearIdempotencyKey(operation, Object.fromEntries(
+    await maintenanceClearIdempotencyKey(operation, Object.fromEntries(
       Object.entries(body).filter(([key]) => key !== 'idempotency_key')
     ));
     msg('maintenanceMsg', eventId ? '✅ 維護事件已更新。' : '✅ 維護草稿已建立；確認時間與範圍後，可在事件清單安排維護。');
@@ -1314,14 +1364,14 @@ async function maintenanceRunAction(eventId, action) {
     action,
     reason
   };
-  actionBody.idempotency_key = maintenanceIdempotencyKey('maintenance-event-action', actionBody);
+  actionBody.idempotency_key = await maintenanceIdempotencyKey('maintenance-event-action', actionBody);
 
   try {
     await maintenanceAdminRequest('maintenance-event-action', {
       method: 'POST',
       body: actionBody
     });
-    maintenanceClearIdempotencyKey('maintenance-event-action', Object.fromEntries(
+    await maintenanceClearIdempotencyKey('maintenance-event-action', Object.fromEntries(
       Object.entries(actionBody).filter(([key]) => key !== 'idempotency_key')
     ));
     msg('maintenanceMsg', '✅ 已完成：' + (labels[action] || action));
