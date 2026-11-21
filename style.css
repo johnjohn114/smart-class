@@ -421,3 +421,28 @@ html[data-theme="dark"] .settingsChoice{background:#2b2540;border-color:#514765}
 /* 26.11.4.1：讓 WebView／觸控裝置可點擊展開導覽下拉選單 */
 .navDropdown.open>.dropdownMenu{display:block}
 .navDropdown>button{cursor:pointer}
+
+
+/* 26.12.0：修正手機公告卡片文字超出螢幕 */
+@media (max-width: 850px) {
+  html, body, main, section, .newsList, #allNews {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .notice {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .notice h3,
+  .notice p,
+  .notice .noticeContent {
+    max-width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
