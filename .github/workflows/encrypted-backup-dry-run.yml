@@ -1,0 +1,70 @@
+name: Encrypted Backup Dry Run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  encryption-dry-run:
+    name: Encrypt a disposable test file
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create disposable test data and encrypt it
+        shell: bash
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          set -Eeuo pipefail
+          workdir="$(mktemp -d)"
+          cleanup() {
+            if [[ -n "${workdir:-}" && -d "$workdir" ]]; then
+              rm -rf "$workdir"
+            fi
+          }
+          trap cleanup EXIT
+
+          if [[ -z "${BACKUP_PASSPHRASE:-}" ]]; then
+            echo "::error::Missing GitHub Actions secret BACKUP_ENCRYPTION_PASSPHRASE."
+            exit 1
+          fi
+
+          umask 077
+          printf '%s\n' \
+            'SMART-CLASS BACKUP ENCRYPTION DRY RUN' \
+            'This is disposable dummy data. It contains no Supabase records.' \
+            'Purpose: verify encryption and artifact handling only.' \
+            > "$workdir/dry-run.txt"
+
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
+            -in "$workdir/dry-run.txt" \
+            -out "$workdir/dry-run.txt.enc" \
+            -pass env:BACKUP_PASSPHRASE
+
+          if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 \
+            -in "$workdir/dry-run.txt.enc" \
+            -out "$workdir/verified.txt" \
+            -pass env:BACKUP_PASSPHRASE; then
+            echo "::error::Encryption round-trip verification failed."
+            exit 1
+          fi
+
+          cmp --silent "$workdir/dry-run.txt" "$workdir/verified.txt"
+          sha256sum "$workdir/dry-run.txt.enc" > "$workdir/SHA256SUMS"
+
+          # Only ciphertext and its checksum may leave the runner.
+          rm -f "$workdir/dry-run.txt" "$workdir/verified.txt"
+          mkdir -p "$GITHUB_WORKSPACE/encrypted-test-output"
+          cp "$workdir/dry-run.txt.enc" "$GITHUB_WORKSPACE/encrypted-test-output/"
+          cp "$workdir/SHA256SUMS" "$GITHUB_WORKSPACE/encrypted-test-output/"
+          echo "Encryption and decryption round-trip passed. Plaintext removed before artifact upload."
+
+      - name: Upload encrypted test artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-class-encryption-dry-run
+          path: encrypted-test-output/*
+          if-no-files-found: error
+          retention-days: 1
