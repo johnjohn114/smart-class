@@ -51,7 +51,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check browser JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check admin.js
+          node --check config.js
+          node --check maintenance-client.js
 
       - name: Set up Deno
         uses: denoland/setup-deno@v2
