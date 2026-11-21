@@ -66,6 +66,12 @@ def inspect_sql(sql: str) -> dict[str, bool]:
             "jsonb_typeof(p_request->'internal_note') NOT IN ('string','null')",
         )
     )
+    checks["create_scope_codes_string_elements"] = (
+        "jsonb_typeof(item.value) IS DISTINCT FROM 'string'" in create_body
+    )
+    checks["update_scope_codes_string_elements"] = (
+        "jsonb_typeof(item.value) IS DISTINCT FROM 'string'" in update_body
+    )
     checks["action_rpc_reason_type_validation"] = (
         "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'" in action_body
     )
