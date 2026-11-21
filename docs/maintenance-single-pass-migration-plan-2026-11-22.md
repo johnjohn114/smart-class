@@ -65,3 +65,26 @@ For production, do not plan a destructive DROP-based rollback for maintenance ta
 - No Edge Function deployed.
 - No feature flag enabled.
 - No PR merged.
+
+
+## Follow-up inspection — existing single-pass draft discovered
+
+The integration branch already contains `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`, a development-only single-pass draft. It creates the executor role before the tables/RPCs, establishes FORCE RLS and executor-targeted mutation policies, creates the public SECURITY INVOKER status RPC and SECURITY DEFINER admin RPCs, then transfers admin RPC ownership to the dedicated executor and applies explicit execute ACLs. It is materially closer to the intended final bootstrap than concatenating the two migration files.
+
+The draft is not yet approved as an executable migration. It needs a full static review and disposable-database test, including function ownership/CREATE privilege transitions, role memberships and grants, policy behavior under real JWT claims, public Data API schema exposure assumptions, and all RPC/error/concurrency cases.
+
+### Critical migration-history constraint
+
+The two existing Maintenance files remain under `supabase/migrations/`. Adding a third single-pass migration does not prevent the existing initial migration from running first. It would preserve the intermediate-privilege window and defeat the purpose of a single-pass bootstrap.
+
+Before changing the migration directory, establish whether either old Maintenance migration has been applied in any shared, preview, staging, or developer database. If all target environments are confirmed clean and unapplied, the correct approach may be to replace/squash the unapplied migration files and update every CI/test/script reference together. If any environment has applied them, do not rewrite migration history there; prepare a forward-upgrade path instead. Production having no Maintenance objects is not sufficient evidence about all environments.
+
+### CI reference inspection status
+
+The Playwright browser compatibility test was inspected and exercises the feature gate, idempotency key persistence, and cursor pagination using a stubbed maintenance request. It does not execute SQL or establish database migration compatibility. The exact workflow file path and all migration filename references still need to be enumerated from the integration branch before editing CI. A guessed workflow path returned 404 and was not treated as evidence.
+
+## Updated status
+
+- Existing single-pass SQL draft located and reviewed in sections.
+- No new executable migration created yet; this is intentional pending migration-history and CI-reference checks.
+- No production SQL executed, no deployment, no feature flag change, no merge.
