@@ -96,7 +96,13 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py'
 
   maintenance-gotrue-postgrest-integration:
-    name: GoTrue-issued JWT and PostgREST integration
+    name: GoTrue-issued JWT and PostgREST integration (${{ matrix.migration_track }})
+    strategy:
+      fail-fast: false
+      matrix:
+        migration_track:
+          - legacy
+          - single-pass-draft
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -186,12 +192,21 @@ jobs:
             -v member_id="$TEST_MEMBER_ID" \
             -f supabase/tests/sql/maintenance-gotrue-bootstrap.sql
 
-      - name: Apply ordered maintenance migrations to disposable GoTrue database
+      - name: Apply ordered legacy migrations to disposable GoTrue database
+        if: matrix.migration_track == 'legacy'
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261117121103_maintenance_system_initial.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261121140000_maintenance_rpc_least_privilege_upgrade.sql
+
+      - name: Apply single-pass draft to disposable GoTrue database
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
       - name: Start PostgREST against GoTrue database
         run: |
