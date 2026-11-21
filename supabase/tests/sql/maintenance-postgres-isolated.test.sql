@@ -59,13 +59,17 @@ DO $$
 DECLARE
   executor record;
   table_name text;
+  column_name text;
   function_name text;
 BEGIN
-  SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole
+  SELECT rolcanlogin, rolinherit, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
     INTO executor FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor';
-  IF executor.rolcanlogin OR executor.rolsuper OR executor.rolbypassrls
-     OR executor.rolcreatedb OR executor.rolcreaterole THEN
+  IF executor.rolcanlogin OR executor.rolinherit OR executor.rolsuper OR executor.rolbypassrls
+     OR executor.rolcreatedb OR executor.rolcreaterole OR executor.rolreplication THEN
     RAISE EXCEPTION 'FAIL: maintenance RPC executor has elevated role attributes';
+  END IF;
+  IF pg_catalog.has_schema_privilege('maintenance_rpc_executor','public','CREATE') THEN
+    RAISE EXCEPTION 'FAIL: maintenance RPC executor retained CREATE on public schema';
   END IF;
 
   FOREACH table_name IN ARRAY ARRAY[
@@ -74,9 +78,24 @@ BEGIN
   ] LOOP
     IF pg_catalog.has_table_privilege('authenticated','private.'||table_name,'INSERT')
        OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'UPDATE')
-       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'DELETE') THEN
+       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'DELETE')
+       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'TRUNCATE') THEN
       RAISE EXCEPTION 'FAIL: authenticated has direct write privilege on %', table_name;
     END IF;
+    -- Table-level privilege checks do not replace checking every column grant.
+    FOR column_name IN
+      SELECT a.attname
+      FROM pg_catalog.pg_attribute a
+      JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='private' AND c.relname=table_name
+        AND a.attnum>0 AND NOT a.attisdropped
+    LOOP
+      IF pg_catalog.has_column_privilege('authenticated','private.'||table_name,column_name,'INSERT')
+         OR pg_catalog.has_column_privilege('authenticated','private.'||table_name,column_name,'UPDATE') THEN
+        RAISE EXCEPTION 'FAIL: authenticated has direct column write privilege on %.%', table_name, column_name;
+      END IF;
+    END LOOP;
     IF NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
