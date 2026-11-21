@@ -1,20 +1,23 @@
-// Rebuild trigger for the latest website settings navigation update.
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
     id 'com.google.gms.google-services'
 }
 
 android {
     namespace 'com.announcementzone.app'
     compileSdk 35
-    buildFeatures { buildConfig true }
+    buildFeatures {
+        buildConfig true
+        compose true
+    }
     defaultConfig {
         applicationId 'com.announcementzone.app'
         minSdk 24
         targetSdk 35
-        versionCode 21
-        versionName '26.11.6'
+        versionCode 22
+        versionName '26.12.0-alpha.1'
     }
     signingConfigs {
         release {
@@ -39,7 +42,16 @@ android {
 }
 
 dependencies {
+    implementation platform('androidx.compose:compose-bom:2025.02.00')
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.navigation:navigation-compose:2.8.8'
+    implementation 'androidx.core:core:1.15.0'
+
     implementation platform('com.google.firebase:firebase-bom:35.1.0')
     implementation 'com.google.firebase:firebase-messaging'
-    implementation 'androidx.core:core:1.15.0'
+
+    debugImplementation 'androidx.compose.ui:ui-tooling'
 }
