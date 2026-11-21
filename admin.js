@@ -1332,6 +1332,11 @@ async function maintenanceRunAction(eventId, action) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const maintenanceEnabled = typeof MAINTENANCE_FEATURE_ENABLED !== 'undefined' && MAINTENANCE_FEATURE_ENABLED === true;
+  const maintenanceTabButton = document.querySelector('[data-tab="maintenanceTab"]');
+  if (maintenanceEnabled) maintenanceTabButton?.removeAttribute('hidden');
+  if (!maintenanceEnabled) return;
+
   $('refreshMaintenanceEvents')?.addEventListener('click', loadMaintenanceEvents);
   $('maintenanceStatusFilter')?.addEventListener('change', loadMaintenanceEvents);
   $('saveMaintenanceEvent')?.addEventListener('click', saveMaintenanceEvent);
