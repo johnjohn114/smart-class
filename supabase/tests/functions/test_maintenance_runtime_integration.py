@@ -57,11 +57,11 @@ def main():
 
     status, body = request(EDGE + "/maintenance-status")
     check(status == 200 and body.get("ok") is True,
-          "Deno Edge handler serves public status without a bearer token")
+          f"Deno Edge handler serves public status without a bearer token (HTTP {status}; body={body!r})")
 
     status, body = request(EDGE + "/maintenance-admin-list")
     check(status == 401 and body.get("error", {}).get("code") == "UNAUTHENTICATED",
-          "Deno Edge handler rejects an unauthenticated admin-list request")
+          f"Deno Edge handler rejects an unauthenticated admin-list request (HTTP {status}; body={body!r})")
 
     status, body = request(EDGE + "/maintenance-admin-list", token=member)
     check(status == 403 and body.get("error", {}).get("code") == "FORBIDDEN",
