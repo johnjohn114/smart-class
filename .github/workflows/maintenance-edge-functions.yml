@@ -12,6 +12,7 @@ on:
       - "admin.js"
       - "admin.html"
       - "tests/test_maintenance_feature_gate.py"
+      - "tests/playwright/**"
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
@@ -29,6 +30,7 @@ on:
       - "admin.html"
       - "index.html"
       - "tests/test_maintenance_feature_gate.py"
+      - "tests/playwright/**"
       - "app.js"
       - "docs/activity-member-stats-release-and-rollback-plan.md"
       - "docs/production-database-baseline-and-migration-reconciliation-2026-11-18.md"
@@ -78,6 +80,14 @@ jobs:
 
       - name: Test maintenance feature gate
         run: python -m unittest discover -s tests -p 'test_maintenance_feature_gate.py'
+
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run isolated browser compatibility tests
+        run: node tests/playwright/maintenance-compatibility.cjs
 
       - name: Run maintenance SQL static guardrails
         run: python scripts/verify_maintenance_sql_draft.py
