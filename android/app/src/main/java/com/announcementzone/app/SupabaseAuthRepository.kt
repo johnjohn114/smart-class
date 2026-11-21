@@ -109,11 +109,15 @@ class SupabaseAuthRepository(context: Context) {
         )
         val profile = profileRows.optJSONObject(0)
 
-        val visitorRows = requestArray(
-            "/rest/v1/visitor_accounts?id=eq.$encodedId&select=active",
-            accessToken
-        )
-        val activeValue = visitorRows.optJSONObject(0)?.opt("active")
+        // The website treats a missing/unreadable visitor-account row as unspecified.
+        // If a row is returned, however, an explicit inactive state must block access.
+        val visitorRows = runCatching {
+            requestArray(
+                "/rest/v1/visitor_accounts?id=eq.$encodedId&select=active",
+                accessToken
+            )
+        }.getOrNull()
+        val activeValue = visitorRows?.optJSONObject(0)?.opt("active")
         if (activeValue == false) {
             throw IllegalStateException("此帳號目前已停用，請聯絡管理員。")
         }
