@@ -78,6 +78,36 @@ async function createPageErrors(page) {
     assert.equal(await page.locator('#loginButton').count(), 1);
     assert.equal(await page.locator('[data-tab="maintenanceTab"]').isHidden(), true);
     assert.equal(await page.locator('#dashboard').evaluate(el => el.classList.contains('hidden')), true);
+
+    // Pending idempotency keys survive a reload in the same tab, but successful
+    // operations clear them so a later intentional retry receives a fresh key.
+    const firstKey = await page.evaluate(async () => {
+      return await maintenanceIdempotencyKey('maintenance-event-create', {
+        title: 'browser-test-only',
+        reason: 'compatibility-check'
+      });
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const persistedKey = await page.evaluate(async () => {
+      return await maintenanceIdempotencyKey('maintenance-event-create', {
+        title: 'browser-test-only',
+        reason: 'compatibility-check'
+      });
+    });
+    assert.equal(persistedKey, firstKey, 'idempotency key should persist across reload');
+    await page.evaluate(async () => {
+      await maintenanceClearIdempotencyKey('maintenance-event-create', {
+        title: 'browser-test-only',
+        reason: 'compatibility-check'
+      });
+    });
+    const freshKey = await page.evaluate(async () => {
+      return await maintenanceIdempotencyKey('maintenance-event-create', {
+        title: 'browser-test-only',
+        reason: 'compatibility-check'
+      });
+    });
+    assert.notEqual(freshKey, firstKey, 'cleared idempotency key should be regenerated');
     assert.deepEqual(errors, [], 'admin runtime errors: ' + errors.join('; '));
     await page.close();
   }
