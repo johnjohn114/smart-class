@@ -19,6 +19,17 @@ import kotlinx.coroutines.withContext
 
 private class SupabaseHttpException(val statusCode: Int, message: String) : IllegalStateException(message)
 
+data class Announcement(
+    val id: String,
+    val title: String,
+    val content: String,
+    val date: String,
+    val category: String,
+    val linkUrl: String?,
+    val linkLabel: String?,
+    val pinned: Boolean
+)
+
 data class MemberSession(
     val userId: String,
     val email: String,
@@ -33,6 +44,31 @@ class SupabaseAuthRepository(context: Context) {
     private val sessionStore = SecureSessionStore(appContext)
     private val baseUrl = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val anonKey = BuildConfig.SUPABASE_ANON_KEY
+
+    suspend fun loadAnnouncements(): List<Announcement> = withContext(Dispatchers.IO) {
+        val now = URLEncoder.encode(java.time.Instant.now().toString(), "UTF-8")
+        val path = "/rest/v1/announcements?select=id,title,content,date,category,link_url,link_label,pinned,published_at&published=eq.true&published_at=lte.$now&order=pinned.desc,published_at.desc,created_at.desc&limit=100"
+        val accessToken = sessionStore.read()?.first
+        val rows = requestArray(path, accessToken)
+        buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.optJSONObject(index) ?: continue
+                val publishedAt = row.optString("published_at")
+                add(
+                    Announcement(
+                        id = row.opt("id")?.toString().orEmpty(),
+                        title = row.optString("title", "未命名公告"),
+                        content = row.optString("content"),
+                        date = row.optString("date").ifBlank { publishedAt.take(10) },
+                        category = row.optString("category").ifBlank { "最新消息" },
+                        linkUrl = row.optString("link_url").takeIf { it.isNotBlank() && it != "null" },
+                        linkLabel = row.optString("link_label").takeIf { it.isNotBlank() && it != "null" },
+                        pinned = row.optBoolean("pinned", false)
+                    )
+                )
+            }
+        }
+    }
 
     suspend fun signIn(email: String, password: String): MemberSession =
         withContext(Dispatchers.IO) {
@@ -184,14 +220,16 @@ class SupabaseAuthRepository(context: Context) {
         }
     }
 
-    private fun requestArray(path: String, accessToken: String): JSONArray {
+    private fun requestArray(path: String, accessToken: String?): JSONArray {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 15000
             connection.readTimeout = 15000
             connection.setRequestProperty("apikey", anonKey)
-            connection.setRequestProperty("Authorization", "Bearer $accessToken")
+            if (!accessToken.isNullOrBlank()) {
+                connection.setRequestProperty("Authorization", "Bearer $accessToken")
+            }
             connection.setRequestProperty("Accept", "application/json")
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
