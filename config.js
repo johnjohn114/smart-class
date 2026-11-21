@@ -5,6 +5,10 @@ const SUPABASE_ANON_KEY = "sb_publishable_nAKu843QXRNajjS5F6EYGA_xxn9UlLb";
 // 測試用訪客密碼；正式網站建議改成伺服器端驗證。
 const DEMO_VISITOR_PASSWORD = "20260811Open";
 
+// 正式 Supabase 維護資料表、RPC 與 Edge Functions 尚未部署前，保持關閉。
+// 完成後端部署與驗證後，才改為 true。
+const MAINTENANCE_FEATURE_ENABLED = false;
+
 // 載入共用維護狀態提示；各頁面由 maintenance-client.js 自動判斷所屬範圍。
 (function loadMaintenanceClient() {
   if (document.querySelector('script[data-maintenance-client]')) return;
