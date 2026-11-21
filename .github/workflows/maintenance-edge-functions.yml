@@ -73,7 +73,9 @@ jobs:
             supabase/functions/maintenance-event-create/index.ts \
             supabase/functions/maintenance-event-update/index.ts \
             supabase/functions/maintenance-event-action/index.ts \
-            supabase/tests/functions/maintenance-validation.test.ts
+            supabase/tests/functions/maintenance-validation.test.ts \
+            supabase/tests/functions/maintenance-runtime-server.ts
+          python -m py_compile supabase/tests/functions/maintenance-supabase-test-proxy.py supabase/tests/functions/test_maintenance_runtime_integration.py
 
       - name: Run maintenance validation tests
         run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS,SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY supabase/tests/functions/maintenance-validation.test.ts
@@ -96,7 +98,13 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py'
 
   maintenance-gotrue-postgrest-integration:
-    name: GoTrue-issued JWT and PostgREST integration
+    name: GoTrue-issued JWT and PostgREST integration (${{ matrix.migration_track }})
+    strategy:
+      fail-fast: false
+      matrix:
+        migration_track:
+          - legacy
+          - single-pass-draft
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -186,12 +194,21 @@ jobs:
             -v member_id="$TEST_MEMBER_ID" \
             -f supabase/tests/sql/maintenance-gotrue-bootstrap.sql
 
-      - name: Apply ordered maintenance migrations to disposable GoTrue database
+      - name: Apply ordered legacy migrations to disposable GoTrue database
+        if: matrix.migration_track == 'legacy'
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261117121103_maintenance_system_initial.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261121140000_maintenance_rpc_least_privilege_upgrade.sql
+
+      - name: Apply single-pass draft to disposable GoTrue database
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
       - name: Start PostgREST against GoTrue database
         run: |
@@ -214,6 +231,51 @@ jobs:
           docker logs maintenance-gotrue-postgrest
           echo 'PostgREST did not become ready' >&2
           exit 1
+
+      - name: Set up Deno for Edge runtime integration
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Start disposable Auth and REST routing proxy
+        run: |
+          nohup python supabase/tests/functions/maintenance-supabase-test-proxy.py >/tmp/maintenance-proxy.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if python -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1',8001)); s.close()" 2>/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/maintenance-proxy.log
+          echo 'Maintenance test proxy did not become ready' >&2
+          exit 1
+
+      - name: Start Deno Edge handler runtime
+        env:
+          SUPABASE_URL: http://127.0.0.1:8001
+          SUPABASE_ANON_KEY: maintenance-ci-anon-key
+          MAINTENANCE_RUNTIME_PORT: "8002"
+        run: |
+          nohup deno run --allow-net=127.0.0.1 --allow-env=SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,SUPABASE_ANON_KEY,SUPABASE_PUBLISHABLE_KEYS,MAINTENANCE_RUNTIME_PORT,MAINTENANCE_ALLOWED_ORIGINS supabase/tests/functions/maintenance-runtime-server.ts >/tmp/maintenance-edge-runtime.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8002/__health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/maintenance-edge-runtime.log
+          echo 'Deno maintenance Edge runtime did not become ready' >&2
+          exit 1
+
+      - name: Verify Edge runtime through GoTrue and PostgREST
+        env:
+          GOTRUE_URL: http://127.0.0.1:9999
+        run: |
+          python supabase/tests/functions/test_maintenance_runtime_integration.py || {
+            cat /tmp/maintenance-edge-runtime.log
+            cat /tmp/maintenance-proxy.log
+            exit 1
+          }
 
       - name: Verify GoTrue-issued JWT, roles, RPC, RLS and concurrency
         env:

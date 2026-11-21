@@ -55,18 +55,18 @@
 - 管理 Edge Functions 設定 `verify_jwt=true`，並在函式內使用 Supabase Auth 驗證呼叫者。
 - Edge Function 使用原始使用者 bearer token 與 publishable/anon key 呼叫 RPC；不得使用 service_role 代表使用者執行管理 RPC。
 - actor ID 一律取自資料庫端 `auth.uid()`；不可採信前端傳入的 actor_id、user_id、role、isAdmin 或 email。
-- 管理 RPC 必須在資料庫端檢查 `auth.uid() IS NOT NULL AND public.is_admin()`。
+- 管理 RPC 必須在資料庫端檢查 `auth.uid() IS NOT NULL AND public.is_admin()`；新版 SQL 由專用 `maintenance_rpc_executor`（`NOLOGIN`、`NOBYPASSRLS`）擁有管理 RPC，管理 RPC 使用 `SECURITY DEFINER`，並在函式內執行上述檢查。
 - `public.is_admin()` 是目前候選 helper；`public.is_admin_user()` 禁止用於此功能。
 - 管理 API 的 Edge Function 驗證不能取代 RPC 內的授權檢查。
 
 ### 3.2 RPC / schema
 
-- 採用 Edge Function + 使用者 JWT + public SECURITY INVOKER RPC + private schema tables + RLS。
+- 採用 Edge Function + 使用者 JWT + private schema tables + RLS。公開 status RPC 使用 `SECURITY INVOKER`；管理 RPC 使用專用 `maintenance_rpc_executor` 擁有的 `SECURITY DEFINER`，並在資料庫函式內檢查使用者 JWT 對應的管理員身分。
 - private schema 不加入 Data API Exposed schemas。
-- RPC 使用 `SECURITY INVOKER`、固定 `search_path = ''`，所有 schema/table/function 名稱完整限定。
+- 所有 RPC 固定 `search_path = ''`，所有 schema/table/function 名稱完整限定。`maintenance_status_public` 使用 `SECURITY INVOKER`；`maintenance_admin_list`、`maintenance_event_create`、`maintenance_event_update`、`maintenance_event_action` 使用 `SECURITY DEFINER`，owner 為專用 `maintenance_rpc_executor`。
 - 新 RPC 先撤銷 `PUBLIC` EXECUTE，再明確授權。
-- 管理 RPC 僅授予 `authenticated`；公開 status RPC 採 SECURITY INVOKER，明確授予 `anon`、`authenticated` EXECUTE，並依第 9.1 節授予 anon 最小 private schema USAGE/SELECT 與嚴格 RLS。
-- SECURITY INVOKER 執行 private table 操作時，authenticated 必須取得實際所需的最小 schema/table privileges，並由 RLS 限制。不得宣稱完全沒有 table grants 卻仍期待 invoker RPC 操作資料表。
+- 管理 RPC 的 EXECUTE 僅授予 `authenticated`；公開 status RPC 的 EXECUTE 授予 `anon`、`authenticated`。管理 RPC 由 `maintenance_rpc_executor` 執行受 RLS 約束的資料表操作。
+- `authenticated` 對部分 private tables 有 SELECT table grants，但 RLS 僅允許管理員讀取管理資料；管理寫入 grants 僅授予 `maintenance_rpc_executor`。`anon` 僅有公開 status 所需的欄位 SELECT 權限。
 - 不使用 service_role bypass RLS，不新增 DB URL 或資料庫密碼 secret。
 - private tables 全部啟用 RLS。RLS policy 必須限制 admin；必要時同時檢查 `auth.uid() IS NOT NULL`。
 - 前端只呼叫 Edge Functions；不直接操作維護資料表。
@@ -116,7 +116,7 @@ Request：
 - idempotency keys/data
 - 內部管理欄位
 
-**權限決議：** 公開 status RPC 維持 SECURITY INVOKER。匿名角色僅取得 private schema USAGE 與讀取公開狀態所需的最小 SELECT，並由 RLS 限制只可見目前允許公開的狀態資料。private schema 不加入 Data API Exposed schemas；匿名使用者不得取得任何寫入權限。此設計仍須以 anon JWT 做隔離權限測試後才可核准 migration。
+**權限決議：** 公開 status RPC 維持 SECURITY INVOKER。匿名角色僅取得 private schema USAGE 與讀取公開狀態所需的最小 SELECT，並由 RLS 限制只可見目前允許公開的狀態資料。private schema 不加入 Data API Exposed schemas；匿名使用者不得取得任何寫入權限。此設計已在目前 GoTrue-issued JWT + PostgREST 隔離 CI 中測試 anon、一般 authenticated 與 admin 的 status/RPC 存取；正式環境仍須重新驗證。
 
 ### 4.2 `maintenance-admin-list` — 管理員事件清單
 
@@ -278,22 +278,22 @@ Request：
 必要 grants/RLS：
 - `anon`、`authenticated` 可 EXECUTE `public.maintenance_status_public`；先撤銷 `PUBLIC` 預設 EXECUTE，再明確授權。
 - `anon` 僅在此功能確實需要時取得 private schema `USAGE` 與公開狀態資料所需的最小 `SELECT`；不得取得 INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER 等寫入或管理權限。
-- `authenticated` 取得 status 查詢所需權限；管理 RPC 所需權限另依 admin RLS policy 授予。
+- `authenticated` 取得 status 查詢及受 RLS 保護的管理資料 SELECT 權限；管理 RPC 由 `maintenance_rpc_executor` 依其最小 table grants 與 RLS policy 執行。使用者角色不直接取得管理寫入 table grants。
 - status 相關 RLS policy 必須明確限制可公開資料列，並以公開欄位白名單控制 RPC 回傳；不得依賴前端過濾敏感欄位。
 - private schema 不加入 Data API Exposed schemas。這只阻止 PostgREST 將 private tables 作為一般 REST endpoints 暴露，不會取代 PostgreSQL grants/RLS。
-- 若未來發現這組 grants/RLS 無法安全滿足公開讀取需求，停止實作並重新審查；不得自行改為 SECURITY DEFINER。
+- 若未來發現這組 grants/RLS 無法安全滿足公開讀取需求，停止實作並重新審查；不得自行將公開 status RPC 改為 SECURITY DEFINER。
 
-此方案仍屬設計決議，尚未經 anon JWT / PostgREST / RLS 實際測試，不能宣稱已驗證。管理寫入 RPC 維持 SECURITY INVOKER。
+此方案已在 GoTrue-issued JWT + PostgREST 隔離 CI 中測試 anon、一般 authenticated 與 admin 的 status/RPC 存取；正式環境仍須重新驗證。管理 RPC 的 SECURITY DEFINER owner 與 RLS 限制另依本節前述設計。
 
 ### 9.2 Audit log 寫入邊界決議
 
-第一版維持 SECURITY INVOKER，不新增 SECURITY DEFINER audit writer。
+新版 SQL 的管理 RPC 使用 SECURITY DEFINER，owner 為專用 `maintenance_rpc_executor`；audit 寫入由管理 RPC 在同一交易內執行。未新增可由一般使用者直接呼叫的 audit writer。
 
-- audit 寫入所需 INSERT 與 RPC 內讀取/關聯所需的其他最小權限，只授予 `authenticated`，並由 RLS policy 限制為 `auth.uid() IS NOT NULL AND public.is_admin()`。
+- audit table 的必要 INSERT 權限授予 `maintenance_rpc_executor`，並由 RLS policy 限制為 `auth.uid() IS NOT NULL AND public.is_admin()`；`authenticated` 僅有 SELECT grant，且受管理員 RLS policy 限制，不取得 INSERT/UPDATE/DELETE 權限。
 - actor 一律取自 `auth.uid()`；不可接受 client 傳入 actor/user ID。
-- audit table 不授予 anon 任何權限；不授予 UPDATE/DELETE 給 authenticated。
+- audit table 不授予 anon 任何權限；`authenticated` 僅有 SELECT grant，且受管理員 RLS policy 限制；不授予 UPDATE/DELETE 給 `authenticated` 或 `maintenance_rpc_executor`，並以 trigger 拒絕 audit row UPDATE/DELETE/TRUNCATE。
 - private schema 不加入 Data API Exposed schemas；前端只呼叫受控 RPC。
-- 重要限制：PostgreSQL grants/RLS 不會辨識 SQL 是由 RPC 內部或其他資料庫路徑發出。因此此設計不能宣稱在資料庫權限層絕對禁止 authenticated 直接 INSERT；安全邊界依賴 private schema 不暴露、RLS、RPC 授權與應用程式入口限制。
+- 重要限制：PostgreSQL grants/RLS 不會辨識 SQL 是由 RPC 內部或其他資料庫路徑發出；目前 `authenticated` 對 audit table 有 SELECT grant，但沒有寫入 grant。安全邊界仍依賴 private schema 不暴露、RLS、RPC 授權與應用程式入口限制。
 - 若產品要求更強的資料庫層防竄改，需另行提出方案、審查 SECURITY DEFINER 的 owner/ACL/search_path/RLS 影響，並在隔離環境測試後才可採用。
 
 ### 9.3 已由現有 UI、Edge Function 與 SQL 對齊的欄位限制
