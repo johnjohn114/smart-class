@@ -14,7 +14,7 @@ def rpc(name, body):
     return (
         f"CREATE FUNCTION public.{name}(p_request jsonb) RETURNS jsonb "
         f"LANGUAGE plpgsql SECURITY {security} SET search_path = '' "
-        f"AS $ BEGIN {body} RETURN '{{}}'::jsonb; END; $;"
+        f"AS $$ BEGIN {body} RETURN '{{}}'::jsonb; END; $$;"
     )
 
 
@@ -164,7 +164,7 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
 
     def test_missing_notes_admin_policy_is_detected(self):
         broken = GOOD.replace(
-            '("maintenance_event_private_notes_admin_select","maintenance_event_private_notes","SELECT"),',
+            "CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated, maintenance_rpc_executor USING (public.is_admin())",
             ""
         )
         result = inspect_sql(broken)
