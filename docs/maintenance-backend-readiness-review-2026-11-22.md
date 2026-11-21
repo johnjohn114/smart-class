@@ -60,3 +60,55 @@ These mechanisms still require end-to-end verification; source inspection alone 
 - No Edge Function was deployed.
 - No production feature flag was enabled.
 - No PR was merged and no deployment was triggered.
+
+
+## Production read-only preflight — 2026-11-22
+
+The following checks were run against the production Supabase project using metadata queries and SELECT-only SQL. No DDL/DML was executed.
+
+### Verified production facts
+
+- Project is ACTIVE_HEALTHY on PostgreSQL 17.11.
+- public.is_admin() exists as a SECURITY DEFINER SQL function with an empty search_path; it checks profiles.id = auth.uid() and profiles.role = 'admin'. The observed ACL grants EXECUTE to authenticated and service_role, not anon.
+- The private schema does not exist.
+- None of the six current Maintenance tables exists: maintenance_scopes, maintenance_events, maintenance_event_private_notes, maintenance_event_scopes, maintenance_audit_logs, or maintenance_idempotency.
+- No Maintenance-named database routines or Maintenance Edge Functions were found.
+- maintenance_rpc_executor does not exist.
+- Supabase's migration listing returned no migrations, and supabase_migrations.schema_migrations does not exist.
+- The live public.app_releases columns match 202610310001_app_releases.sql (including published_at and created_by, and no is_latest).
+- The four calendar columns from 26.11.3_calendar_fields.sql already exist on public.announcements.
+
+### Migration baseline blocker
+
+The integration branch currently contains seven migration files. The two app_releases migrations are not compatible with each other when applied in sequence: the first creates the live table shape without is_latest; the later file uses CREATE TABLE IF NOT EXISTS and then creates an index referencing is_latest. On a database with the live shape above, that later index statement cannot succeed because the column is absent.
+
+Because the production migration history is absent, a normal supabase db push must not be run against the current repository as-is. It may try to replay historical migrations against a database that already contains their effects, and the conflicting app-release scripts are a concrete failure point. Before any push, reconcile all seven files against the live schema and define a reviewed baseline/history-repair procedure. Do not mark migrations as applied merely to silence the CLI; each one needs evidence that its effects are already present and equivalent.
+
+### Security ordering blocker in the Maintenance migration pair
+
+The initial Maintenance migration is not the final least-privilege state. It grants authenticated direct INSERT/UPDATE/DELETE capabilities on several private tables, and its admin write RPCs are SECURITY INVOKER. The second migration later creates the NOBYPASSRLS executor role, forces RLS, moves mutation policies to that role, removes direct authenticated write grants, and changes the administrative RPCs to SECURITY DEFINER.
+
+Therefore the initial migration must never be treated as a completed release state. If migration one succeeds and migration two fails, the database is left in an intermediate state with direct authenticated table writes allowed by admin RLS policies, which can bypass the RPC-level audit/idempotency/version workflow. Before production use, restructure the pair so the secure state is installed as one reviewed deployment unit (preferably a single migration or a secure initial migration with no temporary direct-write grants), then rerun the isolated tests.
+
+### Exposed schemas and rollback
+
+- The database catalog confirms that a private schema is not currently present; it cannot confirm the Supabase Dashboard Data API Exposed schemas setting for a future schema. Before release, verify that private remains excluded from Exposed schemas in the Dashboard. Schema grants alone are not a substitute for this API boundary.
+- Rollback must be forward-safe. Before any Maintenance event exists, a reviewed down-plan may remove newly created objects after confirming no deployed code depends on them. Once event/audit/idempotency records exist, do not drop the schema or tables as routine rollback: disable the application feature/Edge Function route while preserving records, then apply a reviewed forward fix. Keep the production feature flag disabled until smoke tests pass.
+- Edge Function deployment and feature-flag enablement remain separate approval gates.
+
+### Supabase Advisor baseline observed
+
+The production Security Advisor reported two INFO findings for RLS-enabled tables without policies, one ERROR for public.activity_member_stats being a SECURITY DEFINER view, 34 anon-executable SECURITY DEFINER function warnings, 34 authenticated-executable SECURITY DEFINER function warnings, and one Auth leaked-password-protection warning. These are existing project-wide findings, not Maintenance objects. They need a separate triage; do not silently modify unrelated functions/views as part of the Maintenance rollout.
+
+### Updated release decision
+
+**BLOCKED — do not run supabase db push, apply either Maintenance migration, deploy Maintenance Edge Functions, merge PR #31, or enable the feature flag yet.**
+
+Required order:
+1. Reconcile all seven historical migrations with the live schema; resolve the duplicate/conflicting app-release migration and establish a trustworthy migration baseline.
+2. Restructure the Maintenance migration pair so no intermediate direct-write state can be left behind.
+3. Verify Data API Exposed schemas and rerun the full disposable-database CI suite against the final migration sequence.
+4. Prepare a schema backup, event-data retention plan, and tested rollback/forward-fix runbook.
+5. Only then request separate approval for production migration, Edge Function deployment, smoke tests, and feature-flag activation.
+
+This addendum records review findings only. It does not modify runtime code or production Supabase.
