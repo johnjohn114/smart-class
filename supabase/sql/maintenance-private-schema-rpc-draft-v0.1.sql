@@ -191,11 +191,9 @@ GRANT SELECT ON private.maintenance_event_private_notes TO authenticated;
 -- Direct client writes are intentionally not granted. All mutations must pass through
 -- the validated admin RPCs below; table-level RLS policies remain defense-in-depth.
 GRANT SELECT ON private.maintenance_audit_logs TO authenticated;
-GRANT INSERT (event_id,action,reason,before_data,after_data)
-  ON private.maintenance_audit_logs TO authenticated;
+-- Audit rows are written only by the trusted admin RPCs.
 GRANT SELECT ON private.maintenance_idempotency TO authenticated;
-GRANT INSERT (idempotency_key,request_hash,response_json)
-  ON private.maintenance_idempotency TO authenticated;
+-- Idempotency rows are written only by the trusted admin RPCs.
 
 CREATE FUNCTION private.maintenance_set_updated_at()
 RETURNS trigger
@@ -951,6 +949,6 @@ GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticate
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
-COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use SECURITY INVOKER RPCs.';
+COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs.';
 COMMENT ON TABLE private.maintenance_event_private_notes IS 'Admin-only internal notes, separated from publicly visible maintenance event rows.';
 COMMENT ON TABLE private.maintenance_audit_logs IS 'Append-only audit trail; row mutation and TRUNCATE are blocked by triggers.';
