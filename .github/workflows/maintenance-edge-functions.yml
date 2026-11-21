@@ -69,7 +69,7 @@ jobs:
             supabase/tests/functions/maintenance-validation.test.ts
 
       - name: Run maintenance validation tests
-        run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS supabase/tests/functions/maintenance-validation.test.ts
+        run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS,SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY supabase/tests/functions/maintenance-validation.test.ts
 
       - name: Test maintenance feature gate
         run: python -m unittest discover -s tests -p 'test_maintenance_feature_gate.py'
