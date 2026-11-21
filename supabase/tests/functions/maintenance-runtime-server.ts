@@ -33,7 +33,7 @@ const routes = new Map<string, (request: Request) => Promise<Response>>([
 const port = Number(Deno.env.get("MAINTENANCE_RUNTIME_PORT") ?? "8002");
 Deno.serve({ port, hostname: "127.0.0.1" }, async (request) => {
   const pathname = new URL(request.url).pathname;
-  if (pathname === "/__health") return new Response("ok", { status: 200 });
+  if (pathname === "/__health") return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
   const route = routes.get(pathname);
   if (!route) {
     return new Response(JSON.stringify({
