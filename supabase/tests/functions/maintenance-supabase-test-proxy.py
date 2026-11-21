@@ -30,7 +30,11 @@ class Proxy(BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         headers = {key: value for key, value in self.headers.items()
                    if key.lower() not in ("host", "connection", "content-length")}
-        request = Request(target + self.path, data=body or None,
+        prefix = next(prefix for prefix in TARGETS if self.path.startswith(prefix))
+        # Supabase's gateway adds /auth/v1 and /rest/v1; GoTrue and PostgREST
+        # in CI expose their APIs directly at /user and /rpc respectively.
+        upstream_path = self.path[len(prefix.rstrip("/")):]
+        request = Request(target + upstream_path, data=body or None,
                           headers=headers, method=self.command)
         try:
             response = urlopen(request, timeout=20)
