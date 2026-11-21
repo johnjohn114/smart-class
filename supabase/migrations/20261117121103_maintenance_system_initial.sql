@@ -1,6 +1,6 @@
 -- Maintenance private schema + RPC draft v0.1
 -- DEVELOPMENT DRAFT ONLY. DO NOT RUN AGAINST PRODUCTION.
--- Architecture: user JWT + SECURITY INVOKER + RLS. No service_role impersonation.
+-- Architecture: public status uses SECURITY INVOKER; admin RPCs use a dedicated NOLOGIN, NOBYPASSRLS owner with RLS policies. No service_role impersonation.
 -- Preconditions: public.is_admin() exists and is callable by authenticated users.
 -- This file is intentionally not stored under supabase/migrations/.
 
@@ -972,6 +972,6 @@ GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticate
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
-COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use SECURITY INVOKER RPCs.';
+COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
 COMMENT ON TABLE private.maintenance_event_private_notes IS 'Admin-only internal notes, separated from publicly visible maintenance event rows.';
 COMMENT ON TABLE private.maintenance_audit_logs IS 'Append-only audit trail; row mutation and TRUNCATE are blocked by triggers.';
