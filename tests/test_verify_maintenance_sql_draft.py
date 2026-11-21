@@ -60,14 +60,40 @@ GOOD = (
     + rpc("maintenance_event_action",
           "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'; 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);")
     + """
-GRANT SELECT ON private.maintenance_event_private_notes TO authenticated;
-GRANT INSERT (event_id,internal_note)
-  ON private.maintenance_event_private_notes TO authenticated;
-GRANT UPDATE (internal_note,updated_at)
-  ON private.maintenance_event_private_notes TO authenticated;
-CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());
-CREATE POLICY maintenance_event_private_notes_admin_insert ON private.maintenance_event_private_notes FOR INSERT TO authenticated WITH CHECK (public.is_admin());
-CREATE POLICY maintenance_event_private_notes_admin_update ON private.maintenance_event_private_notes FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE ROLE maintenance_rpc_executor NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER TABLE private.maintenance_scopes FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_events FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_event_private_notes FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_event_scopes FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_audit_logs FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_idempotency FORCE ROW LEVEL SECURITY;
+GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;
+GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO maintenance_rpc_executor;
+GRANT INSERT, DELETE ON private.maintenance_event_scopes TO maintenance_rpc_executor;
+GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO maintenance_rpc_executor;
+""" + "\n".join(
+        "CREATE POLICY {} ON private.{} FOR {} TO maintenance_rpc_executor USING (public.is_admin())".format(name, table, action)
+        for name, table, action in (
+            ("maintenance_scopes_admin_select","maintenance_scopes","SELECT"),
+            ("maintenance_events_admin_select","maintenance_events","SELECT"),
+            ("maintenance_events_admin_insert","maintenance_events","INSERT"),
+            ("maintenance_events_admin_update","maintenance_events","UPDATE"),
+            ("maintenance_event_private_notes_admin_select","maintenance_event_private_notes","SELECT"),
+            ("maintenance_event_private_notes_admin_insert","maintenance_event_private_notes","INSERT"),
+            ("maintenance_event_private_notes_admin_update","maintenance_event_private_notes","UPDATE"),
+            ("maintenance_event_scopes_admin_select","maintenance_event_scopes","SELECT"),
+            ("maintenance_event_scopes_admin_insert","maintenance_event_scopes","INSERT"),
+            ("maintenance_event_scopes_admin_delete","maintenance_event_scopes","DELETE"),
+            ("maintenance_audit_admin_select","maintenance_audit_logs","SELECT"),
+            ("maintenance_audit_admin_insert","maintenance_audit_logs","INSERT"),
+            ("maintenance_idempotency_admin_select","maintenance_idempotency","SELECT"),
+            ("maintenance_idempotency_admin_insert","maintenance_idempotency","INSERT"),
+        )
+    ) + """
+ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO maintenance_rpc_executor;
+ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_executor;
+ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
+ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
 CREATE TRIGGER audit_no_mutation BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs
 FOR EACH ROW EXECUTE FUNCTION private.block_audit();
 CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON private.maintenance_audit_logs
