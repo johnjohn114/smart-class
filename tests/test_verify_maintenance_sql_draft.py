@@ -10,10 +10,11 @@ TABLES = (
 
 
 def rpc(name, body):
+    security = "INVOKER" if name == "maintenance_status_public" else "DEFINER"
     return (
         f"CREATE FUNCTION public.{name}(p_request jsonb) RETURNS jsonb "
-        "LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' "
-        f"AS $$ BEGIN {body} RETURN '{{}}'::jsonb; END; $$;"
+        f"LANGUAGE plpgsql SECURITY {security} SET search_path = '' "
+        f"AS $ BEGIN {body} RETURN '{{}}'::jsonb; END; $;"
     )
 
 
