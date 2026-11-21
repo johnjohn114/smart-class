@@ -95,7 +95,9 @@ function getBearerToken(req: Request): string | null {
   return match?.[1] ?? null;
 }
 
-async function isValidUserToken(token: string): Promise<boolean> {
+type TokenValidation = "valid" | "invalid" | "unavailable";
+
+async function validateUserToken(token: string): Promise<TokenValidation> {
   const { url, key } = getConfig();
   try {
     const response = await fetch(`${url}/auth/v1/user`, {
@@ -105,9 +107,11 @@ async function isValidUserToken(token: string): Promise<boolean> {
         Authorization: `Bearer ${token}`,
       },
     });
-    return response.ok;
+    if (response.ok) return "valid";
+    if (response.status === 401 || response.status === 403) return "invalid";
+    return "unavailable";
   } catch {
-    return false;
+    return "unavailable";
   }
 }
 
@@ -203,10 +207,52 @@ async function readJsonBody(req: Request): Promise<JsonObject> {
   if (!contentType.toLowerCase().includes("application/json")) {
     throw new HttpError(400, "INVALID_REQUEST", "Content-Type 必須是 application/json");
   }
-  const raw = await req.text();
-  if (new TextEncoder().encode(raw).byteLength > 64 * 1024) {
+
+  const maxBytes = 64 * 1024;
+  const contentLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new HttpError(413, "INVALID_REQUEST", "請求內容超過大小限制");
   }
+  if (!req.body) {
+    throw new HttpError(400, "INVALID_REQUEST", "請提供 JSON 內容");
+  }
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Cancellation is best-effort after the request is rejected.
+        }
+        throw new HttpError(413, "INVALID_REQUEST", "請求內容超過大小限制");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  let raw: string;
+  try {
+    raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new HttpError(400, "INVALID_REQUEST", "JSON 編碼格式錯誤");
+  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -215,7 +261,6 @@ async function readJsonBody(req: Request): Promise<JsonObject> {
   }
   return requireObject(parsed);
 }
-
 export function parseStatusRequest(req: Request): JsonObject {
   const url = new URL(req.url);
   for (const key of url.searchParams.keys()) {
@@ -473,13 +518,18 @@ export function createMaintenanceHandler(options: HandlerOptions) {
         if (!suppliedToken) {
           throw new HttpError(401, "UNAUTHENTICATED", "請先登入");
         }
-        if (!(await isValidUserToken(suppliedToken))) {
+        const validation = await validateUserToken(suppliedToken);
+        if (validation === "invalid") {
           throw new HttpError(401, "UNAUTHENTICATED", "登入狀態已失效，請重新登入");
         }
+        if (validation === "unavailable") {
+          throw new HttpError(503, "AUTH_UNAVAILABLE", "身分驗證服務暫時無法使用，請稍後再試");
+        }
         token = suppliedToken;
-      } else if (suppliedToken && await isValidUserToken(suppliedToken)) {
-        // Invalid optional tokens degrade to anonymous public access; they never grant bypass.
-        token = suppliedToken;
+      } else if (suppliedToken) {
+        const validation = await validateUserToken(suppliedToken);
+        // Optional auth never blocks public status: only a valid token is forwarded.
+        if (validation === "valid") token = suppliedToken;
       }
 
       const payload = await options.parse(req);
