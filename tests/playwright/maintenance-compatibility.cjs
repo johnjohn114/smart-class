@@ -112,7 +112,11 @@ async function createPageErrors(page) {
     // Reveal only the maintenance panel inside this isolated browser test so
     // its real controls can be exercised. The production feature flag and tab
     // remain disabled; no Supabase request is made.
-    await page.locator('#maintenanceTab').evaluate(el => el.classList.remove('hidden'));
+    await page.evaluate(() => {
+      document.querySelector('#login')?.classList.add('hidden');
+      document.querySelector('#dashboard')?.classList.remove('hidden');
+      document.querySelector('#maintenanceTab')?.classList.remove('hidden');
+    });
 
     // Exercise the actual cursor pager without enabling the production feature
     // or contacting Supabase. The request stub returns two deterministic pages.
