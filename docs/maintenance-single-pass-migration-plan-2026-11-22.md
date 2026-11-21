@@ -146,3 +146,18 @@ Read-only account inventory found:
 This narrows the known Supabase-managed environment inventory to one production project, but does not prove that no external/local/manual PostgreSQL database exists or that no one has run the Maintenance migrations there. User confirmation is still required before rewriting the timestamped migration history.
 
 No additional Supabase project or branch was created. No SQL was executed.
+
+
+## Isolated draft test alignment — 2026-11-22
+
+Updated `supabase/tests/sql/maintenance-postgres-isolated.test.sql` so its ephemeral PostgreSQL harness applies the exact single-pass development draft:
+
+`supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`
+
+This separates two distinct test purposes:
+- PostgreSQL-only isolated harness: validates the single-pass draft's schema, grants, ownership, RLS, RPC behavior, audit protections, and lifecycle behavior using test-only auth stubs.
+- GoTrue/PostgREST integration harness: continues to exercise the currently committed two-migration legacy path with real GoTrue-issued JWTs. This is retained as a compatibility/forward-upgrade baseline until the migration-history decision is evidence-based.
+
+The old timestamped migrations were not edited or deleted. No production SQL was executed, no migration was applied, and no Supabase environment or paid branch was created.
+
+This edit only changes the isolated test harness include target; a successful GitHub Actions run is still required before claiming the draft passes database integration tests.
