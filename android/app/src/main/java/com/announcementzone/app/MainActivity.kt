@@ -380,7 +380,7 @@ private fun AnnouncementsScreen(repository: SupabaseAuthRepository) {
                             softWrap = true,
                             maxLines = if (expanded) Int.MAX_VALUE else 5
                         )
-                        if (announcement.content.length > 220 || announcement.content.count { it == '\\n' } >= 4) {
+                        if (announcement.content.length > 220 || announcement.content.count { it == '\n' } >= 4) {
                             TextButton(onClick = { expanded = !expanded }) {
                                 Text(if (expanded) "收起內容" else "閱讀完整公告")
                             }
