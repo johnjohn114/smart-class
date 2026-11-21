@@ -4,9 +4,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
@@ -158,11 +161,7 @@ private fun SmartClassApp(
             ) {
                 composable("home") { HomeScreen(onOpen = { navController.navigate(it) }) }
                 composable("announcements") {
-                    FeatureScreen(
-                        title = "最新公告",
-                        description = "公告列表、分類、重要公告與公告內容將在這裡提供。",
-                        features = listOf("最新公告", "公告分類", "重要公告", "公告詳細內容")
-                    )
+                    AnnouncementsScreen(repository = authRepository)
                 }
                 composable("activities") {
                     FeatureScreen(
@@ -293,6 +292,114 @@ private fun FeatureCard(
     }
 }
 
+
+
+@Composable
+private fun AnnouncementsScreen(repository: SupabaseAuthRepository) {
+    val context = LocalContext.current
+    var announcements by remember { mutableStateOf<List<Announcement>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf("") }
+    var reloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(repository, reloadKey) {
+        loading = true
+        errorMessage = ""
+        try {
+            announcements = repository.loadAnnouncements()
+        } catch (error: Exception) {
+            errorMessage = error.message ?: "公告載入失敗，請稍後再試。"
+        } finally {
+            loading = false
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("最新公告", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+            Text("公告資訊即時讀取自網站公告資料。", color = Color(0xFF68708A), fontSize = 14.sp)
+        }
+        if (loading) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalArrangement = Arrangement.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+        } else if (errorMessage.isNotBlank()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("公告載入失敗", fontWeight = FontWeight.Bold, color = Color(0xFFB3261E))
+                        Text(errorMessage, color = Color(0xFF68708A), fontSize = 13.sp)
+                        Button(onClick = { reloadKey++ }) { Text("重新載入") }
+                    }
+                }
+            }
+        } else if (announcements.isEmpty()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Text("目前沒有已發布的公告。", modifier = Modifier.padding(18.dp), color = Color(0xFF68708A))
+                }
+            }
+        } else {
+            items(announcements, key = { it.id }) { announcement ->
+                var expanded by remember(announcement.id) { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            (if (announcement.pinned) "📌 置頂 · " else "") +
+                                announcement.date + " · " + announcement.category,
+                            color = Color(0xFF68708A),
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            announcement.title,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = BrandBlue,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            softWrap = true
+                        )
+                        Text(
+                            announcement.content.ifBlank { "（沒有公告內文）" },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFF30354F),
+                            fontSize = 14.sp,
+                            softWrap = true,
+                            maxLines = if (expanded) Int.MAX_VALUE else 5
+                        )
+                        if (announcement.content.length > 220 || announcement.content.count { it == '\\n' } >= 4) {
+                            TextButton(onClick = { expanded = !expanded }) {
+                                Text(if (expanded) "收起內容" else "閱讀完整公告")
+                            }
+                        }
+                        if (!announcement.linkUrl.isNullOrBlank()) {
+                            TextButton(onClick = {
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(announcement.linkUrl)))
+                                }
+                            }) {
+                                Text(announcement.linkLabel ?: "查看相關連結")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun MemberScreen(repository: SupabaseAuthRepository) {
