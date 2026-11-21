@@ -1,6 +1,6 @@
 -- Maintenance private schema + RPC draft v0.1
 -- DEVELOPMENT DRAFT ONLY. DO NOT RUN AGAINST PRODUCTION.
--- Architecture: user JWT + SECURITY INVOKER + RLS. No service_role impersonation.
+-- Architecture: public status uses SECURITY INVOKER; admin writes use tightly-validated SECURITY DEFINER RPCs. No service_role impersonation.
 -- Preconditions: public.is_admin() exists and is callable by authenticated users.
 -- This file is intentionally not stored under supabase/migrations/.
 
@@ -188,15 +188,8 @@ GRANT SELECT (event_id,scope_code) ON private.maintenance_event_scopes TO anon;
 GRANT SELECT ON private.maintenance_events, private.maintenance_event_scopes,
   private.maintenance_scopes TO authenticated;
 GRANT SELECT ON private.maintenance_event_private_notes TO authenticated;
-GRANT INSERT (event_id,internal_note)
-  ON private.maintenance_event_private_notes TO authenticated;
-GRANT UPDATE (internal_note,updated_at)
-  ON private.maintenance_event_private_notes TO authenticated;
-GRANT INSERT (title,message,is_global,status,starts_at,ends_at)
-  ON private.maintenance_events TO authenticated;
-GRANT UPDATE (title,message,is_global,status,starts_at,ends_at,version,updated_at)
-  ON private.maintenance_events TO authenticated;
-GRANT INSERT (event_id,scope_code), DELETE ON private.maintenance_event_scopes TO authenticated;
+-- Direct client writes are intentionally not granted. All mutations must pass through
+-- the validated admin RPCs below; table-level RLS policies remain defense-in-depth.
 GRANT SELECT ON private.maintenance_audit_logs TO authenticated;
 GRANT INSERT (event_id,action,reason,before_data,after_data)
   ON private.maintenance_audit_logs TO authenticated;
@@ -316,7 +309,7 @@ $$;
 CREATE FUNCTION public.maintenance_admin_list(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -453,7 +446,7 @@ $$;
 CREATE FUNCTION public.maintenance_event_create(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -513,6 +506,10 @@ BEGIN
      OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
      OR v_start IS NULL OR v_end IS NULL OR v_start>=v_end
      OR v_status IS NULL OR v_status NOT IN ('draft','scheduled') THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(p_request->'scope_codes') AS item(value)
+             WHERE pg_catalog.jsonb_typeof(item.value) IS DISTINCT FROM 'string') THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   SELECT COALESCE(pg_catalog.array_agg(DISTINCT x ORDER BY x),ARRAY[]::text[])
@@ -596,7 +593,7 @@ $$;
 CREATE FUNCTION public.maintenance_event_update(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -644,6 +641,12 @@ BEGIN
          OR (p_request->>'ends_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([Zz]|[+-][0-9]{2}:[0-9]{2})$'))
      OR (p_request ? 'is_global' AND pg_catalog.jsonb_typeof(p_request->'is_global') IS DISTINCT FROM 'boolean')
      OR (p_request ? 'scope_codes' AND pg_catalog.jsonb_typeof(p_request->'scope_codes') IS DISTINCT FROM 'array') THEN
+    RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
+  END IF;
+  IF p_request ? 'scope_codes' AND EXISTS (
+       SELECT 1 FROM pg_catalog.jsonb_array_elements(p_request->'scope_codes') AS item(value)
+       WHERE pg_catalog.jsonb_typeof(item.value) IS DISTINCT FROM 'string'
+     ) THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   v_key := (p_request->>'idempotency_key')::uuid;
@@ -804,7 +807,7 @@ $$;
 CREATE FUNCTION public.maintenance_event_action(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -927,6 +930,13 @@ EXCEPTION
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
 END;
 $$;
+
+-- Run admin RPCs as the trusted database owner. The functions still validate auth.uid()
+-- and public.is_admin() on every call; clients receive no direct table mutation privileges.
+ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO postgres;
+ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO postgres;
+ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO postgres;
+ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO postgres;
 
 -- RPC ACLs: revoke PostgreSQL's default PUBLIC EXECUTE first.
 REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
