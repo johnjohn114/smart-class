@@ -156,11 +156,13 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         self.assertFalse(result["no_authenticated_direct_write_grants"])
 
     def test_missing_notes_admin_policy_is_detected(self):
-        result = inspect_sql(GOOD.replace(
-            "CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());",
+        broken = GOOD.replace(
+            '("maintenance_event_private_notes_admin_select","maintenance_event_private_notes","SELECT"),',
             ""
-        ))
+        )
+        result = inspect_sql(broken)
         self.assertFalse(result["notes_admin_only_rls"])
+        self.assertFalse(result["admin_policies_target_executor"])
 
     def test_missing_rls_is_detected(self):
         result = inspect_sql(GOOD.replace(
