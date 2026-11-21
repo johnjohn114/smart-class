@@ -16,8 +16,8 @@ android {
         applicationId 'com.announcementzone.app'
         minSdk 24
         targetSdk 35
-        versionCode 22
-        versionName '26.12.0-alpha.2'
+        versionCode 23
+        versionName '26.12.0-alpha.3'
         buildConfigField "String", "SUPABASE_URL", "\"https://fsoowongtavlsrwvzbze.supabase.co\""
         buildConfigField "String", "SUPABASE_ANON_KEY", "\"sb_publishable_nAKu843QXRNajjS5F6EYGA_xxn9UlLb\""
     }
