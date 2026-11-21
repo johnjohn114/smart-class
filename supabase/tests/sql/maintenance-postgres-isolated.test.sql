@@ -127,6 +127,8 @@ DECLARE
   first_result jsonb;
   replay_result jsonb;
   conflict_seen boolean := false;
+  invalid_scope_seen boolean := false;
+  invalid_scope_payload jsonb;
 BEGIN
   request_payload := jsonb_build_object(
     'title', '  CI isolated maintenance event  ', 
@@ -140,6 +142,19 @@ BEGIN
     'reason', '  isolated PostgreSQL integration test  ', 
     'idempotency_key', '00000000-0000-4000-8000-000000000011'
   );
+  -- JSON arrays must contain strings only; numeric values must not be coerced to text.
+  invalid_scope_payload := pg_catalog.jsonb_set(request_payload, '{scope_codes}', '[1]'::jsonb, false);
+  invalid_scope_payload := pg_catalog.jsonb_set(invalid_scope_payload, '{idempotency_key}',
+    pg_catalog.to_jsonb('00000000-0000-4000-8000-000000000012'::text), false);
+  BEGIN
+    PERFORM public.maintenance_event_create(invalid_scope_payload);
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_scope_seen := true;
+  END;
+  IF NOT invalid_scope_seen THEN
+    RAISE EXCEPTION 'FAIL: non-string scope_codes array element was accepted';
+  END IF;
+
   first_result := public.maintenance_event_create(request_payload);
   -- Equivalent semantic payload: trimmed text and UTC Z timestamps instead of +00:00.
   request_payload := pg_catalog.jsonb_set(request_payload, '{title}', pg_catalog.to_jsonb('CI isolated maintenance event'::text), false);
