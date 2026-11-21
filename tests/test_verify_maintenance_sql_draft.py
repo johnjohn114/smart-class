@@ -69,12 +69,17 @@ ALTER TABLE private.maintenance_event_private_notes FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_event_scopes FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_audit_logs FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_idempotency FORCE ROW LEVEL SECURITY;
+GRANT SELECT ON private.maintenance_event_private_notes,
+  private.maintenance_audit_logs, private.maintenance_idempotency TO authenticated;
 GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;
 GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO maintenance_rpc_executor;
 GRANT INSERT, DELETE ON private.maintenance_event_scopes TO maintenance_rpc_executor;
 GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO maintenance_rpc_executor;
 """ + "\n".join(
-        "CREATE POLICY {} ON private.{} FOR {} TO maintenance_rpc_executor USING (public.is_admin())".format(name, table, action)
+        "CREATE POLICY {} ON private.{} FOR {} TO {} USING (public.is_admin())".format(
+            name, table, action,
+            "authenticated, maintenance_rpc_executor" if action == "SELECT" else "maintenance_rpc_executor"
+        )
         for name, table, action in (
             ("maintenance_scopes_admin_select","maintenance_scopes","SELECT"),
             ("maintenance_events_admin_select","maintenance_events","SELECT"),
