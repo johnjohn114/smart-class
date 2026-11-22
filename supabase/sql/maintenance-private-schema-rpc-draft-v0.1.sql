@@ -3,9 +3,18 @@
 -- Architecture: public status uses SECURITY INVOKER; admin RPCs use a dedicated NOLOGIN, NOBYPASSRLS owner with RLS policies. No service_role impersonation.
 -- Preconditions: public.is_admin() exists and is callable by authenticated users.
 -- This file is intentionally not stored under supabase/migrations/.
+-- Apply as one transaction; any failed statement must roll back the complete draft.
+
+BEGIN;
 
 DO $preflight$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+    WHERE rolname = current_user AND (rolsuper OR rolcreaterole)
+  ) THEN
+    RAISE EXCEPTION 'PRECONDITION_FAILED: current role must be SUPERUSER or have CREATEROLE to create the dedicated executor';
+  END IF;
   IF pg_catalog.to_regprocedure('public.is_admin()') IS NULL THEN
     RAISE EXCEPTION 'PRECONDITION_FAILED: public.is_admin() is required';
   END IF;
@@ -28,6 +37,10 @@ $preflight$;
 -- Dedicated non-login function owner. It is not a table owner and cannot bypass RLS.
 CREATE ROLE maintenance_rpc_executor
   NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+
+-- Hosted Supabase postgres is CREATEROLE but not SUPERUSER. Temporarily enable
+-- SET ROLE for the ownership transfer; INHERIT stays disabled and SET is revoked below.
+GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
 
 CREATE SCHEMA private;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
@@ -317,8 +330,7 @@ BEGIN
       'message', v_event.message,
       'starts_at', v_event.starts_at,
       'ends_at', v_event.ends_at,
-      'server_time', pg_catalog.now()
-    ) || CASE
+      'server_time', pg_catalog.now()    ) || CASE
       WHEN v_is_admin THEN pg_catalog.jsonb_build_object('admin_bypass', true)
       ELSE '{}'::jsonb
     END
@@ -637,8 +649,7 @@ BEGIN
      OR NOT (p_request ?| ARRAY['title','message','internal_note','is_global','scope_codes','starts_at','ends_at']) THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
-  IF pg_catalog.jsonb_typeof(p_request->'event_id') IS DISTINCT FROM 'string'
-     OR pg_catalog.jsonb_typeof(p_request->'expected_version') IS DISTINCT FROM 'number'
+  IF pg_catalog.jsonb_typeof(p_request->'event_id') IS DISTINCT FROM 'string'     OR pg_catalog.jsonb_typeof(p_request->'expected_version') IS DISTINCT FROM 'number'
      OR (p_request->>'expected_version') !~ '^[1-9][0-9]*$'
      OR pg_catalog.jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'
      OR pg_catalog.jsonb_typeof(p_request->'idempotency_key') IS DISTINCT FROM 'string'
@@ -949,6 +960,8 @@ ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_e
 ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
 REVOKE CREATE ON SCHEMA public FROM maintenance_rpc_executor;
+-- Keep the owner role non-inheritable and remove the temporary SET ROLE capability.
+REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 
 -- RPC ACLs: revoke PostgreSQL's default PUBLIC EXECUTE first.
 REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
@@ -966,3 +979,5 @@ COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supaba
 COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
 COMMENT ON TABLE private.maintenance_event_private_notes IS 'Admin-only internal notes, separated from publicly visible maintenance event rows.';
 COMMENT ON TABLE private.maintenance_audit_logs IS 'Append-only audit trail; row mutation and TRUNCATE are blocked by triggers.';
+
+COMMIT;
