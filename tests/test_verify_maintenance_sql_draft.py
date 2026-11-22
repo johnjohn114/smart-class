@@ -64,13 +64,18 @@ GOOD = (
           "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'; 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);")
     + """
 BEGIN;
-CREATE ROLE maintenance_rpc_executor NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-rolname = current_user AND (rolsuper OR rolcreaterole);
-GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
+pg_has_role(current_user, 'pg_database_owner', 'SET');
+has_schema_privilege(current_user, 'public', 'CREATE');
 CREATE FUNCTION private.maintenance_uid() RETURNS uuid;
-GRANT USAGE ON SCHEMA private TO maintenance_rpc_executor;
-GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, maintenance_rpc_executor;
-GRANT EXECUTE ON FUNCTION public.is_admin() TO maintenance_rpc_executor;
+GRANT USAGE ON SCHEMA private TO pg_database_owner;
+GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, pg_database_owner;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO pg_database_owner;
+ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO pg_database_owner;
+SET ROLE pg_database_owner;
+RESET ROLE;
 ALTER TABLE private.maintenance_scopes FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_events FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_event_private_notes FORCE ROW LEVEL SECURITY;
@@ -79,14 +84,14 @@ ALTER TABLE private.maintenance_audit_logs FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_idempotency FORCE ROW LEVEL SECURITY;
 GRANT SELECT ON private.maintenance_event_private_notes,
   private.maintenance_audit_logs, private.maintenance_idempotency TO authenticated;
-GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;
-GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO maintenance_rpc_executor;
-GRANT INSERT, DELETE ON private.maintenance_event_scopes TO maintenance_rpc_executor;
-GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO maintenance_rpc_executor;
+GRANT INSERT, UPDATE ON private.maintenance_events TO pg_database_owner;
+GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO pg_database_owner;
+GRANT INSERT, DELETE ON private.maintenance_event_scopes TO pg_database_owner;
+GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO pg_database_owner;
 """ + "\n".join(
         "CREATE POLICY {} ON private.{} FOR {} TO {} USING (public.is_admin())".format(
             name, table, action,
-            "authenticated, maintenance_rpc_executor" if action == "SELECT" else "maintenance_rpc_executor"
+            "authenticated, pg_database_owner" if action == "SELECT" else "pg_database_owner"
         )
         for name, table, action in (
             ("maintenance_scopes_admin_select","maintenance_scopes","SELECT"),
@@ -105,16 +110,16 @@ GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency 
             ("maintenance_idempotency_admin_insert","maintenance_idempotency","INSERT"),
         )
     ) + """
-ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO maintenance_rpc_executor;
-ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_executor;
-ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
-ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
-SET ROLE maintenance_rpc_executor;
+ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO pg_database_owner;
+SET ROLE pg_database_owner;
 RESET ROLE;
-REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
-REVOKE ADMIN OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
+REVOKE SET OPTION FOR pg_database_owner FROM CURRENT_USER;
+REVOKE ADMIN OPTION FOR pg_database_owner FROM CURRENT_USER;
 COMMIT;
-REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
+REVOKE SET OPTION FOR pg_database_owner FROM CURRENT_USER;
 COMMIT;
 CREATE TRIGGER audit_no_mutation BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs
 FOR EACH ROW EXECUTE FUNCTION private.block_audit();
@@ -166,12 +171,12 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
 
     def test_executor_role_is_least_privilege_and_authenticated_has_no_writes(self):
         result = inspect_sql(GOOD)
-        self.assertTrue(result["dedicated_executor_role"])
-        self.assertTrue(result["executor_owns_only_functions"])
+        self.assertTrue(result["no_custom_executor_role"])
+        self.assertTrue(result["database_owner_owns_admin_functions"])
         self.assertTrue(result["force_rls_all_tables"])
-        self.assertTrue(result["admin_policies_target_executor"])
+        self.assertTrue(result["admin_policies_target_database_owner"])
         self.assertTrue(result["no_authenticated_direct_write_grants"])
-        self.assertTrue(result["executor_minimum_write_grants"])
+        self.assertTrue(result["database_owner_minimum_write_grants"])
 
         broken = GOOD + "\\nGRANT INSERT ON private.maintenance_events TO authenticated;"
         result = inspect_sql(broken)
@@ -179,12 +184,12 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
 
     def test_missing_notes_admin_policy_is_detected(self):
         broken = GOOD.replace(
-            "CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated, maintenance_rpc_executor USING (public.is_admin())",
+            "CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated, pg_database_owner USING (public.is_admin())",
             ""
         )
         result = inspect_sql(broken)
         self.assertFalse(result["notes_admin_only_rls"])
-        self.assertFalse(result["admin_policies_target_executor"])
+        self.assertFalse(result["admin_policies_target_database_owner"])
 
     def test_missing_rls_is_detected(self):
         result = inspect_sql(GOOD.replace(
