@@ -526,7 +526,7 @@ BEGIN
      OR (v_note IS NOT NULL AND pg_catalog.char_length(v_note)>4000)
      OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
      OR v_start IS NULL OR v_end IS NULL OR v_start>=v_end
-     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled') THEN
+     OR v_status IS DISTINCT FROM 'draft' THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(p_request->'scope_codes') AS item(value)
@@ -569,17 +569,6 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='IDEMPOTENCY_KEY_REUSED';
     END IF;
     RETURN v_old_response;
-  END IF;
-
-  IF v_status='scheduled' AND EXISTS (
-    SELECT 1 FROM private.maintenance_events e
-     WHERE e.status='scheduled' AND e.starts_at<v_end AND v_start<e.ends_at
-       AND (v_global OR e.is_global OR 'site_core'=ANY(v_codes) OR EXISTS (
-         SELECT 1 FROM private.maintenance_event_scopes es
-          WHERE es.event_id=e.id AND (es.scope_code='site_core' OR es.scope_code=ANY(v_codes))
-       ))
-  ) THEN
-    RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
   END IF;
 
   INSERT INTO private.maintenance_events(title,message,is_global,status,starts_at,ends_at)
