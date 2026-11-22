@@ -5,7 +5,7 @@ DECLARE
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_roles
-    WHERE rolname='maintenance_deployer' AND rolcreaterole AND NOT rolsuper
+    WHERE rolname='maintenance_deployer' AND rolcanlogin AND rolcreaterole AND NOT rolsuper
   ) THEN
     RAISE EXCEPTION 'FAIL: migration test did not use the intended non-superuser CREATEROLE role';
   END IF;
