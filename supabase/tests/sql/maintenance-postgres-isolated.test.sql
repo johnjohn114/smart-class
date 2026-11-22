@@ -539,6 +539,7 @@ DECLARE
   cancel_draft_action jsonb;
   cancel_scheduled_create jsonb;
   cancel_scheduled_action jsonb;
+  past_draft_create jsonb;
   event_id uuid;
   event_version bigint;
   event_status text;
@@ -676,9 +677,41 @@ BEGIN
     RAISE EXCEPTION 'FAIL: scheduled -> cancelled transition/version incorrect';
   END IF;
 
+  -- An expired draft must not be scheduled, even by calling the RPC directly.
+  past_draft_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    'title','Lifecycle reject past schedule',
+    'message','Synthetic lifecycle integration test',
+    'is_global',false,
+    'scope_codes',pg_catalog.jsonb_build_array('membership_growth'),
+    'starts_at',pg_catalog.to_char((pg_catalog.now()-interval '30 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'ends_at',pg_catalog.to_char((pg_catalog.now()+interval '30 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'status','draft',
+    'reason','create past draft scheduling rejection test',
+    'idempotency_key','00000000-0000-4000-8000-000000000042'
+  ));
+  event_id := (past_draft_create #>> '{data,event_id}')::uuid;
+  invalid_seen := false;
+  BEGIN
+    PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+      'event_id',event_id,'expected_version',1,'action','schedule',
+      'reason','past schedule must fail',
+      'idempotency_key','00000000-0000-4000-8000-000000000043'
+    ));
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_seen := true;
+  END;
+  IF NOT invalid_seen THEN
+    RAISE EXCEPTION 'FAIL: an expired draft was allowed to be scheduled';
+  END IF;
+  SELECT status,version INTO event_status,event_version
+    FROM private.maintenance_events WHERE id=event_id;
+  IF event_status IS DISTINCT FROM 'draft' OR event_version<>1 THEN
+    RAISE EXCEPTION 'FAIL: rejected past schedule changed event state or version';
+  END IF;
+
   SELECT count(*) INTO audit_after FROM private.maintenance_audit_logs;
   SELECT count(*) INTO idempotency_after FROM private.maintenance_idempotency;
-  IF audit_after-audit_before<>7 OR idempotency_after-idempotency_before<>7 THEN
+  IF audit_after-audit_before<>8 OR idempotency_after-idempotency_before<>8 THEN
     RAISE EXCEPTION 'FAIL: lifecycle success audit/idempotency counts incorrect (audit %, idempotency %)',
       audit_after-audit_before,idempotency_after-idempotency_before;
   END IF;
