@@ -894,25 +894,37 @@ async function saveVideo(){const id=$('videoId').value.trim(),title=$('videoTitl
 async function deleteVideo(id){if(!confirm('確定刪除這部影片？'))return;try{const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/admin_delete_video',{method:'POST',headers:{...auth(),'Content-Type':'application/json'},body:JSON.stringify({p_video_id:id})});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.message||d?.hint||('HTTP '+r.status));await loadVideosAdmin()}catch(e){alert('❌ 刪除失敗：'+e.message)}}
 
 function recoverStoredSession(){
-  let access=localStorage.getItem('access_token')||sessionStorage.getItem('access_token');
-  let refresh=localStorage.getItem('refresh_token')||sessionStorage.getItem('refresh_token');
-  if(access)return {access,refresh};
-  for(const store of [localStorage,sessionStorage]){
+  const stores=[localStorage,sessionStorage];
+
+  // Keep each access/refresh pair in the same storage area where it was found.
+  for(const store of stores){
+    const access=store.getItem('access_token');
+    if(access)return {access,refresh:store.getItem('refresh_token'),storage:store};
+  }
+
+  // Support Supabase's namespaced auth-token record without promoting a
+  // sessionStorage session into persistent localStorage.
+  for(const store of stores){
     for(const key of Object.keys(store)){
       if(!key.includes('auth-token'))continue;
       try{
         const raw=JSON.parse(store.getItem(key)||'null');
         const session=raw?.currentSession||raw?.session||raw;
         if(session?.access_token){
-          access=session.access_token; refresh=session.refresh_token||refresh;
-          localStorage.setItem('access_token',access);
-          if(refresh)localStorage.setItem('refresh_token',refresh);
-          return {access,refresh};
+          const refresh=session.refresh_token||store.getItem('refresh_token');
+          store.setItem('access_token',session.access_token);
+          if(refresh)store.setItem('refresh_token',refresh);
+          return {access:session.access_token,refresh,storage:store};
         }
       }catch(e){}
     }
   }
-  return {access:null,refresh};
+
+  for(const store of stores){
+    const refresh=store.getItem('refresh_token');
+    if(refresh)return {access:null,refresh,storage:store};
+  }
+  return {access:null,refresh:null,storage:localStorage};
 }
 async function refreshAccessToken(){
   const stored=recoverStoredSession(), refreshToken=stored.refresh;
