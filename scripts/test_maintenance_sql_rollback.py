@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL_PATH = ROOT / "supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql"
-INJECTION_POINT = "GRANT CREATE ON SCHEMA public TO maintenance_rpc_executor;"
+INJECTION_POINT = "\nCOMMIT;"
 FAILURE = "INJECTED_MAINTENANCE_ROLLBACK_TEST"
 
 
@@ -48,8 +48,15 @@ def main() -> int:
 
     verification = """
 SELECT (
-  NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor')
-  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname='private')
+  NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname='private')
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='private'
+      AND c.relname IN ('maintenance_scopes','maintenance_events',
+                        'maintenance_event_private_notes','maintenance_event_scopes',
+                        'maintenance_audit_logs','maintenance_idempotency')
+  )
   AND NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_proc
     WHERE pronamespace='public'::pg_catalog.regnamespace
@@ -70,7 +77,7 @@ SELECT (
         print(check.stdout + check.stderr, file=sys.stderr)
         return 1
 
-    print("PASS: injected late failure rolled back executor role, private schema and public RPCs")
+    print("PASS: injected late failure rolled back private schema, tables and public RPCs")
     return 0
 
 
