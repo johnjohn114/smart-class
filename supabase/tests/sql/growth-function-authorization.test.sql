@@ -702,6 +702,35 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 
+-- Recreate the two additional live-production drifts after the legacy
+-- hardening migration, so Stage A must independently repair them.
+CREATE OR REPLACE FUNCTION public.admin_delete_growth_reward(p_reward_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_admin_delete$
+DECLARE caller_role text;
+BEGIN
+  SELECT role INTO caller_role FROM public.profiles WHERE id=auth.uid();
+  IF caller_role <> 'admin' THEN RAISE EXCEPTION '只有管理員可以刪除獎勵'; END IF;
+  RETURN jsonb_build_object('success',true);
+END;
+$legacy_admin_delete$;
+GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid) TO anon;
+
+CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_refresh_level$
+DECLARE lvl public.growth_levels%rowtype;
+BEGIN
+  SELECT * INTO lvl FROM public.growth_levels
+  WHERE min_points <= coalesce((SELECT growth_points FROM public.profiles WHERE id=p_user_id),0)
+  ORDER BY min_points DESC,sort_order DESC LIMIT 1;
+  IF lvl.code IS NULL THEN lvl.code:='newbie'; END IF;
+  UPDATE public.profiles SET growth_level=lvl.code WHERE id=p_user_id;
+  RETURN lvl.code;
+END;
+$legacy_refresh_level$;
+GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO anon;
+
 \ir ../../migrations/20261122120000_growth_rpc_and_public_leaderboard_hardening.sql
 
 DO $forward_acl$
@@ -733,6 +762,23 @@ BEGIN
   END IF;
   IF NOT has_table_privilege('anon','public.activity_public_leaderboard','SELECT') THEN
     RAISE EXCEPTION 'FAIL: anonymous public leaderboard SELECT missing';
+  END IF;
+  IF has_function_privilege('anon','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous admin reward delete EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated admin reward delete RPC';
+  END IF;
+  IF has_function_privilege('anon','public.refresh_growth_level(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous growth level refresh EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated growth level RPC';
+  END IF;
+  IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public._refresh_growth_level_internal(uuid)','EXECUTE')
+     OR has_function_privilege('service_role','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: private growth level helper remains directly executable';
   END IF;
 END
 $forward_acl$;
@@ -780,6 +826,38 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: forward migration allowed cross-account achievement processing'; END IF;
 END
 $forward_cross_account$;
+RESET ROLE;
+
+-- Stage A must restore the member/admin wrapper for growth level refresh.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_level_cross_account$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='沒有權限更新此會員等級' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed cross-account level refresh'; END IF;
+END
+$forward_level_cross_account$;
+RESET ROLE;
+
+-- Missing identity must fail closed for the admin delete RPC.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE authenticated;
+DO $forward_admin_null_identity$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000010');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='只有管理員可以刪除獎勵' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A admin delete accepted NULL auth.uid()'; END IF;
+END
+$forward_admin_null_identity$;
 RESET ROLE;
 
 -- Internal SECURITY DEFINER trigger paths continue to award points even though
