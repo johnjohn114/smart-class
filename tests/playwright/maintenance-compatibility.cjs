@@ -81,6 +81,60 @@ async function createPageErrors(page) {
     assert.equal(await page.locator('[data-tab="maintenanceTab"]').isHidden(), true);
     assert.equal(await page.locator('#dashboard').evaluate(el => el.classList.contains('hidden')), true);
 
+    // A 401 from a maintenance request refreshes the admin session once,
+    // retries with the rotated access token, and stores the rotated refresh token.
+    const refreshResult = await page.evaluate(async () => {
+      localStorage.setItem('access_token', 'expired-test-access');
+      localStorage.setItem('refresh_token', 'old-test-refresh');
+      const originalFetch = window.fetch;
+      const maintenanceAuthHeaders = [];
+      let refreshCalls = 0;
+      window.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (target.includes('/auth/v1/token?grant_type=refresh_token')) {
+          refreshCalls += 1;
+          return new Response(JSON.stringify({
+            access_token: 'fresh-test-access',
+            refresh_token: 'rotated-test-refresh'
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (target.includes('/functions/v1/maintenance-admin-list')) {
+          maintenanceAuthHeaders.push(options.headers?.Authorization || '');
+          if (maintenanceAuthHeaders.length === 1) {
+            return new Response(JSON.stringify({ ok: false, error: { message: 'expired' } }), {
+              status: 401, headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          return new Response(JSON.stringify({ ok: true, data: { events: [], next_cursor: null } }), {
+            status: 200, headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return originalFetch(url, options);
+      };
+      try {
+        const data = await maintenanceAdminRequest('maintenance-admin-list');
+        return {
+          data,
+          refreshCalls,
+          maintenanceAuthHeaders,
+          storedAccess: localStorage.getItem('access_token'),
+          storedRefresh: localStorage.getItem('refresh_token')
+        };
+      } finally {
+        window.fetch = originalFetch;
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+    });
+    assert.equal(refreshResult.refreshCalls, 1, 'one 401 should trigger exactly one refresh');
+    assert.deepEqual(refreshResult.maintenanceAuthHeaders, [
+      'Bearer expired-test-access',
+      'Bearer fresh-test-access'
+    ], 'the retry must use the refreshed access token');
+    assert.equal(refreshResult.storedAccess, 'fresh-test-access');
+    assert.equal(refreshResult.storedRefresh, 'rotated-test-refresh');
+    assert.deepEqual(refreshResult.data, { events: [], next_cursor: null });
+
     // Pending idempotency keys survive a reload in the same tab, but successful
     // operations clear them so a later intentional retry receives a fresh key.
     const firstKey = await page.evaluate(async () => {
