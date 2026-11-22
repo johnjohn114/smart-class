@@ -68,7 +68,7 @@ class NotificationContractTests(unittest.TestCase):
         fn = self.js[start:end]
         self.assertIn("filter==='unread'", fn)
         self.assertIn("filter==='read'", fn)
-        self.assertIn("filter==='all'", fn)
+        self.assertIn(":myNotificationRows;", fn)
         self.assertIn("read_at", fn)
 
     def test_read_mutations_are_scoped_to_verified_member(self):
