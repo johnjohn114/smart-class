@@ -716,6 +716,25 @@ END;
 $legacy_admin_delete$;
 GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid) TO anon;
 
+-- Simulate production's drifted grants across the complete SECURITY DEFINER
+-- catalog, not only the three individually reproduced function bodies.
+DO $production_acl_drift$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS signature,
+           p.prorettype='trigger'::regtype AS is_trigger
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.prosecdef AND p.prokind='f'
+  LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO PUBLIC, anon, authenticated',r.signature);
+    IF r.is_trigger THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role',r.signature);
+    END IF;
+  END LOOP;
+END
+$production_acl_drift$;
+
 -- Recreate the live badge routine's NULL-sensitive ownership check.
 CREATE OR REPLACE FUNCTION public.check_activity_badges(p_user_id uuid DEFAULT auth.uid())
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -829,6 +848,96 @@ BEGIN
   END IF;
 END
 $forward_acl$;
+
+-- After simulating production-wide grant drift, Stage A restores the full allowlist.
+DO $forward_complete_acl_matrix$
+DECLARE
+  r record;
+  resolved regprocedure;
+  expected_authenticated boolean;
+  expected_anon boolean;
+  expected_trigger boolean;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('admin_activity_analytics()', true, false, false),
+      ('admin_adjust_growth_points(uuid,integer,text)', true, false, false),
+      ('admin_apply_competition_rewards(uuid)', true, false, false),
+      ('admin_cancel_order(uuid)', true, false, false),
+      ('admin_complete_order(uuid)', true, false, false),
+      ('admin_delete_growth_reward(uuid)', true, false, false),
+      ('admin_delete_video(uuid)', true, false, false),
+      ('admin_grant_competition_reward(uuid,text,text,text,integer,uuid)', true, false, false),
+      ('admin_mark_competition_attendance(uuid,text,text)', true, false, false),
+      ('admin_mark_competition_member_attendance(uuid,uuid,text,text)', true, false, false),
+      ('admin_mark_order_paid(uuid)', true, false, false),
+      ('admin_promote_competition_waitlist(uuid)', true, false, false),
+      ('admin_reset_growth_member(uuid,text)', true, false, false),
+      ('admin_settle_competition(uuid)', true, false, false),
+      ('admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamp with time zone,timestamp with time zone,integer,boolean)', true, false, false),
+      ('admin_upsert_video(jsonb)', true, false, false),
+      ('assign_member_no_and_nickname()', false, false, true),
+      ('award_growth_points(uuid,integer,text,text,text,text,uuid)', false, false, false),
+      ('check_activity_badges(uuid)', true, false, false),
+      ('check_competition_registration_rules()', false, false, true),
+      ('check_growth_achievements(uuid)', true, false, false),
+      ('checkin_competition(uuid,text)', true, false, false),
+      ('close_my_support_ticket(uuid)', true, false, false),
+      ('complete_growth_task(text)', true, false, false),
+      ('create_cash_order(uuid,integer,text)', true, false, false),
+      ('ensure_visitor_profile()', false, false, true),
+      ('growth_registration_reward()', false, false, true),
+      ('growth_result_reward()', false, false, true),
+      ('increment_download_count(uuid)', true, false, false),
+      ('is_admin()', true, true, false),
+      ('is_admin_user()', true, false, false),
+      ('join_competition_waitlist(uuid,text)', true, false, false),
+      ('record_growth_activity()', true, false, false),
+      ('redeem_growth_reward(uuid)', true, false, false),
+      ('refresh_growth_level(uuid)', true, false, false),
+      ('use_growth_coupon(uuid)', true, false, false),
+      ('_refresh_growth_level_internal(uuid)', false, false, false)
+    ) AS v(signature, allow_authenticated, allow_anon, is_trigger)
+  LOOP
+    resolved := to_regprocedure('public.' || r.signature);
+    IF resolved IS NULL THEN
+      RAISE EXCEPTION 'FAIL: catalog fixture missing SECURITY DEFINER signature %', r.signature;
+    END IF;
+
+    expected_authenticated := r.allow_authenticated;
+    expected_anon := r.allow_anon;
+    expected_trigger := r.is_trigger;
+
+    IF has_function_privilege('authenticated', resolved, 'EXECUTE')
+       IS DISTINCT FROM expected_authenticated THEN
+      RAISE EXCEPTION 'FAIL: authenticated EXECUTE mismatch for %, expected %',
+        r.signature, expected_authenticated;
+    END IF;
+
+    IF has_function_privilege('anon', resolved, 'EXECUTE')
+       IS DISTINCT FROM expected_anon THEN
+      RAISE EXCEPTION 'FAIL: anon EXECUTE mismatch for %, expected %',
+        r.signature, expected_anon;
+    END IF;
+
+    IF expected_trigger AND has_function_privilege('service_role', resolved, 'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: service_role can directly execute trigger function %', r.signature;
+    END IF;
+  END LOOP;
+
+  IF (
+    SELECT count(*)
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.prokind = 'f'
+      AND p.oid::regprocedure::text <> 'ci_security_definer_trigger()'
+  ) <> 38 THEN
+    RAISE EXCEPTION 'FAIL: expected 38 catalog entries (36 live routines, internal helper, and future-function fixture)';
+  END IF;
+END
+$complete_acl_matrix$;
 
 -- SECURITY DEFINER growth routines must not inherit a caller-controlled search_path.
 DO $search_path_hardening$
