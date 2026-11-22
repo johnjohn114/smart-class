@@ -141,3 +141,26 @@ This section records the requested combined read-only checks. No production conf
 ### Current decision
 
 Operational code-side prerequisites are documented and internally consistent. Dashboard Exposed schemas and hosted environment values remain unverified, so deployment remains blocked. No production SQL, migration, dashboard configuration, Edge Function deployment, feature-flag change, PR merge, or paid resource was used.
+
+
+## 2026-11-23 Dashboard screenshot confirmation — Data API schemas
+
+The user supplied a Supabase Dashboard → Integrations → Data API → Settings screenshot.
+
+### Visually confirmed
+
+- Exposed schemas shows `2 of 2 schemas exposed`.
+- The only selected schemas shown are `graphql_public` and `public`.
+- `private` is not in the exposed schema selection.
+- Exposed functions shows `35 of 38 functions exposed`; the screenshot does not identify which three functions are disabled.
+- “Automatically expose new tables” appears enabled (green toggle) in the screenshot. This setting should be reviewed before creating future tables; do not change it as part of this read-only audit.
+
+### Impact on Maintenance release
+
+- The screenshot confirms that `private` is not currently exposed through the Data API.
+- It does not establish that the `private` schema already exists; the current database schema inventory did not list it.
+- After the approved migration creates `private`, keep it out of Exposed schemas.
+- Confirm which three existing functions are not exposed and verify the final five Maintenance RPC entry points against the intended API design before release. No Maintenance functions are currently deployed.
+- No Dashboard setting was changed based on this screenshot.
+
+This screenshot resolves the previously outstanding visual confirmation for the current Exposed schemas selection. Hosted function configuration and deployment smoke tests remain outstanding.
