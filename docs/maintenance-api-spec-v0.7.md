@@ -69,7 +69,7 @@
 - 管理 RPC 的 EXECUTE 僅授予 `authenticated`；公開 status RPC 的 EXECUTE 授予 `anon`、`authenticated`。管理 RPC 由 `maintenance_rpc_executor` 執行受 RLS 約束的資料表操作。
 - `authenticated` 對部分 private tables 有 SELECT table grants，但 RLS 僅允許管理員讀取管理資料；管理寫入 grants 僅授予 `maintenance_rpc_executor`。`anon` 僅有公開 status 所需的欄位 SELECT 權限。
 - 不使用 service_role bypass RLS，不新增 DB URL 或資料庫密碼 secret。
-- private tables 全部啟用 RLS。RLS policy 必須限制 admin；必要時同時檢查 `auth.uid() IS NOT NULL`。
+- private tables 全部啟用 RLS。RLS policy 必須限制 admin；必要時同時檢查 `private.maintenance_uid() IS NOT NULL`。
 - 前端只呼叫 Edge Functions；不直接操作維護資料表。
 - `internal_note` 雖然仍是 create/update/admin-list API 欄位，但資料庫草案必須存放於獨立的 `private.maintenance_event_private_notes`，不得放在一般維護事件資料列；該表啟用 RLS，僅 authenticated 管理員可讀寫。
 
@@ -292,7 +292,7 @@ Request：
 新版 SQL 的管理 RPC 使用 SECURITY DEFINER，owner 為專用 `maintenance_rpc_executor`；audit 寫入由管理 RPC 在同一交易內執行。未新增可由一般使用者直接呼叫的 audit writer。
 
 - audit table 的必要 INSERT 權限授予 `maintenance_rpc_executor`，並由 RLS policy 限制為 `auth.uid() IS NOT NULL AND public.is_admin()`；`authenticated` 僅有 SELECT grant，且受管理員 RLS policy 限制，不取得 INSERT/UPDATE/DELETE 權限。
-- actor 一律取自 `auth.uid()`；不可接受 client 傳入 actor/user ID。
+- actor 一律取自 `private.maintenance_uid()`；不可接受 client 傳入 actor/user ID。
 - audit table 不授予 anon 任何權限；`authenticated` 僅有 SELECT grant，且受管理員 RLS policy 限制；不授予 UPDATE/DELETE 給 `authenticated` 或 `maintenance_rpc_executor`，並以 trigger 拒絕 audit row UPDATE/DELETE/TRUNCATE。
 - private schema 不加入 Data API Exposed schemas；前端只呼叫受控 RPC。
 - 重要限制：PostgreSQL grants/RLS 不會辨識 SQL 是由 RPC 內部或其他資料庫路徑發出；目前 `authenticated` 對 audit table 有 SELECT grant，但沒有寫入 grant。安全邊界仍依賴 private schema 不暴露、RLS、RPC 授權與應用程式入口限制。
