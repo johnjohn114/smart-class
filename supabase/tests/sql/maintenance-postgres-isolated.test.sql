@@ -552,8 +552,7 @@ BEGIN
   SELECT count(*) INTO audit_before FROM private.maintenance_audit_logs;
   SELECT count(*) INTO idempotency_before FROM private.maintenance_idempotency;
 
-  -- Create a draft whose time window is already over; scheduling it and
-  -- completing it immediately exercises both legal state transitions.
+  -- Create an already-ended scheduled fixture so the completion guard is tested.
   complete_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
     'title','Lifecycle complete path',
     'message','Synthetic lifecycle integration test',
@@ -567,8 +566,8 @@ BEGIN
   ));
   event_id := (complete_create #>> '{data,event_id}')::uuid;
   event_version := (complete_create #>> '{data,version}')::bigint;
-  IF (complete_create #>> '{data,status}') IS DISTINCT FROM 'draft' OR event_version<>1 THEN
-    RAISE EXCEPTION 'FAIL: draft create returned unexpected status/version';
+  IF (complete_create #>> '{data,status}') IS DISTINCT FROM 'scheduled' OR event_version<>1 THEN
+    RAISE EXCEPTION 'FAIL: scheduled completion fixture returned unexpected status/version';
   END IF;
 
   -- The fixture is already scheduled and ended; only completion is allowed.
