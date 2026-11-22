@@ -1,7 +1,15 @@
 const F=['site_name','hero_title','hero_text','hero_image','about_title','about_subtitle','about1_title','about1_text','about2_title','about2_text','features_title','features_subtitle','f1_title','f1_text','f2_title','f2_text','f3_title','f3_text','f4_title','f4_text','contact1','contact2','contact3'];
 const $=id=>document.getElementById(id); const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 function configured(){return typeof SUPABASE_URL!=='undefined'&&typeof SUPABASE_ANON_KEY!=='undefined'&&SUPABASE_URL&&SUPABASE_ANON_KEY&&!String(SUPABASE_URL).includes('你的')&&!String(SUPABASE_URL).includes('請填入')&&!String(SUPABASE_ANON_KEY).includes('你的')}
-function auth(){const t=recoverStoredSession().access||localStorage.getItem('access_token')||sessionStorage.getItem('access_token');const h={'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY};if(t)h.Authorization='Bearer '+t;return h}
+function recoverStoredSession(){
+  const localAccess=localStorage.getItem('access_token');
+  const localRefresh=localStorage.getItem('refresh_token');
+  if(localAccess||localRefresh) return {access:localAccess,refresh:localRefresh,storage:localStorage};
+  const sessionAccess=sessionStorage.getItem('access_token');
+  const sessionRefresh=sessionStorage.getItem('refresh_token');
+  return {access:sessionAccess,refresh:sessionRefresh,storage:sessionStorage};
+}
+function auth(){const t=recoverStoredSession().access;const h={'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY};if(t)h.Authorization='Bearer '+t;return h}
 function msg(id,t){if($(id))$(id).textContent=t}
 
 // 活動中心時間一律以台灣時間（Asia/Taipei，UTC+8）顯示與儲存，避免 datetime-local 被瀏覽器轉成 UTC 後少 8 小時。
@@ -1084,11 +1092,60 @@ async function maintenanceClearIdempotencyKey(operation, payload) {
   }
 }
 
-async function maintenanceAdminRequest(path, options = {}) {
+let maintenanceRefreshPromise = null;
+
+async function refreshAdminSession() {
+  if (maintenanceRefreshPromise) return maintenanceRefreshPromise;
   const session = recoverStoredSession();
-  const token = session.access || localStorage.getItem('access_token') ||
-    sessionStorage.getItem('access_token');
-  if (!token) throw new Error('管理員登入狀態不存在，請重新登入。');
+  if (!session.refresh) throw new Error('管理員登入狀態已過期，請重新登入。');
+
+  maintenanceRefreshPromise = (async () => {
+    let response;
+    try {
+      response = await fetch(
+        SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+          body: JSON.stringify({ refresh_token: session.refresh })
+        }
+      );
+    } catch {
+      throw new Error('目前無法連線更新管理員登入狀態，請稍後再試。');
+    }
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.access_token) {
+      if (response.status === 400 || response.status === 401) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        sessionStorage.removeItem('access_token');
+        sessionStorage.removeItem('refresh_token');
+        throw new Error('管理員登入狀態已失效，請重新登入。');
+      }
+      throw new Error('更新管理員登入狀態失敗（HTTP ' + response.status + '），請稍後再試。');
+    }
+
+    const storage = session.storage || localStorage;
+    storage.setItem('access_token', result.access_token);
+    if (result.refresh_token) storage.setItem('refresh_token', result.refresh_token);
+    return result.access_token;
+  })();
+
+  try {
+    return await maintenanceRefreshPromise;
+  } finally {
+    maintenanceRefreshPromise = null;
+  }
+}
+
+async function maintenanceAdminRequest(path, options = {}) {
+  let session = recoverStoredSession();
+  if (!session.access && session.refresh) {
+    await refreshAdminSession();
+    session = recoverStoredSession();
+  }
+  if (!session.access) throw new Error('管理員登入狀態不存在，請重新登入。');
 
   const requestOptions = {
     method: options.method || 'GET',
@@ -1098,10 +1155,15 @@ async function maintenanceAdminRequest(path, options = {}) {
     requestOptions.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(
+  const sendRequest = () => fetch(
     SUPABASE_URL + '/functions/v1/' + path,
-    requestOptions
+    { ...requestOptions, headers: { ...auth(), Accept: 'application/json' } }
   );
+  let response = await sendRequest();
+  if (response.status === 401) {
+    await refreshAdminSession();
+    response = await sendRequest();
+  }
   const payload = await response.json().catch(() => null);
 
   if (!response.ok || !payload || payload.ok !== true) {
@@ -1413,6 +1475,13 @@ async function maintenanceRunAction(eventId, action) {
   }
 
   const labels = { schedule: '安排維護', cancel: '取消排程', complete: '完成維護' };
+  if (action === 'schedule') {
+    const startsAt = Date.parse(event.starts_at);
+    if (!Number.isFinite(startsAt) || startsAt <= Date.now()) {
+      msg('maintenanceMsg', '❌ 維護開始時間必須晚於現在，請修改開始時間後再安排。');
+      return;
+    }
+  }
   if (!confirm('確定要「' + (labels[action] || action) + '」嗎？')) return;
 
   const actionBody = {
