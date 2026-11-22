@@ -7,9 +7,9 @@ BEGIN
     SELECT 1 FROM pg_catalog.pg_roles
     WHERE rolname='maintenance_deployer'
       AND rolcanlogin AND rolcreaterole AND rolcreatedb
-      AND NOT rolsuper AND NOT rolbypassrls
+      AND NOT rolsuper AND rolbypassrls
   ) THEN
-    RAISE EXCEPTION 'FAIL: migration test did not use a non-superuser CREATEROLE database owner';
+    RAISE EXCEPTION 'FAIL: migration test did not use a non-superuser CREATEROLE BYPASSRLS database owner';
   END IF;
 
   IF NOT pg_catalog.pg_has_role('maintenance_deployer','pg_database_owner','SET') THEN
