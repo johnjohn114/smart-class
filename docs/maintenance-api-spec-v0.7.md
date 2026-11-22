@@ -63,7 +63,7 @@
 
 - 採用 Edge Function + 使用者 JWT + private schema tables + RLS。公開 status RPC 使用 `SECURITY INVOKER`；管理 RPC 使用專用 `pg_database_owner` 擁有的 `SECURITY DEFINER`，並在資料庫函式內檢查使用者 JWT 對應的管理員身分。
 - private schema 不加入 Data API Exposed schemas。
-- `private.maintenance_uid()` 以 `SECURITY INVOKER` 讀取 PostgREST 已驗證的 `request.jwt.claims` / `request.jwt.claim.sub`；它只回傳目前請求的 JWT subject，不接受外部參數。這讓管理 RPC owner 不必取得 Supabase 管理的 `auth` schema USAGE，也不必向 `auth.uid()` 轉授權限。公開 status RPC 的匿名呼叫會得到 NULL subject；anon、authenticated 與 executor 僅取得呼叫此 helper 所需的 EXECUTE 權限。
+- `private.maintenance_uid()` 以 `SECURITY INVOKER` 讀取 PostgREST 已驗證的 `request.jwt.claims` / `request.jwt.claim.sub`；它只回傳目前請求的 JWT subject，不接受外部參數，也不直接呼叫 `auth.uid()`。這讓管理 RPC owner 不必直接取得 Supabase 管理的 `auth` schema USAGE；但 `public.is_admin()` 是獨立的既有專案 helper，其定義、owner、`search_path`、EXECUTE ACL 與內部 `auth` 依賴仍須在目標資料庫唯讀核對。公開 status RPC 的匿名呼叫會得到 NULL subject；anon、authenticated 與 `pg_database_owner` 僅取得呼叫此 helper 所需的 EXECUTE 權限。
 - 所有 RPC 固定 `search_path = ''`，所有 schema/table/function 名稱完整限定。`maintenance_status_public` 使用 `SECURITY INVOKER`；`maintenance_admin_list`、`maintenance_event_create`、`maintenance_event_update`、`maintenance_event_action` 使用 `SECURITY DEFINER`，owner 為專用 `pg_database_owner`。
 - 新 RPC 先撤銷 `PUBLIC` EXECUTE，再明確授權。
 - 管理 RPC 的 EXECUTE 僅授予 `authenticated`；公開 status RPC 的 EXECUTE 授予 `anon`、`authenticated`。管理 RPC 由 `pg_database_owner` 執行受 RLS 約束的資料表操作。
