@@ -999,17 +999,17 @@ GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticate
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
 RESET ROLE;
 
--- RESET ROLE returns to SESSION_USER, which may differ from the migration actor
--- (for example, when CI deliberately SET ROLE to emulate hosted Supabase postgres).
-DO $revoke_executor_membership$
+-- Keep the membership record because it is the grantor for dependent object ACLs,
+-- but remove both ways to exercise the executor role: SET ROLE and inherited privileges.
+DO $revoke_executor_set$
 DECLARE
   v_migration_actor name := pg_catalog.current_setting('maintenance.migration_actor')::name;
 BEGIN
   EXECUTE pg_catalog.format(
-    'REVOKE maintenance_rpc_executor FROM %I', v_migration_actor
+    'REVOKE SET OPTION FOR maintenance_rpc_executor FROM %I', v_migration_actor
   );
 END
-$revoke_executor_membership$;
+$revoke_executor_set$;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
 COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
