@@ -238,8 +238,8 @@ GRANT SELECT ON private.maintenance_event_private_notes,
 
 -- Only the dedicated RPC owner receives the table privileges needed for validated mutations.
 GRANT USAGE ON SCHEMA private TO maintenance_rpc_executor;
--- private.maintenance_uid() is intentionally not called under the executor: Supabase's auth schema
--- is owned by supabase_admin. The private helper below reads the verified JWT claims.
+-- Avoid calling Supabase-managed auth-schema functions under the executor. Supabase's auth schema
+-- The private helper reads the verified PostgREST JWT subject claims instead.
 GRANT EXECUTE ON FUNCTION public.is_admin() TO maintenance_rpc_executor;
 GRANT SELECT ON private.maintenance_scopes, private.maintenance_events,
   private.maintenance_event_private_notes, private.maintenance_event_scopes,
