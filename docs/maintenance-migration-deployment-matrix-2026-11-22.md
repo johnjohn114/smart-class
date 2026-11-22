@@ -12,7 +12,7 @@
 - Supabase migration listing 回傳空集合；資料庫 catalog 中未找到 `supabase_migrations` schema/table。這不能證明任何 SQL 從未在其他環境執行，也不能單憑空 ledger 推定正式資料庫從未執行過 migration。
 - GitHub `main`、PR #34 base/head 的 Maintenance migration 檔案並不一致。
 - PR #34 base/head 保留舊的兩段式 migration；single-pass SQL 目前仍位於開發草案路徑，不是正式 timestamped migration。
-- 未取得所有 local/manual/preview/staging/shared database 的執行歷史證據，因此不可 squash、刪除、改名、取代或重排 timestamped migration。
+- 使用者已明確回答「無」：沒有在其他 local/manual/preview/staging/shared database 執行過 Maintenance migrations。此為使用者對已知其他環境的明確確認；production 的全域 migration baseline 缺口仍未解決，因此不可直接 squash、刪除、改名、取代或重排 timestamped migration。
 
 ## 2. Git 分支檔案矩陣
 
@@ -33,8 +33,8 @@
 | 順序／候選 | 建立或變更內容 | 權限狀態 | 部署判斷 |
 |---|---|---|---|
 | 舊 migration 1：初始版 | 建立 private schema、六張 Maintenance tables、seed scopes、RLS policies、status/admin RPC 與 trigger | 初始版曾授予 authenticated 管理寫入路徑；尚未達到最終 executor-only mutation model | 不可單獨作為最終部署狀態 |
-| 舊 migration 2：權限升級 | 建立 `maintenance_rpc_executor`、啟用 FORCE RLS、調整 mutation policies、撤銷 authenticated 寫入 grants、設定管理 RPC owner/ACL | 轉為專用 NOLOGIN/NOBYPASSRLS executor role 的最小權限設計 | 只適用於已按順序套用舊 migration 1 的環境；不得假設可在乾淨環境單獨執行 |
-| Single-pass draft | 從一開始建立最終 executor/RLS/grants/RPC ownership 模型 | 目標是避免舊 migration 1 與 2 之間的中間權限窗口 | 候選設計已在隔離 CI 路徑測試；仍不是已核准的 timestamped migration |
+| 舊 migration 2：權限升級 | 建立 `maintenance_rpc_executor`、啟用 FORCE RLS、調整 mutation policies、撤銷 authenticated 寫入 grants、設定管理 RPC owner/ACL | 轉為專用 NOLOGIN/NOBYPASSRLS executor role 的最小權限設計 | 僅描述舊版兩段式 migration；不是目前 single-pass 草案的 owner 模型 |
+| Single-pass draft | 從一開始建立最終 RLS/grants/RPC ownership 模型；四個管理 RPC 為 SECURITY DEFINER 並由內建 `pg_database_owner` 擁有，不建立自訂 executor role | 目標是避免舊 migration 1 與 2 之間的中間權限窗口 | 候選設計已在隔離 CI 路徑測試；仍不是已核准的 timestamped migration |
 
 ### 重要差異
 
@@ -68,10 +68,10 @@
 | 正式 Supabase 專案 | 本次 catalog 未見 Maintenance objects；migration listing 空 | 已唯讀核對；不能推論其他環境 |
 | Supabase-managed branches | 已知帳戶盤點未列出開發分支 | 目前未發現 |
 | GitHub Actions CI | PostgreSQL、GoTrue、PostgREST 為 workflow disposable services | 測試用，不是持續存在的部署環境 |
-| Local / manually managed PostgreSQL | 尚無可驗證的完整環境清單與 migration ledger | 未確認 |
-| Preview / staging / shared DB | 尚無可驗證的完整環境清單與 migration ledger | 未確認 |
+| Local / manually managed PostgreSQL | 使用者明確確認沒有在其他此類資料庫執行 Maintenance migrations | 使用者確認未套用；未聲稱所有外部資料庫均已完整盤點 |
+| Preview / staging / shared DB | 使用者明確確認沒有在其他此類資料庫執行 Maintenance migrations | 使用者確認未套用；CI disposable services 不計入持續環境 |
 
-先前使用者回憶可能沒有手動套用 Maintenance SQL，但此回憶不是資料庫執行證據。必須把未知環境維持為「未確認」，不能轉成「確定未套用」。
+使用者已針對 local、test、preview、staging、shared 及其他資料庫是否曾執行 Maintenance migrations 明確回答「無」。此確認更新先前「好像沒有／未確認」的回憶紀錄。CI PostgreSQL、GoTrue、PostgREST 是 workflow 建立的 disposable services，不屬於使用者持續管理的資料庫。這項確認只涵蓋使用者所知的其他環境；不能取代正式 production migration baseline 的完整重建，也不能證明未被提及的外部資料庫不存在。
 
 ## 6. 部署路徑決策矩陣
 
@@ -82,12 +82,13 @@
 | 任一環境已套用舊 migration 1 + 2 | 保留兩份歷史，評估後續增量 migration | 驗證實際 schema 是否等於預期 hardened state；不可重播 bootstrap |
 | 任一環境歷史不明 | 暫停 migration 變更 | 先取得該環境 ledger、schema snapshot、部署紀錄或 DBA 確認 |
 
-**目前適用列：任一環境歷史不明。** 因此維持暫停，不選擇 squash 或 forward migration。
+**目前決策：使用者確認其他已知環境沒有套用 Maintenance migrations；但正式 production migration ledger/schema baseline 仍存在獨立缺口。** 因此仍暫停 timestamped migration 改寫與正式部署，不選擇 squash 或 forward migration，直到 production baseline 完成可驗證的 reconciliation。
 
 ## 7. 執行前必須完成的檢查
 
-- [ ] 列出所有可能持有此專案資料的 local、manual、preview、staging、shared、production databases。
-- [ ] 每個環境記錄 Migration 檔案是否套用、時間、證據來源；未知就明確標記未知。
+- [x] 已取得使用者明確確認：其他已知 local、manual、preview、staging、shared databases 未執行 Maintenance migrations。
+- [ ] 完成正式 production migration ledger/schema baseline reconciliation，並確認是否有未盤點的外部資料庫。
+- [ ] 對每個環境記錄 migration 檔案是否套用、時間、證據來源；未知就明確標記未知。
 - [ ] 對每個已存在 Maintenance objects 的環境，取得 schema / grants / policies / function owners / RLS / triggers 的唯讀 snapshot。
 - [ ] 決定 clean-bootstrap 或 forward-upgrade 路徑，並說明為何適用於每一個環境。
 - [ ] 確認最終 single-pass SQL 的來源檔與 timestamped migration 不會漂移。
@@ -114,4 +115,13 @@
 - Supabase project status、migration listing、table catalog、function catalog、Edge Function inventory：唯讀查詢。
 - 沒有執行 SQL DDL/DML、migration repair、Edge Function deployment、feature flag 修改或 PR 合併。
 
-**最終狀態：Migration 對照表已建立；部署仍被環境歷史未確認與正式 baseline 缺口阻擋。**
+**最終狀態：使用者已確認其他已知環境未執行 Maintenance migrations；single-pass draft 的管理 RPC owner 為內建 pg_database_owner。部署仍被正式 production migration baseline 缺口、最終 timestamped migration 尚未建立/驗證，以及 hosted runtime 檢查未完成所阻擋。**
+
+
+## 10. 使用者環境確認與最新 CI 更新（2026-11-22）
+
+- 使用者已明確回答「無」：沒有在其他 local/test/preview/staging/shared 或其他持續管理資料庫執行過 Maintenance migrations。此確認取代早期文件中的「好像沒有／未確認」。
+- PR #34 single-pass 隔離 PostgreSQL harness 已新增 assertion：`pg_database_owner` 必須能執行正式既有 `public.is_admin()` helper。該 assertion 於 CI run #45042828862 通過（4/4 jobs）。
+- 正式 Supabase 的唯讀檢查顯示 `public.is_admin()` 由 `postgres` 擁有，為 `SECURITY DEFINER`、固定空 `search_path`，並使用 schema-qualified `public.profiles` 與 `auth.uid()`；目前 ACL 尚未授予 `pg_database_owner`。single-pass draft 中的 `GRANT EXECUTE ON FUNCTION public.is_admin() TO pg_database_owner` 是必要部署語句，但尚未在正式資料庫執行。
+- 此 helper ACL 核對不等於 migration baseline 已修復。正式 production 的 migration listing 仍為空，`supabase_migrations` schema/table 未找到；需依正式 Supabase schema snapshot 完成獨立 baseline reconciliation。
+- 本次仍未建立 timestamped migration、未修改既有 migration history、未執行 production SQL、未部署 Edge Functions、未變更 feature flag、未合併 PR #34。
