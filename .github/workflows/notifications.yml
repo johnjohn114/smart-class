@@ -1,0 +1,39 @@
+name: Notification Page Checks
+
+on:
+  pull_request:
+    paths:
+      - "my.html"
+      - "app.js"
+      - "tests/test_notifications_contract.py"
+      - ".github/workflows/notifications.yml"
+  push:
+    branches:
+      - fix/notifications-page-loading-20261122
+    paths:
+      - "my.html"
+      - "app.js"
+      - "tests/test_notifications_contract.py"
+      - ".github/workflows/notifications.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  notification-contract:
+    name: Notification markup and behavior contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Check browser JavaScript syntax
+        run: node --check app.js
+
+      - name: Run notification contract tests
+        run: python -m unittest discover -s tests -p 'test_notifications_contract.py' -v
