@@ -52,12 +52,12 @@ LANGUAGE sql
 STABLE
 SECURITY INVOKER
 SET search_path = ''
-AS $
+AS $maintenance_uid$
   SELECT NULLIF(COALESCE(
     NULLIF(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb->>'sub',
     NULLIF(pg_catalog.current_setting('request.jwt.claim.sub', true), '')
   ), '')::uuid
-$;
+$maintenance_uid$;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 GRANT USAGE ON SCHEMA private TO anon, authenticated;
 
