@@ -20,14 +20,14 @@
 
 ### 隔離 CI 狀態
 
-GitHub Actions run [#232](https://github.com/johnjohn114/smart-class/actions/runs/44927798716)，對應目前分支 commit `4183e34801471701a33c7e55953fcfe18b5e8967`，四個 jobs 全數成功：
+最新 GitHub Actions run [#270](https://github.com/johnjohn114/smart-class/actions/runs/44997928704)，對應分支 commit `182eef7377a313c3f98431410daee2608aef1f73`，四個 jobs 全數成功。此輪另確認 Playwright 維護生命週期 UI 測試通過。先前 run #232 為較早的成功基準：
 
 1. Deno type check、Edge validation tests、feature gate、Playwright 相容性及 SQL static guardrails。
 2. 隔離 PostgreSQL RPC / RLS 測試與相關回歸測試。
 3. GoTrue-issued JWT + PostgREST single-pass draft 整合測試。
 4. GoTrue-issued JWT + PostgREST legacy migration 路徑整合測試。
 
-以上均為隔離環境測試，不是正式 Supabase smoke test，也不代表正式 Migration 或 Edge Functions 已部署。
+以上均為隔離環境測試；Playwright 的管理操作使用記憶體 mock，不連接正式 Supabase。這些結果不是正式 Supabase smoke test，也不代表正式 Migration 或 Edge Functions 已部署。
 
 ### 尚未完成的正式環境事項
 
