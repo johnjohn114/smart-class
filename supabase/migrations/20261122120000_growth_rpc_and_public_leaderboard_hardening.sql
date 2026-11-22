@@ -269,9 +269,9 @@ REVOKE EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid)
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid)
   TO authenticated;
-REVOKE EXECUTE ON FUNCTION public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))
+REVOKE EXECUTE ON FUNCTION public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)
   FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))
+GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)
   TO authenticated;
 
 -- The private helper is callable only by its owner/definer routines.
