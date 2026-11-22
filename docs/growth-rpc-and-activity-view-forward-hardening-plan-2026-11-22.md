@@ -25,6 +25,7 @@ The public leaderboard still intentionally exposes nicknames and displayed atten
 - Repairs both NULL-sensitive admin reward guards (`admin_delete_growth_reward` and `admin_upsert_growth_reward`) so a missing `auth.uid()` fails closed.
 - Moves raw level calculation into `_refresh_growth_level_internal(uuid)`; the exposed wrapper permits only the member themself or an admin, and the internal helper is not directly executable by API roles.
 - Restores the missing `auth.uid() IS NULL` rejection in `check_activity_badges(uuid)`; keeps authenticated self/admin use and removes anonymous EXECUTE.
+- Reconciles EXECUTE grants across the complete public `SECURITY DEFINER` catalog with the reviewed authenticated allowlist; anonymous execution is retained only for `is_admin()` (used by public RLS policies), and trigger functions lose direct API-role grants without disabling their trigger bindings.
 - Repairs PostgreSQL function default privileges so future `postgres`-owned functions are not automatically executable by `PUBLIC`, `anon`, or `authenticated`.
 - Replaces `check_growth_achievements(uuid)` with the existing self/admin ownership guard.
 - Revokes `PUBLIC` and `anon` execution while preserving authenticated self-service.
@@ -47,6 +48,7 @@ The current `app.js` already reads the five-column public projection first. It f
 
 - `growth-function-authorization.test.sql` now simulates reintroducing the vulnerable direct grants and unguarded achievement function after the historical hardening migration, applies the new Stage A migration, and checks:
   - anonymous and authenticated direct award-helper denial;
+  - simulated production-wide `SECURITY DEFINER` grant drift and verified the complete post-migration API-role allowlist, including trigger-function privilege removal;
   - unsafe function default privileges are reintroduced before Stage A and verified to be revoked for future functions;
   - anonymous achievement RPC denial and authenticated RPC preservation;
   - self/admin achievement guard restored and cross-account call rejected;
