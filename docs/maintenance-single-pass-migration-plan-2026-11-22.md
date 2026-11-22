@@ -161,3 +161,33 @@ This separates two distinct test purposes:
 The old timestamped migrations were not edited or deleted. No production SQL was executed, no migration was applied, and no Supabase environment or paid branch was created.
 
 This edit only changes the isolated test harness include target; a successful GitHub Actions run is still required before claiming the draft passes database integration tests.
+
+
+## First-stage closeout review — 2026-11-22
+
+### Latest CI result
+
+GitHub Actions run [#270](https://github.com/johnjohn114/smart-class/actions/runs/44997928704), commit `182eef7377a313c3f98431410daee2608aef1f73`, completed successfully with all four jobs green:
+
+- Isolated PostgreSQL RPC/RLS and regression suite.
+- GoTrue-issued JWT + PostgREST integration against the legacy two-migration path.
+- GoTrue-issued JWT + PostgREST integration against the single-pass draft.
+- Deno type check, 27 validation tests, feature-gate checks, Playwright browser compatibility/lifecycle tests, and SQL static guardrails.
+
+The browser suite verifies the existing homepage shell and default-off behavior, admin login shell and hidden maintenance tab, public maintenance banner rendering, admin create/edit/schedule/complete/cancel flows, cursor pagination, and Taipei UTC+8 conversion. The browser lifecycle operations use an in-memory API mock; the separate GoTrue/PostgREST jobs exercise the Edge handler and database behavior in disposable CI services. Neither path is a hosted production Supabase test.
+
+### Integration and release posture
+
+- `MAINTENANCE_FEATURE_ENABLED` remains `false`; the production maintenance tab stays hidden and the public client does not issue maintenance-status requests while disabled.
+- The maintenance implementation remains behind the feature gate. No production SQL, migration, Edge Function deployment, feature flag change, or production data modification occurred.
+- PR #31 and PR #34 remain open Draft pull requests; neither is merged.
+- PR #34 remains stacked on PR #31's integration branch; it has not been retargeted to `main`.
+
+### Remaining release gates
+
+1. Confirm whether any local, manual, preview, staging, or shared database has ever applied either timestamped Maintenance migration. The available Supabase account inventory identifies one production project and no Supabase-managed branches, but cannot prove the absence of external/local/manual databases.
+2. Reconcile the production schema baseline and migration history before selecting a clean-bootstrap replacement or forward-upgrade path. Do not rewrite timestamped migration history without that evidence.
+3. Confirm the Data API Exposed schemas configuration, production CORS/origin settings, required Edge Function environment variables, and deployment procedure.
+4. Only after the above are reviewed and separately authorized: prepare deployment and rollback steps, deploy to a non-production environment if available, and run hosted smoke tests before considering feature enablement.
+
+This closeout does not include the separately scheduled January 2027 security review. No security scope was expanded by this documentation update.
