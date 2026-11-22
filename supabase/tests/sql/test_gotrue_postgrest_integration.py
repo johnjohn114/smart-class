@@ -320,14 +320,6 @@ def main():
     # A draft create isolates idempotency behavior from schedule conflict checks.
     idem_start = datetime.now(timezone.utc) + timedelta(days=2)
     idem_end = idem_start + timedelta(minutes=45)
-    direct_scheduled_request = dict(idem_request)
-    direct_scheduled_request["status"] = "scheduled"
-    direct_scheduled_request["idempotency_key"] = str(uuid.uuid4())
-    status, direct_scheduled_result = rpc("maintenance_event_create", direct_scheduled_request, admin)
-    assert_true(status == 400 and isinstance(direct_scheduled_result, dict)
-                and direct_scheduled_result.get("message") == "VALIDATION_ERROR",
-                "create RPC rejects direct scheduled status; scheduling must use the lifecycle action RPC")
-
     idem_request = {
         "title": "  GoTrue CI idempotency baseline  ",
         "message": "  Idempotency replay test  ",
@@ -339,6 +331,14 @@ def main():
         "reason": "  isolated GoTrue/PostgREST idempotency integration test  ",
         "idempotency_key": str(uuid.uuid4()),
     }
+    direct_scheduled_request = dict(idem_request)
+    direct_scheduled_request["status"] = "scheduled"
+    direct_scheduled_request["idempotency_key"] = str(uuid.uuid4())
+    status, direct_scheduled_result = rpc("maintenance_event_create", direct_scheduled_request, admin)
+    assert_true(status == 400 and isinstance(direct_scheduled_result, dict)
+                and direct_scheduled_result.get("message") == "VALIDATION_ERROR",
+                "create RPC rejects direct scheduled status; scheduling must use the lifecycle action RPC")
+
     spoofed_create = dict(idem_request)
     spoofed_create["actor_id"] = os.environ["TEST_MEMBER_ID"]
     status, spoofed_body = rpc("maintenance_event_create", spoofed_create, admin)
@@ -451,8 +451,8 @@ def main():
         "reason": "complete lifecycle integration test",
         "idempotency_key": str(uuid.uuid4()),
     }
-    past_event_payload["starts_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=1))
-    past_event_payload["ends_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=3))
+    past_event_payload["starts_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=5))
+    past_event_payload["ends_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=8))
     status, past_event = rpc("maintenance_event_create", past_event_payload, admin)
     assert_true(status == 200 and past_event.get("ok") is True,
                 "created a draft for the completion lifecycle test")
@@ -466,7 +466,7 @@ def main():
     }, admin)
     assert_true(status == 200 and past_event_scheduled.get("data", {}).get("status") == "scheduled",
                 "completion fixture was scheduled through the lifecycle RPC")
-    time.sleep(4)
+    time.sleep(9)
     complete_request = {
         "event_id": past_event_id,
         "expected_version": 2,
@@ -521,7 +521,7 @@ def main():
     }, admin)
     assert_true(status == 200 and active_scope_scheduled.get("data", {}).get("status") == "scheduled",
                 "public scope fixture is scheduled through lifecycle RPC")
-    time.sleep(2)
+    time.sleep(6)
 
     status, matching_scope_status = rpc(
         "maintenance_status_public", {"scope": "membership_growth"}, None
