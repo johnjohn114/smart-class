@@ -222,12 +222,12 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-deployer-role-setup.sql
 
-      - name: Apply single-pass draft as non-superuser CREATEROLE deployer
+      - name: Apply single-pass draft as hosted-style non-superuser postgres
         if: matrix.migration_track == 'single-pass-draft'
         env:
-          DEPLOYER_DATABASE_URL: postgresql://maintenance_deployer:maintenance-deployer-ci-only@localhost:5432/maintenance_gotrue_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
         run: |
-          psql "$DEPLOYER_DATABASE_URL" -v ON_ERROR_STOP=1 \
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
       - name: Verify hosted-style executor ownership and privilege cleanup
