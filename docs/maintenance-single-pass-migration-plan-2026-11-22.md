@@ -191,3 +191,24 @@ The browser suite verifies the existing homepage shell and default-off behavior,
 4. Only after the above are reviewed and separately authorized: prepare deployment and rollback steps, deploy to a non-production environment if available, and run hosted smoke tests before considering feature enablement.
 
 This closeout does not include the separately scheduled January 2027 security review. No security scope was expanded by this documentation update.
+
+
+## User environment-history clarification — 2026-11-22
+
+The user recalls that they probably have not manually run the Maintenance SQL in a local or other test database, but expressed uncertainty ("好像沒有"). Record this as an unverified recollection, not as proof that all non-production environments are clean.
+
+Current environment-history evidence:
+
+- The known Supabase account inventory contains one production project and no Supabase-managed development branches.
+- CI PostgreSQL / GoTrue / PostgREST databases are disposable test environments created by workflows; they are not persistent user-managed environments and do not establish the history of any local or manually managed database.
+- No evidence has been provided for a separate local, preview, staging, shared, or manually administered database.
+- The existing timestamped Maintenance migrations must remain unchanged until this uncertainty is resolved.
+
+Decision:
+
+- Do not squash, delete, rename, replace, or reorder either timestamped Maintenance migration yet.
+- Do not create or apply a replacement migration.
+- If the user later confirms that no other database/environment exists or has applied either migration, record that explicit confirmation and re-check repository/environment inventory before proposing a coordinated clean-bootstrap change.
+- If any environment is found to have applied either migration, preserve its history and evaluate a forward-upgrade path for that environment.
+
+No SQL was run and no database, branch, feature flag, deployment, or production data was changed as part of this clarification.
