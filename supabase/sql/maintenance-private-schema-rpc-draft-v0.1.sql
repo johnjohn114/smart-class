@@ -979,20 +979,25 @@ ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_e
 ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
 REVOKE CREATE ON SCHEMA public FROM maintenance_rpc_executor;
--- Keep the owner role non-inheritable and remove the temporary SET ROLE capability.
-REVOKE maintenance_rpc_executor FROM CURRENT_USER;
 
--- RPC ACLs: revoke PostgreSQL's default PUBLIC EXECUTE first.
+-- The public status RPC remains owned by the migration role; revoke its default ACL here.
 REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.maintenance_status_public(jsonb) TO anon, authenticated;
+
+-- Switch to the new function owner to apply its ACLs, then return and remove membership.
+SET ROLE maintenance_rpc_executor;
 REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.maintenance_status_public(jsonb) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_admin_list(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_create(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
+RESET ROLE;
+
+-- Remove the temporary membership after ownership and ACL transfer are complete.
+REVOKE maintenance_rpc_executor FROM CURRENT_USER;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
 COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
