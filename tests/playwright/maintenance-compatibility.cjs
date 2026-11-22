@@ -173,6 +173,43 @@ async function createPageErrors(page) {
   }
 
 
+  // Public maintenance notice: the enabled flag and active status are
+  // simulated locally; this never contacts the hosted Supabase project.
+  {
+    const page = await browser.newPage();
+    const errors = await createPageErrors(page);
+    const configPath = path.resolve(__dirname, '../../config.js');
+    const configSource = fs.readFileSync(configPath, 'utf8');
+    const disabledFlag = 'const MAINTENANCE_FEATURE_ENABLED = false;';
+    assert.ok(configSource.includes(disabledFlag), 'expected default-off maintenance feature flag');
+    await page.route('**/config.js', route => route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: configSource.replace(disabledFlag, 'const MAINTENANCE_FEATURE_ENABLED = true;')
+    }));
+    await page.route('https://*.supabase.co/functions/v1/maintenance-status**', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          is_maintenance: true,
+          is_global: true,
+          title: '瀏覽器測試維護通知',
+          message: '網站目前進行測試維護。',
+          scopes: []
+        }
+      })
+    }));
+    await page.goto(BASE_URL + '/index.html', { waitUntil: 'domcontentloaded' });
+    const banner = page.locator('#maintenanceStatusBanner');
+    await banner.waitFor({ state: 'visible' });
+    assert.match(await banner.innerText(), /瀏覽器測試維護通知/);
+    assert.match(await banner.innerText(), /網站目前進行測試維護/);
+    assert.deepEqual(errors, [], 'public maintenance banner runtime errors: ' + errors.join('; '));
+    await page.close();
+  }
+
   // Enabled maintenance flow: override the feature flag only in this isolated
   // browser context and keep every API operation in an in-memory test double.
   {
