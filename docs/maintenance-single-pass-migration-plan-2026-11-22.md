@@ -212,3 +212,27 @@ Decision:
 - If any environment is found to have applied either migration, preserve its history and evaluate a forward-upgrade path for that environment.
 
 No SQL was run and no database, branch, feature flag, deployment, or production data was changed as part of this clarification.
+
+
+## Final first-stage CI confirmation — 2026-11-22
+
+After the closeout review and environment-history clarification above, documentation-only commit(s) triggered GitHub Actions run [#271](https://github.com/johnjohn114/smart-class/actions/runs/44998262133). All four jobs completed successfully:
+
+- Isolated PostgreSQL RPC/RLS tests.
+- Deno type check, validation tests, feature-gate tests, Playwright compatibility tests, and SQL static guardrails.
+- GoTrue-issued JWT + PostgREST integration using the legacy two-migration path.
+- GoTrue-issued JWT + PostgREST integration using the single-pass draft path.
+
+This is CI evidence from disposable test services, not a hosted production Supabase or deployed Edge Runtime validation. The legacy and single-pass tracks are separate test paths; the result does not authorize migration-history rewriting or production execution.
+
+### First-stage disposition
+
+- First-stage implementation and isolated test documentation are recorded.
+- CI run #271 is green (4/4 jobs).
+- Migration-history uncertainty remains open; the user's recollection is "probably not applied" and is not treated as confirmation.
+- Both timestamped Maintenance migrations remain unchanged.
+- PR #31 and PR #34 remain Draft and unmerged.
+- Production feature flag remains off; no production SQL, migration, Edge deployment, or website release was performed.
+- The January 2027 security review remains separate and is not advanced by this closeout.
+
+**Disposition:** documentation and isolated CI closeout complete; production readiness is not established. Keep the feature disabled and do not merge or deploy until the remaining environment-history and hosted-release gates are resolved with separate approval.
