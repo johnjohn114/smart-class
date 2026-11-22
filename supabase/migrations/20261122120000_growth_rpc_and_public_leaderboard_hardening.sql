@@ -15,7 +15,7 @@ BEGIN
     RAISE EXCEPTION 'Required function public.check_growth_achievements(uuid) is missing';
   END IF;
   IF to_regprocedure('public.admin_delete_growth_reward(uuid)') IS NULL
-     OR to_regprocedure('public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean))') IS NULL
+     OR to_regprocedure('public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)') IS NULL
      OR to_regprocedure('public.refresh_growth_level(uuid)') IS NULL THEN
     RAISE EXCEPTION 'Required admin reward / growth level wrapper functions are missing';
   END IF;
