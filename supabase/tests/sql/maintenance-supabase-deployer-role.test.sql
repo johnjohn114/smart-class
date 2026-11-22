@@ -1,6 +1,6 @@
 -- Probe the effective role inside SECURITY DEFINER after the migration was
 -- applied by a BYPASSRLS database owner. The function owner must be the
--- pg_database_owner pseudo-role, whose own attributes must not inherit BYPASSRLS.
+-- pg_database_owner pseudo-role, which itself must not have BYPASSRLS.
 CREATE FUNCTION public.maintenance_test_effective_rpc_role()
 RETURNS TABLE(effective_role text, effective_bypassrls boolean)
 LANGUAGE sql
@@ -31,7 +31,7 @@ $$;
 
 DROP FUNCTION public.maintenance_test_effective_rpc_role();
 
--- Verify the single-pass draft uses the built-in database-owner pseudo-role.
+-- Verify the single-pass draft uses the built-in database-owner pseudo-role (not a custom executor role).
 DO $$
 DECLARE
   v_owner text;
