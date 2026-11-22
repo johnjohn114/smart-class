@@ -1,8 +1,8 @@
 # Maintenance System API 規格 v0.7
 
-> 日期：2026-11-17
-> 分支：`migration/maintenance-v1-20261117`（待 CI 審查）
-> 狀態：整合規格 v0.7；五支 Edge Function 與六表 RPC 已通過隔離 CI；正式 Migration 待本分支完整 CI 與合併，尚未部署。  
+> 日期：2026-11-17；狀態更新：2026-11-22
+> 分支：`feature/maintenance-single-pass-migration-20261122`
+> 狀態：整合規格 v0.7；本分支 commit `4183e34801471701a33c7e55953fcfe18b5e8967` 的 GitHub Actions run #232（PR #34）四個 jobs 全數成功；正式 Supabase 尚未部署，合併至 `main` 仍待審核。  
 > 本版承接 v0.6，定稿 v1 的錯誤碼與資料保留決策。舊版保留作為歷史紀錄。
 
 ## 1. 目標與範圍
@@ -85,7 +85,7 @@
 
 ## 3.4 RPC 呼叫參數補充（開發契約）
 
-五個 Edge Functions 目前統一以單一 JSONB 參數呼叫對應 RPC：`p_request`。呼叫 body 為 `{ "p_request": <validated request object> }`。SQL signature 與回傳格式以 `docs/maintenance-rpc-sql-contract-v0.1.md` 為準；目前 RPC 尚未建立，此為呼叫端契約，尚未經 PostgREST 整合測試。
+五支 Edge Functions 統一以單一 JSONB 參數呼叫對應 RPC：`p_request`。呼叫 body 為 `{ "p_request": <validated request object> }`。SQL signature 與回傳格式以 `docs/maintenance-rpc-sql-contract-v0.1.md` 為準。五個 RPC 已在本分支的隔離 PostgreSQL 17、GoTrue-issued JWT 與 PostgREST 測試路徑驗證；此結果不代表正式 Supabase 已建立或部署。
 
 ## 4. API 契約
 
@@ -345,7 +345,7 @@ status API 第一版只回傳目前生效事件；未來預告事件不在本版
 目前：
 - 五支 Edge Functions：原始碼已提交，隔離 CI 已通過；正式環境尚未部署。
 - 五個 RPC、private schema 與六張資料表：已在隔離 PostgreSQL 17 / GoTrue / PostgREST 測試環境驗證；正式環境尚未建立。
-- Migration：由 Supabase CLI 產生正式檔名，待本次 migration PR 的完整 CI 與合併。
+- Migration：現有雙 migration legacy 路徑及 single-pass draft 均已在隔離 CI 通過；是否採用 single-pass 作為最終正式 migration，仍受 migration history / 各環境套用紀錄確認 gate 約束，尚未核准正式執行或合併。
 - 正式 Supabase：未修改；正式 migration history 與 schema baseline 尚未核准。
 
 本規格與 Migration 合併不代表正式資料庫已部署。隔離 CI 已使用 GoTrue 簽發 JWT 與 PostgreSQL 17 / PostgREST 驗證核心授權與 RLS 行為；正式環境仍須完成 schema baseline、Data API Exposed schemas、CORS/env 與 smoke test。
