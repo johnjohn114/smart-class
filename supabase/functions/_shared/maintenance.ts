@@ -357,8 +357,8 @@ export async function parseCreateRequest(req: Request): Promise<JsonObject> {
   if (Date.parse(startsAt) >= Date.parse(endsAt)) {
     throw new HttpError(422, "VALIDATION_ERROR", "starts_at 必須早於 ends_at");
   }
-  if (value.status !== "draft" && value.status !== "scheduled") {
-    throw new HttpError(422, "VALIDATION_ERROR", "初始 status 僅允許 draft 或 scheduled");
+  if (value.status !== "draft") {
+    throw new HttpError(422, "VALIDATION_ERROR", "建立事件時 status 必須是 draft；請使用排程動作");
   }
   return {
     title, message, internal_note: internalNote, is_global: value.is_global,
