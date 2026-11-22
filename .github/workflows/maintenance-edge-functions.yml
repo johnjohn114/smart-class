@@ -1,5 +1,6 @@
 name: Maintenance Edge Function Checks
 # Includes transaction rollback and hosted-style CREATEROLE ownership-transfer coverage.
+# Verifies cleanup against the original migration actor after RESET ROLE.
 # Includes disposable PostgreSQL 17 checks for default ACLs and trigger side effects.
 
 on:
