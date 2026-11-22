@@ -1,4 +1,17 @@
 -- Verify the single-pass draft was applied by a non-superuser CREATEROLE role.
+-- Diagnostic row makes any unexpected residual membership option explicit in CI logs.
+SELECT granted_role.rolname AS granted_role,
+       member_role.rolname AS member_role,
+       pg_catalog.pg_get_userbyid(m.grantor) AS grantor,
+       m.admin_option,
+       m.inherit_option,
+       m.set_option
+FROM pg_catalog.pg_auth_members m
+JOIN pg_catalog.pg_roles granted_role ON granted_role.oid=m.roleid
+JOIN pg_catalog.pg_roles member_role ON member_role.oid=m.member
+WHERE granted_role.rolname='maintenance_rpc_executor'
+  AND member_role.rolname='maintenance_deployer';
+
 DO $$
 DECLARE
   v_owner text;
