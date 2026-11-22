@@ -104,9 +104,18 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["executor_owner_transfer_set_membership"] = all(
         marker in sql for marker in (
             "GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;",
-            "REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;",
+            "SET ROLE maintenance_rpc_executor;",
+            "RESET ROLE;",
+            "REVOKE maintenance_rpc_executor FROM CURRENT_USER;",
         )
     )
+    checks["executor_auth_schema_independence"] = all(
+        marker in sql for marker in (
+            "CREATE FUNCTION private.maintenance_uid()",
+            "GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, maintenance_rpc_executor;",
+            "GRANT USAGE ON SCHEMA private TO maintenance_rpc_executor;",
+        )
+    ) and "auth.uid()" not in sql and "GRANT USAGE ON SCHEMA public, private, auth TO maintenance_rpc_executor;" not in sql
     checks["migration_role_preflight"] = (
         "rolname = current_user AND (rolsuper OR rolcreaterole)" in sql
     )
