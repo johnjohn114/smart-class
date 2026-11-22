@@ -626,7 +626,7 @@ BEGIN
   SELECT count(*) INTO audit_before FROM private.maintenance_audit_logs;
   SELECT count(*) INTO idempotency_before FROM private.maintenance_idempotency;
 
-  -- Create an already-ended scheduled fixture so the completion guard is tested.
+  -- Create a draft, schedule it through the lifecycle RPC, then backdate only inside this isolated test harness.
   complete_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
     'title','Lifecycle complete path',
     'message','Synthetic lifecycle integration test',
@@ -644,11 +644,12 @@ BEGIN
     'reason', 'schedule completion fixture',
     'idempotency_key', '00000000-0000-4000-8000-000000000044'
   ));
-  PERFORM pg_temp.maintenance_test_mark_ended(event_id);
-  event_version := 2;
-  IF (complete_create #>> '{data,status}') IS DISTINCT FROM 'draft' OR event_version<>2 THEN
-    RAISE EXCEPTION 'FAIL: completion fixture setup returned unexpected state/version';
+  SELECT status,version INTO event_status,event_version
+    FROM private.maintenance_events WHERE id=event_id;
+  IF event_status IS DISTINCT FROM 'scheduled' OR event_version<>2 THEN
+    RAISE EXCEPTION 'FAIL: completion fixture was not scheduled through the lifecycle RPC';
   END IF;
+  PERFORM pg_temp.maintenance_test_mark_ended(event_id);
 
   -- The fixture was scheduled through the lifecycle RPC and then ended by the test harness.
 
