@@ -674,3 +674,115 @@ END
 $complete_acl_matrix$;
 
 \echo 'PASS: growth function authorization regression tests'
+
+
+-- Forward-migration regression: simulate the vulnerable production grants and
+-- old unguarded function body after the legacy migration, then prove the new
+-- forward-only migration repairs them. This is a disposable PostgreSQL test.
+GRANT EXECUTE ON FUNCTION
+  public.award_growth_points(uuid,integer,text,text,text,text,uuid)
+  TO anon, authenticated;
+CREATE OR REPLACE FUNCTION public.check_growth_achievements(p_user_id uuid DEFAULT auth.uid())
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $legacy_unguarded$
+BEGIN
+  IF p_user_id IS NULL THEN RETURN 0; END IF;
+  RETURN 0;
+END;
+$legacy_unguarded$;
+GRANT EXECUTE ON FUNCTION public.check_growth_achievements(uuid) TO anon;
+
+\ir ../../migrations/20261122120000_growth_rpc_and_public_leaderboard_hardening.sql
+
+DO $forward_acl$
+BEGIN
+  IF has_function_privilege('anon','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: forward migration left direct award helper EXECUTE';
+  END IF;
+  IF has_function_privilege('anon','public.check_growth_achievements(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: forward migration left anonymous achievement EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.check_growth_achievements(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: forward migration removed authenticated achievement RPC';
+  END IF;
+  IF position('auth.uid()' in (
+    SELECT prosrc FROM pg_proc
+    WHERE oid='public.check_growth_achievements(uuid)'::regprocedure
+  ))=0 THEN
+    RAISE EXCEPTION 'FAIL: forward migration did not restore the caller ownership guard';
+  END IF;
+  IF (SELECT count(*) FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='activity_public_leaderboard')<>5 THEN
+    RAISE EXCEPTION 'FAIL: public leaderboard projection must expose exactly five columns';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema='public' AND table_name='activity_public_leaderboard'
+               AND column_name IN ('user_id','checkin_points','completion_points')) THEN
+    RAISE EXCEPTION 'FAIL: public leaderboard projection exposes internal columns';
+  END IF;
+  IF NOT has_table_privilege('anon','public.activity_public_leaderboard','SELECT') THEN
+    RAISE EXCEPTION 'FAIL: anonymous public leaderboard SELECT missing';
+  END IF;
+END
+$forward_acl$;
+
+-- A member still processes only their own achievements after the forward fix.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_cross_account$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='沒有權限檢查此會員成就' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: forward migration allowed cross-account achievement processing'; END IF;
+END
+$forward_cross_account$;
+RESET ROLE;
+
+-- Internal SECURITY DEFINER trigger paths continue to award points even though
+-- browser roles cannot call the helper directly.
+CREATE TABLE public.ci_forward_award_trigger_source(
+  id integer PRIMARY KEY,
+  user_id uuid NOT NULL
+);
+CREATE FUNCTION public.ci_forward_award_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $trigger$
+BEGIN
+  PERFORM public.award_growth_points(
+    NEW.user_id, 3, 'CI trusted trigger award', 'test',
+    NEW.id::text, 'ci-forward-trigger:'||NEW.id::text, NULL
+  );
+  RETURN NEW;
+END;
+$trigger$;
+CREATE TRIGGER ci_forward_award_trigger
+AFTER INSERT ON public.ci_forward_award_trigger_source
+FOR EACH ROW EXECUTE FUNCTION public.ci_forward_award_trigger();
+GRANT INSERT ON public.ci_forward_award_trigger_source TO authenticated;
+
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+INSERT INTO public.ci_forward_award_trigger_source(id,user_id)
+VALUES(1,'00000000-0000-4000-8000-000000000002');
+RESET ROLE;
+DO $trigger_still_works$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.growth_point_transactions
+    WHERE source_key='ci-forward-trigger:1' AND amount=3
+  ) THEN RAISE EXCEPTION 'FAIL: trusted trigger could not call revoked award helper'; END IF;
+END
+$trigger_still_works$;
+
+\echo 'PASS: growth forward-migration authorization regression tests'
