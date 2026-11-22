@@ -822,7 +822,9 @@ async function loadMyNotifications(){
 async function markNotificationRead(id){
   if(!id)return;
   try{
-    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id)+'&user_id=eq.'+encodeURIComponent((await getCurrentUser())?.id||''),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
+    const user=await getCurrentUser();
+    if(!user?.id)throw new Error('請重新登入。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id)+'&user_id=eq.'+encodeURIComponent(user.id),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
     if(!r.ok)throw new Error('HTTP '+r.status);
     await loadMyNotifications();
   }catch(e){console.error('標記通知已讀失敗：',e);show('notificationMsg','❌ 標記已讀失敗，請重新整理後再試。');}
