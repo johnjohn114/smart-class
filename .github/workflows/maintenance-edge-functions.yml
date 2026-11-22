@@ -281,6 +281,7 @@ jobs:
         env:
           GOTRUE_URL: http://localhost:9999
           POSTGREST_URL: http://localhost:3000
+          MAINTENANCE_EXPECT_DRAFT_ONLY_CREATE: ${{ matrix.migration_track == 'single-pass-draft' && '1' || '0' }}
         run: python supabase/tests/sql/test_gotrue_postgrest_integration.py
 
   maintenance-postgres-integration:
