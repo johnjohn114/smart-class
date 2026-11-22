@@ -179,7 +179,7 @@ def main():
         "scope_codes": [],
         "starts_at": iso(start),
         "ends_at": iso(end),
-        "status": "scheduled",
+        "status": "draft",
         "reason": "isolated GoTrue/PostgREST integration test",
     }
     event_ids = []
@@ -320,6 +320,14 @@ def main():
     # A draft create isolates idempotency behavior from schedule conflict checks.
     idem_start = datetime.now(timezone.utc) + timedelta(days=2)
     idem_end = idem_start + timedelta(minutes=45)
+    direct_scheduled_request = dict(idem_request)
+    direct_scheduled_request["status"] = "scheduled"
+    direct_scheduled_request["idempotency_key"] = str(uuid.uuid4())
+    status, direct_scheduled_result = rpc("maintenance_event_create", direct_scheduled_request, admin)
+    assert_true(status == 400 and isinstance(direct_scheduled_result, dict)
+                and direct_scheduled_result.get("message") == "VALIDATION_ERROR",
+                "create RPC rejects direct scheduled status; scheduling must use the lifecycle action RPC")
+
     idem_request = {
         "title": "  GoTrue CI idempotency baseline  ",
         "message": "  Idempotency replay test  ",
