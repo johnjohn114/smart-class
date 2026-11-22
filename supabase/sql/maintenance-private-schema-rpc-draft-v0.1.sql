@@ -38,10 +38,6 @@ $preflight$;
 -- It is NOLOGIN, NOSUPERUSER and NOBYPASSRLS; ordinary application roles are not members.
 CREATE SCHEMA private;
 
--- Future functions created by this migration role in private must not inherit PUBLIC EXECUTE.
--- Explicit grants below remain the only way to expose private helpers.
-ALTER DEFAULT PRIVILEGES IN SCHEMA private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-
 -- Read the subject from PostgREST's verified request JWT without depending on
 -- USAGE grants on Supabase-managed auth schema. This function never accepts input.
 CREATE FUNCTION private.maintenance_uid()
