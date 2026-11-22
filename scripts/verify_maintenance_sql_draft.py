@@ -107,6 +107,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
             "SET ROLE maintenance_rpc_executor;",
             "RESET ROLE;",
             "REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;",
+            "REVOKE ADMIN OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;",
         )
     )
     checks["executor_auth_schema_independence"] = all(
