@@ -1,14 +1,6 @@
 const F=['site_name','hero_title','hero_text','hero_image','about_title','about_subtitle','about1_title','about1_text','about2_title','about2_text','features_title','features_subtitle','f1_title','f1_text','f2_title','f2_text','f3_title','f3_text','f4_title','f4_text','contact1','contact2','contact3'];
 const $=id=>document.getElementById(id); const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 function configured(){return typeof SUPABASE_URL!=='undefined'&&typeof SUPABASE_ANON_KEY!=='undefined'&&SUPABASE_URL&&SUPABASE_ANON_KEY&&!String(SUPABASE_URL).includes('你的')&&!String(SUPABASE_URL).includes('請填入')&&!String(SUPABASE_ANON_KEY).includes('你的')}
-function recoverStoredSession(){
-  const localAccess=localStorage.getItem('access_token');
-  const localRefresh=localStorage.getItem('refresh_token');
-  if(localAccess||localRefresh) return {access:localAccess,refresh:localRefresh,storage:localStorage};
-  const sessionAccess=sessionStorage.getItem('access_token');
-  const sessionRefresh=sessionStorage.getItem('refresh_token');
-  return {access:sessionAccess,refresh:sessionRefresh,storage:sessionStorage};
-}
 function auth(){const t=recoverStoredSession().access;const h={'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY};if(t)h.Authorization='Bearer '+t;return h}
 function msg(id,t){if($(id))$(id).textContent=t}
 
