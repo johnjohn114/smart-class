@@ -716,6 +716,25 @@ END;
 $legacy_admin_delete$;
 GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid) TO anon;
 
+-- Recreate the vulnerable reward upsert role check as seen in production.
+CREATE OR REPLACE FUNCTION public.admin_upsert_growth_reward(
+ p_reward_id uuid,p_code text,p_title text,p_description text,p_icon text,p_category text,
+ p_point_cost integer,p_min_level text,p_required_achievement_id uuid,p_user_limit integer,
+ p_total_limit integer,p_coupon_title text,p_coupon_description text,p_coupon_discount text,
+ p_coupon_expires_days integer,p_available_from timestamptz,p_available_until timestamptz,
+ p_sort_order integer,p_enabled boolean
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_admin_upsert$
+DECLARE caller_role text;
+BEGIN
+ SELECT role INTO caller_role FROM public.profiles WHERE id=auth.uid();
+ IF caller_role <> 'admin' THEN RAISE EXCEPTION '只有管理員可以管理獎勵'; END IF;
+ RETURN jsonb_build_object('success',true,'action','legacy-bypass');
+END;
+$legacy_admin_upsert$;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)) TO anon;
+
 CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $legacy_refresh_level$
@@ -765,6 +784,12 @@ BEGIN
   END IF;
   IF has_function_privilege('anon','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A left anonymous admin reward delete EXECUTE';
+  END IF;
+  IF has_function_privilege('anon','public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous admin reward upsert EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated admin reward upsert RPC';
   END IF;
   IF NOT has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A removed authenticated admin reward delete RPC';
@@ -858,6 +883,24 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A admin delete accepted NULL auth.uid()'; END IF;
 END
 $forward_admin_null_identity$;
+RESET ROLE;
+
+-- Missing identity must also fail closed for the admin reward upsert RPC.
+SET ROLE authenticated;
+DO $forward_admin_upsert_null_identity$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_upsert_growth_reward(
+      NULL,'stage-a-null-test','Stage A Null Test',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+      NULL,NULL,NULL,NULL,NULL,NULL,1,true
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='只有管理員可以管理獎勵' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A admin upsert accepted NULL auth.uid()'; END IF;
+END
+$forward_admin_upsert_null_identity$;
 RESET ROLE;
 
 -- Seed the reward as the database owner; the authenticated admin then
