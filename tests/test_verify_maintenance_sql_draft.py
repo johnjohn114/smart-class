@@ -141,6 +141,11 @@ EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon, service_role;
 GRANT SELECT (id,title,message,is_global,status,starts_at,ends_at) ON private.maintenance_events TO anon;
 """
 )
@@ -209,6 +214,17 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         self.assertFalse(all(result[f"security:{name}"] for name in
                              ("maintenance_admin_list", "maintenance_event_create",
                               "maintenance_event_update", "maintenance_event_action")))
+
+    def test_service_role_function_execute_must_be_revoked(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["service_role_function_execute_revoked"])
+
+        broken = GOOD.replace(
+            "REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon, service_role;",
+            "REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon;"
+        )
+        result = inspect_sql(broken)
+        self.assertFalse(result["service_role_function_execute_revoked"])
 
     def test_service_role_grant_is_rejected(self):
         result = inspect_sql(GOOD + "\nGRANT SELECT ON private.maintenance_events TO service_role;")
