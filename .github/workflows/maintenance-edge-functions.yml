@@ -1,8 +1,7 @@
 name: Maintenance Edge Function Checks
-# Includes transaction rollback and hosted-style CREATEROLE ownership-transfer coverage.
+# Includes transaction rollback and hosted-style non-superuser database-owner coverage.
+# Admin RPCs are owned by PostgreSQL's built-in pg_database_owner pseudo-role.
 # Verifies cleanup against the original migration actor after RESET ROLE.
-# The executor membership remains present but has neither SET nor INHERIT options.
-# The temporary ADMIN OPTION is removed after the owner ACL transition as well.
 # Includes disposable PostgreSQL 17 checks for default ACLs and trigger side effects.
 
 on:
