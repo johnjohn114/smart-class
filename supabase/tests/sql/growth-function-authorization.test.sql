@@ -733,7 +733,7 @@ BEGIN
  RETURN jsonb_build_object('success',true,'action','legacy-bypass');
 END;
 $legacy_admin_upsert$;
-GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)) TO anon;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean) TO anon;
 
 CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -785,10 +785,10 @@ BEGIN
   IF has_function_privilege('anon','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A left anonymous admin reward delete EXECUTE';
   END IF;
-  IF has_function_privilege('anon','public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))','EXECUTE') THEN
+  IF has_function_privilege('anon','public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A left anonymous admin reward upsert EXECUTE';
   END IF;
-  IF NOT has_function_privilege('authenticated','public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))','EXECUTE') THEN
+  IF NOT has_function_privilege('authenticated','public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A removed authenticated admin reward upsert RPC';
   END IF;
   IF NOT has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
