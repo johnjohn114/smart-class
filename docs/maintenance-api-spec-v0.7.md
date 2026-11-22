@@ -2,7 +2,7 @@
 
 > 日期：2026-11-17；狀態更新：2026-11-22
 > 分支：`feature/maintenance-single-pass-migration-20261122`
-> 狀態：整合規格 v0.7；最新分支 commit `182eef7377a313c3f98431410daee2608aef1f73` 的 GitHub Actions run [#270](https://github.com/johnjohn114/smart-class/actions/runs/44997928704)（PR #34）四個 jobs 全數成功；正式 Supabase 尚未部署，合併至 `main` 仍待審核。  
+> 狀態：整合規格 v0.7；PR #34 仍為 Draft、尚未合併。最新 commit 與 CI 結果請以 [PR #34 的 Commits / Checks](https://github.com/johnjohn114/smart-class/pull/34) 為準，避免文件中的固定編號落後於後續提交；正式 Supabase 尚未部署，合併至 `main` 仍待審核。  
 > 本版承接 v0.6，定稿 v1 的錯誤碼與資料保留決策。舊版保留作為歷史紀錄。
 
 ## 1. 目標與範圍
