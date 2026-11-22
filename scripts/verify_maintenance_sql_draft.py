@@ -98,8 +98,8 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         re.search(r"GRANT\b[^;]*\bTO\s+[^;]*service_role", sql, re.I | re.S)
     )
     checks["transaction_wrapped"] = bool(
-        re.search(r"^BEGIN;\\s*$", sql, re.I | re.M)
-        and re.search(r"^COMMIT;\\s*$", sql, re.I | re.M)
+        re.search(r"^BEGIN;\s*$", sql, re.I | re.M)
+        and re.search(r"^COMMIT;\s*$", sql, re.I | re.M)
     )
     checks["executor_owner_transfer_set_membership"] = all(
         marker in sql for marker in (
