@@ -937,7 +937,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: expected 38 catalog entries (36 live routines, internal helper, and future-function fixture)';
   END IF;
 END
-$complete_acl_matrix$;
+$forward_complete_acl_matrix$;
 
 -- SECURITY DEFINER growth routines must not inherit a caller-controlled search_path.
 DO $search_path_hardening$
