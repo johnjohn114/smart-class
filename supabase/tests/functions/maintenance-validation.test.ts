@@ -77,7 +77,7 @@ Deno.test("create: accepts a valid global draft", async () => {
   try {
     await parseCreateRequest(scheduledReq);
   } catch (error) {
-    scheduledRejected = error instanceof HttpError && error.code === "VALIDATION_ERROR";
+    scheduledRejected = error instanceof Error && error.message.includes("status 必須是 draft");
   }
   if (!scheduledRejected) throw new Error("create parser accepted status=scheduled");
 });
