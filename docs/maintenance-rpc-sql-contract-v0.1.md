@@ -18,11 +18,11 @@ Edge Functions 會呼叫：
 - `public.maintenance_event_update(p_request jsonb)`
 - `public.maintenance_event_action(p_request jsonb)`
 
-SQL 草案目前已提供五個 RPC 的 function body、private tables、RLS、最小必要 table grants 與 EXECUTE ACL；各 RPC 均宣告 SECURITY INVOKER、固定空 search_path，並使用完整限定物件名稱。這些內容仍是未驗證的開發草案，不代表可直接套用或已通過 PostgreSQL、PostgREST、JWT/RLS 測試。若後續 schema、欄位、policy 或權限設計變更，必須同步更新 SQL 草案與本契約。
+SQL 草案目前已提供五個 RPC 的 function body、private tables、RLS、最小必要 table grants 與 EXECUTE ACL。maintenance_status_public 使用 SECURITY INVOKER；四個管理 RPC 使用 SECURITY DEFINER，owner 為內建 pg_database_owner。五個 RPC 均固定空 search_path 並使用完整限定物件名稱。草案已由 disposable PostgreSQL 17、GoTrue-issued JWT 與 PostgREST 測試路徑驗證，但仍不是已核准的正式 migration，也不代表正式 Supabase 已部署。若後續 schema、欄位、policy 或權限設計變更，必須同步更新 SQL 草案與本契約。
 
 ## 2. 身分上下文
 
-Edge Function 對管理 RPC 轉送原始使用者 bearer token；RPC 內部必須檢查 `auth.uid() IS NOT NULL AND public.is_admin()`。actor 必須由 `auth.uid()` 取得，不讀取 request 中的 actor/user ID。
+Edge Function 對管理 RPC 轉送原始使用者 bearer token；管理 RPC 內部必須檢查 `private.maintenance_uid() IS NOT NULL AND public.is_admin()`。actor 必須由 `private.maintenance_uid()` 取得，不讀取 request 中的 actor/user ID。此 helper 從 PostgREST 已驗證的 JWT claims 取得 subject；`public.is_admin()` 的正式定義仍須在目標資料庫獨立核對。
 
 公開 status RPC 允許 anon，僅可讀取公開欄位。可選 bearer token 若有效則保留使用者上下文；無效或缺少 token 時按匿名讀取處理，絕不因此取得 bypass 權限。
 
@@ -50,7 +50,7 @@ RPC 可使用 SQLSTATE/受控錯誤訊息供 Edge Function 對應：
 
 ## 5. 重要限制
 
-目前 API 規格未提供實際五個 RPC 的 SQL signature；本契約是為了讓 Edge Function 呼叫介面明確化而新增的開發決策。實作 SQL 前必須逐項確認與最終 schema 一致，並在隔離環境測試 JWT、RLS、transaction、concurrency 與 idempotency。不得在正式 Supabase 以試錯方式補齊。
+目前 SQL 草案已提供五個 RPC 的實際 signature：public.<rpc_name>(p_request jsonb)。本契約仍是 Edge Function 與 SQL 之間的介面約束；schema、欄位、ACL、RLS 與交易行為以草案及對應測試為準。隔離 CI 已涵蓋 PostgreSQL、GoTrue-issued JWT、PostgREST、RLS、transaction、concurrency 與 idempotency；靜態 guardrail 本身不是 SQL parser。不得在正式 Supabase 以試錯方式補齊。
 
 
 ## 6. SQL RPC 輸入驗證與權限防護（草案檢查項）
@@ -63,3 +63,14 @@ SQL RPC 必須自行驗證輸入，不以 Edge Function 的前置驗證作為唯
 - 建立與修改事件的 starts_at、ends_at 必須是字串，並符合帶有 Z 或 ±HH:MM 時區的 ISO 8601 格式；不得依賴資料庫 session timezone 解讀無時區時間。
 - private schema 的 table、sequence、function object privileges 應先撤銷 PUBLIC、anon、authenticated 的既有權限，再依 RPC 實際需要授予最小權限。schema USAGE 與 object privileges 是不同層級，需分開檢查。
 - 以上由 scripts/verify_maintenance_sql_draft.py 做靜態文字 guardrail；該檢查不等同 PostgreSQL parser、實際 ACL 查詢或 JWT/RLS 整合測試。
+
+
+## 7. Single-pass 草案的實際權限模型（2026-11-22 核對）
+
+- maintenance_status_public：SECURITY INVOKER；EXECUTE 授予 anon、authenticated。
+- 四個管理 RPC：SECURITY DEFINER，owner 為 PostgreSQL 內建 pg_database_owner；EXECUTE 僅授予 authenticated。
+- pg_database_owner 是資料庫 owner 的內建 pseudo-role，不是由 migration 建立的自訂 login role；管理 RPC owner 不擁有 private tables，也不具 BYPASSRLS。
+- 六張 private tables 全部啟用並 FORCE ROW LEVEL SECURITY。管理 RPC 的 table grants 與 RLS policies 以 pg_database_owner 為執行角色；authenticated 沒有直接寫入 grants。
+- actor 由 private.maintenance_uid() 取得；此 helper 讀取已驗證的 PostgREST JWT claims。管理員判斷仍依賴 public.is_admin()，正式環境必須核實其實際定義與權限。
+- audit trigger 阻止一般操作路徑的 UPDATE/DELETE/TRUNCATE，但不能防止資料庫 owner 或 superuser 停用 trigger、修改 schema 或直接改動資料。
+- 以上為開發草案模型，不構成正式 Supabase migration/deployment 核准。
