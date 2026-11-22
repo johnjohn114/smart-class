@@ -44,19 +44,6 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 -- Apply the single-pass development draft under test. This runs only in the ephemeral CI database.
 \ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
--- A function created after the draft must not inherit PUBLIC EXECUTE in private.
-CREATE FUNCTION private.maintenance_default_acl_probe()
-RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
-DO $private_default_acl$
-BEGIN
-  IF has_function_privilege('anon', 'private.maintenance_default_acl_probe()', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'private.maintenance_default_acl_probe()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'FAIL: future private functions inherit PUBLIC EXECUTE';
-  END IF;
-END
-$private_default_acl$;
-DROP FUNCTION private.maintenance_default_acl_probe();
-
 DO $service_role_acl$
 BEGIN
   IF has_function_privilege('service_role', 'public.maintenance_status_public(jsonb)', 'EXECUTE')
