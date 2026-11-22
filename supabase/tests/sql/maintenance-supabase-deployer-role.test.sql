@@ -10,9 +10,22 @@ BEGIN
     RAISE EXCEPTION 'FAIL: migration test did not use the intended non-superuser CREATEROLE role';
   END IF;
 
-  IF pg_catalog.pg_has_role('maintenance_deployer','maintenance_rpc_executor','MEMBER')
-     OR pg_catalog.pg_has_role('maintenance_deployer','maintenance_rpc_executor','SET') THEN
-    RAISE EXCEPTION 'FAIL: temporary executor role membership was not removed';
+  IF NOT pg_catalog.pg_has_role('maintenance_deployer','maintenance_rpc_executor','MEMBER')
+     OR pg_catalog.pg_has_role('maintenance_deployer','maintenance_rpc_executor','SET')
+     OR pg_catalog.pg_has_role('maintenance_deployer','maintenance_rpc_executor','USAGE') THEN
+    RAISE EXCEPTION 'FAIL: executor membership must remain non-inheritable and non-settable';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_auth_members m
+    JOIN pg_catalog.pg_roles granted_role ON granted_role.oid=m.roleid
+    JOIN pg_catalog.pg_roles member_role ON member_role.oid=m.member
+    WHERE granted_role.rolname='maintenance_rpc_executor'
+      AND member_role.rolname='maintenance_deployer'
+      AND (m.set_option OR m.inherit_option OR m.admin_option)
+  ) THEN
+    RAISE EXCEPTION 'FAIL: executor membership retains SET, INHERIT or ADMIN option';
   END IF;
 
   IF pg_catalog.has_schema_privilege('maintenance_rpc_executor','public','CREATE') THEN
