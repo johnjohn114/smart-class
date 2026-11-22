@@ -27,13 +27,18 @@ REVOKE EXECUTE ON FUNCTION
   public.award_growth_points(uuid, integer, text, text, text, text, uuid)
   FROM PUBLIC, anon, authenticated;
 
+-- Keep the internal SECURITY DEFINER helper independent of caller-controlled
+-- search_path settings even though its object references are schema-qualified.
+ALTER FUNCTION public.award_growth_points(uuid, integer, text, text, text, text, uuid)
+  SET search_path TO '';
+
 -- Restore the self/admin ownership guard even if an older live definition was
 -- installed without it. Keep the existing achievement calculation behavior.
 CREATE OR REPLACE FUNCTION public.check_growth_achievements(p_user_id uuid DEFAULT auth.uid())
  RETURNS integer
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path TO ''
 AS $function$
 declare
  a public.growth_achievements%rowtype;
