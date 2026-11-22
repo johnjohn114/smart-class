@@ -38,6 +38,7 @@ on:
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
+      - "scripts/test_maintenance_sql_rollback.py"
       - "supabase/sql/**"
       - "supabase/migrations/**"
       - "supabase/tests/sql/growth-function-authorization.test.sql"
