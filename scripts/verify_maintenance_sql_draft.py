@@ -101,40 +101,30 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         re.search(r"^BEGIN;\s*$", sql, re.I | re.M)
         and re.search(r"^COMMIT;\s*$", sql, re.I | re.M)
     )
-    checks["executor_owner_transfer_set_membership"] = all(
-        marker in sql for marker in (
-            "GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;",
-            "SET ROLE maintenance_rpc_executor;",
-            "RESET ROLE;",
-            "REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;",
-            "REVOKE ADMIN OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;",
-        )
+    checks["database_owner_preflight"] = (
+        "pg_has_role(current_user, 'pg_database_owner', 'SET')" in sql
+        and "has_schema_privilege(current_user, 'public', 'CREATE')" in sql
     )
-    checks["executor_auth_schema_independence"] = all(
-        marker in sql for marker in (
-            "CREATE FUNCTION private.maintenance_uid()",
-            "GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, maintenance_rpc_executor;",
-            "GRANT USAGE ON SCHEMA private TO maintenance_rpc_executor;",
-        )
-    ) and "auth.uid()" not in sql and "GRANT USAGE ON SCHEMA public, private, auth TO maintenance_rpc_executor;" not in sql
-    checks["migration_role_preflight"] = (
-        "rolname = current_user AND (rolsuper OR rolcreaterole)" in sql
-    )
-    checks["dedicated_executor_role"] = bool(re.search(
-        r"CREATE ROLE maintenance_rpc_executor\s+NOLOGIN NOINHERIT NOSUPERUSER "
-        r"NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS", sql, re.I
-    ))
-    checks["executor_owns_only_functions"] = all(
-        f"ALTER FUNCTION public.{rpc}(jsonb) OWNER TO maintenance_rpc_executor;" in sql
+    checks["no_custom_executor_role"] = "maintenance_rpc_executor" not in sql and "CREATE ROLE pg_database_owner" not in sql
+    checks["database_owner_owns_admin_functions"] = all(
+        f"ALTER FUNCTION public.{rpc}(jsonb) OWNER TO pg_database_owner;" in sql
         for rpc in ("maintenance_admin_list", "maintenance_event_create",
                     "maintenance_event_update", "maintenance_event_action")
     )
+    checks["database_owner_auth_schema_independence"] = all(
+        marker in sql for marker in (
+            "CREATE FUNCTION private.maintenance_uid()",
+            "GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, pg_database_owner;",
+            "GRANT USAGE ON SCHEMA private TO pg_database_owner;",
+            "GRANT EXECUTE ON FUNCTION public.is_admin() TO pg_database_owner;",
+        )
+    ) and "auth.uid()" not in sql
     checks["force_rls_all_tables"] = all(
         f"ALTER TABLE private.{table} FORCE ROW LEVEL SECURITY;" in sql
         for table in TABLES
     )
-    checks["admin_policies_target_executor"] = all(
-        re.search(rf"CREATE POLICY {policy}\b.*?TO maintenance_rpc_executor", sql, re.I | re.S)
+    checks["admin_policies_target_database_owner"] = all(
+        re.search(rf"CREATE POLICY {policy}\b.*?TO pg_database_owner", sql, re.I | re.S)
         for policy in (
             "maintenance_scopes_admin_select", "maintenance_events_admin_select",
             "maintenance_events_admin_insert", "maintenance_events_admin_update",
@@ -173,12 +163,12 @@ def inspect_sql(sql: str) -> dict[str, bool]:
             (action_body, "'site_core'=ANY(v_codes)"),
         )
     ) and sql.count("es.scope_code='site_core' OR es.scope_code=ANY(v_codes)") >= 2
-    checks["executor_minimum_write_grants"] = all(
+    checks["database_owner_minimum_write_grants"] = all(
         marker in sql for marker in (
-            "GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;",
-            "GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO maintenance_rpc_executor;",
-            "GRANT INSERT, DELETE ON private.maintenance_event_scopes TO maintenance_rpc_executor;",
-            "GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO maintenance_rpc_executor;",
+            "GRANT INSERT, UPDATE ON private.maintenance_events TO pg_database_owner;",
+            "GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO pg_database_owner;",
+            "GRANT INSERT, DELETE ON private.maintenance_event_scopes TO pg_database_owner;",
+            "GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO pg_database_owner;",
         )
     )
     checks["notes_admin_only_rls"] = (
