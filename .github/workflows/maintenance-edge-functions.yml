@@ -265,7 +265,7 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE activity_member_stats_test"
           TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/activity_member_stats_test
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening_setup.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_member_stats_view_hardening.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261122130000_activity_member_stats_security_invoker.sql
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_public_leaderboard_view.sql
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening.test.sql
 
