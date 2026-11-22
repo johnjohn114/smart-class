@@ -106,7 +106,8 @@ def inspect_sql(sql: str) -> dict[str, bool]:
             "GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;",
             "SET ROLE maintenance_rpc_executor;",
             "RESET ROLE;",
-            "REVOKE maintenance_rpc_executor FROM CURRENT_USER;",
+            "SELECT pg_catalog.set_config('maintenance.migration_actor', current_user, true);",
+            "REVOKE maintenance_rpc_executor FROM %I",
         )
     )
     checks["executor_auth_schema_independence"] = all(
