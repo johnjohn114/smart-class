@@ -65,12 +65,12 @@ GOOD = (
     + """
 BEGIN;
 CREATE ROLE maintenance_rpc_executor NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+rolname = current_user AND (rolsuper OR rolcreaterole);
 GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
 CREATE FUNCTION private.maintenance_uid() RETURNS uuid;
 GRANT USAGE ON SCHEMA private TO maintenance_rpc_executor;
 GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, maintenance_rpc_executor;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO maintenance_rpc_executor;
-GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
 ALTER TABLE private.maintenance_scopes FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_events FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_event_private_notes FORCE ROW LEVEL SECURITY;
