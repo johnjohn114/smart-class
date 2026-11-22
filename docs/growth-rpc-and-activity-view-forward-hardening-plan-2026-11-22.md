@@ -28,6 +28,7 @@ The public leaderboard still intentionally exposes nicknames and displayed atten
 - Requires Stage A's public projection to exist.
 - Sets `security_invoker=true` on `activity_member_stats`.
 - Removes all view grants, then grants SELECT only to `authenticated` and `service_role`.
+- Revokes `PUBLIC` and `anon` privileges on the underlying `competition_attendance` table; the five-column security-definer public projection remains available to `anon`.
 - Must be applied only after the frontend's Stage A projection reader has been released and verified.
 
 ## Existing frontend compatibility
@@ -48,11 +49,11 @@ The current `app.js` already reads the five-column public projection first. It f
 ## Rollout gates
 
 1. Reconcile every relevant environment's schema and migration history. Production's missing migration tracking table does not prove whether another environment applied historical SQL.
-2. Confirm the public nickname and aggregate visibility decision.
+2. Confirm the public nickname and aggregate visibility decision (approved: all five displayed fields remain public).
 3. Run the updated PostgreSQL 17 CI suites.
 4. Stage A: apply only after the migration baseline is reconciled; verify ACLs, function guards, trigger awards, and public projection.
 5. Release/verify the frontend against the public projection.
-6. Stage B: apply only after Stage A and frontend verification; verify anon denial, member self-only rows, admin visibility, and continued public leaderboard access.
+6. Stage B: apply only after Stage A and frontend verification; verify anon denial on both the private view and underlying attendance table, member self-only rows, admin visibility, and continued public leaderboard access.
 7. Run hosted Supabase/PostgREST smoke tests and record rollback evidence.
 
 ## Safety
