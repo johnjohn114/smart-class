@@ -274,7 +274,7 @@ BEGIN
     'idempotency_key', '00000000-0000-4000-8000-000000000099'
   ));
 END
-$function$;
+$$;
 RESET ROLE;
 SELECT pg_catalog.pg_sleep(2.5);
 
