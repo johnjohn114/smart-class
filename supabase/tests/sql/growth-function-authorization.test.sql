@@ -756,7 +756,7 @@ $search_path_hardening$;
 
 -- Stage A must also repair unsafe defaults for future SECURITY DEFINER functions.
 CREATE FUNCTION public.ci_forward_future_definer()
-RETURNS integer LANGUAGE sql SECURITY DEFINER AS $ SELECT 1 $;
+RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 1';
 DO $forward_defaults$
 BEGIN
   IF has_function_privilege('anon','public.ci_forward_future_definer()','EXECUTE')
