@@ -86,24 +86,21 @@ The candidate `supabase/candidate_sql/activity_public_leaderboard_view.sql` crea
 
 The fallback is a compatibility bridge only. It does not harden the legacy view. Preserve the staged order: create and verify the restricted public projection, verify/release the frontend reader, then harden the private member view.
 
-Public nickname and displayed aggregate visibility remains a product/privacy decision that must be confirmed before production release.
+Public nickname and displayed aggregate visibility has been approved by the user for exactly these five fields: `nickname`, `attended_count`, `late_count`, `no_show_count`, and `activity_points`. This approval does not include `user_id`, `checkin_points`, or `completion_points`.
 
-## 8. Existing tests and required additions
+## 8. Candidate PR test status
 
-Existing isolated test assets already cover substantial behavior:
+The candidate PR now includes the previously required authorization and compatibility assertions in isolated PostgreSQL tests:
 
-- `supabase/tests/sql/growth-function-authorization.test.sql` seeds a prior direct grant to `award_growth_points` and asserts anonymous and authenticated direct EXECUTE are removed.
-- It also exercises a member's own achievement processing.
-- `supabase/tests/sql/activity_member_stats_view_hardening_setup.sql` and `activity_member_stats_view_hardening.test.sql` cover synthetic member/admin RLS, anonymous denial on the private view, and the five-column public projection.
+- `anon` cannot execute `check_growth_achievements(uuid)` or directly execute `award_growth_points(...)`.
+- A non-admin member cannot process another member's achievements; the member's own achievement flow remains available.
+- Trigger-based growth awards remain functional after direct API-role EXECUTE is revoked.
+- The authenticated EXECUTE allowlist and trigger-only function privilege removal are checked after simulating production grant drift.
+- Unsafe default function privileges are reintroduced in the test fixture and verified as revoked for future functions.
+- Admin reward delete/upsert, level refresh, and activity badge checks include anonymous, missing-identity, cross-account, and permitted self/admin cases.
+- The activity-view test applies Stage B after the public Stage A projection and checks member/admin RLS plus public five-column output.
 
-Required test additions before release:
-
-1. Assert `anon` cannot execute `check_growth_achievements(uuid)`.
-2. Under a non-admin authenticated identity, calling `check_growth_achievements(other_user_uuid)` must fail and must not change the other synthetic member's points or achievement rows.
-3. Preserve the positive case: a member can process their own achievements; an admin can process a selected member if that is an intended administrative workflow.
-4. Preserve trigger-based awards after direct EXECUTE is revoked from API roles.
-5. Preserve `admin_adjust_growth_points` only for admins.
-6. Run both growth and view suites in the same disposable PostgreSQL environment and verify the full app-level compatibility sequence.
+Latest recorded CI run passed all three jobs. These remain synthetic PostgreSQL/Deno tests, not a hosted production Supabase/PostgREST smoke test. Re-run CI against the final PR head before merge.
 
 ## 9. Forward-only remediation outline
 
