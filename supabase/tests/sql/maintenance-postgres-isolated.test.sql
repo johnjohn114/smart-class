@@ -193,7 +193,9 @@ DECLARE
   replay_result jsonb;
   conflict_seen boolean := false;
   invalid_scope_seen boolean := false;
+  invalid_status_seen boolean := false;
   invalid_scope_payload jsonb;
+  invalid_status_payload jsonb;
 BEGIN
   request_payload := jsonb_build_object(
     'title', '  CI isolated maintenance event  ', 
@@ -207,6 +209,23 @@ BEGIN
     'reason', '  isolated PostgreSQL integration test  ', 
     'idempotency_key', '00000000-0000-4000-8000-000000000011'
   );
+  -- The create RPC must reject a direct scheduled status; only the action RPC may schedule.
+  invalid_status_payload := pg_catalog.jsonb_set(
+    request_payload, '{status}', '"scheduled"'::jsonb, false
+  );
+  invalid_status_payload := pg_catalog.jsonb_set(
+    invalid_status_payload, '{idempotency_key}',
+    pg_catalog.to_jsonb('00000000-0000-4000-8000-000000000013'::text), false
+  );
+  BEGIN
+    PERFORM public.maintenance_event_create(invalid_status_payload);
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_status_seen := true;
+  END;
+  IF NOT invalid_status_seen THEN
+    RAISE EXCEPTION 'FAIL: create RPC accepted status=scheduled instead of requiring draft';
+  END IF;
+
   -- JSON arrays must contain strings only; numeric values must not be coerced to text.
   invalid_scope_payload := pg_catalog.jsonb_set(request_payload, '{scope_codes}', '[1]'::jsonb, false);
   invalid_scope_payload := pg_catalog.jsonb_set(invalid_scope_payload, '{idempotency_key}',
