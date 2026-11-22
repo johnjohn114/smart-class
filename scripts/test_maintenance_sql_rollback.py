@@ -65,7 +65,7 @@ SELECT (
         capture_output=True,
         check=False,
     )
-    if check.returncode != 0 or check.stdout.strip() != "t":
+    if check.returncode != 0 or check.stdout.strip() not in ("t", "true"):
         print("FAIL: partial migration objects remain after rollback", file=sys.stderr)
         print(check.stdout + check.stderr, file=sys.stderr)
         return 1
