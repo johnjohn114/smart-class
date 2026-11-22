@@ -53,7 +53,17 @@ A further read-only catalog inspection confirmed:
 
 The candidate Stage A migration now restores fail-closed admin checks for both reward RPCs and separates internal level calculation into `_refresh_growth_level_internal(uuid)`, while the public `refresh_growth_level(uuid)` wrapper enforces self/admin ownership. Tests cover anonymous denial, missing-identity denial, cross-account denial, and successful admin/self flows. These are candidate changes only; the production catalog remains unchanged.
 
-## 4. `activity_member_stats` view
+## 4. Related badge RPC finding: `check_activity_badges(uuid)`
+
+The live function also has a NULL-sensitive ownership comparison:
+
+- It is `SECURITY DEFINER` and directly executable by `anon` and `authenticated`.
+- It checks whether `p_user_id` differs from `auth.uid()` but does not first reject a NULL `auth.uid()`.
+- When an anonymous caller supplies another member's UUID, the comparison evaluates to SQL NULL and the `IF` does not reject the call. The routine can then process and unlock badges for that supplied member.
+
+The candidate Stage A migration restores an explicit `auth.uid() IS NULL` denial, retains authenticated self/admin behavior, revokes anonymous execution, and adds tests for anonymous and cross-account attempts.
+
+## 5. `activity_member_stats` view
 
 Live read-only catalog evidence:
 
@@ -65,7 +75,7 @@ Live read-only catalog evidence:
 
 The existing candidate `supabase/candidate_sql/activity_member_stats_view_hardening.sql` changes the view to `security_invoker=true`, revokes `PUBLIC` / `anon` access, and retains SELECT for `authenticated` and `service_role`.
 
-## 5. Frontend compatibility already present in main
+## 6. Frontend compatibility already present in main
 
 The current `app.js` has two relevant paths:
 
@@ -78,7 +88,7 @@ The fallback is a compatibility bridge only. It does not harden the legacy view.
 
 Public nickname and displayed aggregate visibility remains a product/privacy decision that must be confirmed before production release.
 
-## 6. Existing tests and required additions
+## 7. Existing tests and required additions
 
 Existing isolated test assets already cover substantial behavior:
 
@@ -95,7 +105,7 @@ Required test additions before release:
 5. Preserve `admin_adjust_growth_points` only for admins.
 6. Run both growth and view suites in the same disposable PostgreSQL environment and verify the full app-level compatibility sequence.
 
-## 7. Forward-only remediation outline
+## 8. Forward-only remediation outline
 
 Do not rewrite or delete existing migration files because other environments may have applied them.
 
@@ -108,6 +118,6 @@ Prepare a new, idempotent forward migration that:
 
 Do not apply this migration to production until all relevant environments and migration history are reconciled, the disposable tests pass, and the public leaderboard privacy decision is approved.
 
-## 8. Safety record
+## 9. Safety record
 
 This review used GitHub source reads and read-only PostgreSQL catalog queries only. No production SQL writes, data reads, data updates, migrations, Edge Function deployments, frontend deployments, feature-flag changes, or PR merges were performed.
