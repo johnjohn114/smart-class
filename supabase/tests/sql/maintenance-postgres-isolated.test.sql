@@ -377,8 +377,8 @@ BEGIN
     'message', 'This must be rejected',
     'is_global', true,
     'scope_codes', '[]'::jsonb,
-    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
-    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '35 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '30 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'conflict integration test',
     'idempotency_key', '00000000-0000-4000-8000-000000000012'
@@ -526,7 +526,7 @@ BEGIN
       'message', 'This overlapping event must be rejected',
       'is_global', false,
       'scope_codes', pg_catalog.jsonb_build_array('announcements_info'),
-      'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '6 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+      'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '3 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
       'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '20 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
       'status', 'scheduled',
       'reason', 'same scope conflict integration test',
@@ -545,7 +545,7 @@ BEGIN
     'message', 'A different local scope may be scheduled concurrently',
     'is_global', false,
     'scope_codes', pg_catalog.jsonb_build_array('downloads_app'),
-    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '7 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '4 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '15 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'disjoint scope coexistence integration test',
@@ -567,6 +567,7 @@ BEGIN
 END
 $local_scope_admin$;
 RESET ROLE;
+SELECT pg_catalog.pg_sleep(2.5);
 
 SET ROLE anon;
 SELECT set_config('request.jwt.claim.sub', '', false);
