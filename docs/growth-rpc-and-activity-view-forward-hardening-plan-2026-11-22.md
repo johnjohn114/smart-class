@@ -14,7 +14,7 @@ This change addresses the growth RPC exposures and activity-view exposure found 
 5. Restore explicit NULL-identity denial in `check_activity_badges(uuid)` before cross-account checks.
 6. Replace the broad public member aggregate read with a five-column public leaderboard projection, then harden the original member/admin view with `security_invoker=true`.
 
-The public leaderboard still intentionally exposes nicknames and displayed attendance/late/no-show/activity-point aggregates. That product/privacy decision must be approved before production rollout.
+The public leaderboard intentionally exposes exactly five approved presentation fields: `nickname`, `attended_count`, `late_count`, `no_show_count`, and `activity_points`. The user has approved public visibility of these five fields. No UUID or internal point subtotals are approved for public exposure.
 
 ## New forward migrations
 
