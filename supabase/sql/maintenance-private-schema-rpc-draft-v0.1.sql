@@ -984,9 +984,6 @@ REVOKE CREATE ON SCHEMA public FROM maintenance_rpc_executor;
 REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.maintenance_status_public(jsonb) TO anon, authenticated;
 
--- Preserve the original migration actor before switching to the function owner.
-SELECT pg_catalog.set_config('maintenance.migration_actor', current_user, true);
-
 -- Switch to the new function owner to apply its ACLs.
 SET ROLE maintenance_rpc_executor;
 REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon;
@@ -999,17 +996,9 @@ GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticate
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
 RESET ROLE;
 
--- Keep the membership record because it is the grantor for dependent object ACLs,
--- but remove both ways to exercise the executor role: SET ROLE and inherited privileges.
-DO $revoke_executor_set$
-DECLARE
-  v_migration_actor name := pg_catalog.current_setting('maintenance.migration_actor')::name;
-BEGIN
-  EXECUTE pg_catalog.format(
-    'REVOKE SET OPTION FOR maintenance_rpc_executor FROM %I', v_migration_actor
-  );
-END
-$revoke_executor_set$;
+-- Keep the membership record as the grantor of dependent ACLs, but remove SET access.
+-- INHERIT was disabled when the membership was created, so no executor privileges flow in.
+REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
 COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
