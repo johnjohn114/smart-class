@@ -19,6 +19,7 @@ The public leaderboard still intentionally exposes nicknames and displayed atten
 
 - Revokes `PUBLIC`, `anon`, and `authenticated` EXECUTE on the internal award helper.
 - Pins both growth SECURITY DEFINER routines to an empty `search_path`.
+- Repairs PostgreSQL function default privileges so future `postgres`-owned functions are not automatically executable by `PUBLIC`, `anon`, or `authenticated`.
 - Replaces `check_growth_achievements(uuid)` with the existing self/admin ownership guard.
 - Revokes `PUBLIC` and `anon` execution while preserving authenticated self-service.
 - Creates `activity_public_leaderboard` with exactly five presentation columns; it omits `user_id`, `checkin_points`, and `completion_points`.
@@ -40,6 +41,7 @@ The current `app.js` already reads the five-column public projection first. It f
 
 - `growth-function-authorization.test.sql` now simulates reintroducing the vulnerable direct grants and unguarded achievement function after the historical hardening migration, applies the new Stage A migration, and checks:
   - anonymous and authenticated direct award-helper denial;
+  - unsafe function default privileges are reintroduced before Stage A and verified to be revoked for future functions;
   - anonymous achievement RPC denial and authenticated RPC preservation;
   - self/admin guard restored and cross-account call rejected;
   - five-column public projection and anonymous SELECT;
