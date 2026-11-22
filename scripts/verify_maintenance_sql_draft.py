@@ -86,6 +86,9 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         and "jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string'" in update_body
         and update_body.count(timezone_marker) >= 2
     )
+    checks["private_function_default_execute_revoked"] = (
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;" in sql
+    )
     checks["private_object_privileges_reset"] = all(
         marker in sql for marker in (
             "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;",
