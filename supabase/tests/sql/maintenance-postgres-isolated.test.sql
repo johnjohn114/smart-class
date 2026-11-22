@@ -41,7 +41,7 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 
 DO $$
 BEGIN
-  IF has_function_privilege('anon', 'pg_temp.maintenance_test_create(jsonb)', 'EXECUTE')
+  IF has_function_privilege('anon', 'public.maintenance_event_create(jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.maintenance_event_update(jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.maintenance_event_action(jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.maintenance_admin_list(jsonb)', 'EXECUTE') THEN
@@ -127,7 +127,7 @@ $$;
 CREATE FUNCTION pg_temp.maintenance_test_create(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-AS $
+AS $function$
 DECLARE
   v_request jsonb := p_request;
   v_created jsonb;
@@ -149,7 +149,7 @@ BEGIN
   END IF;
   RETURN v_created;
 END
-$;
+$function$;
 
 -- Only this isolated harness may backdate an event after exercising the
 -- real schedule transition, so completion-after-end can be tested safely.
@@ -158,14 +158,14 @@ RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
-AS $
+AS $function$
 BEGIN
   UPDATE private.maintenance_events
      SET starts_at = pg_catalog.now() - interval '30 minutes',
          ends_at = pg_catalog.now() - interval '10 minutes'
    WHERE id = p_event_id;
 END
-$;
+$function$;
 
 -- Anonymous caller can read the public status function, but no maintenance is active yet.
 SET ROLE anon;
@@ -227,7 +227,7 @@ BEGIN
   request_payload := pg_catalog.jsonb_set(request_payload, '{internal_note}', pg_catalog.to_jsonb('CI_PRIVATE_NOTE_DO_NOT_EXPOSE'::text), false);
   request_payload := pg_catalog.jsonb_set(request_payload, '{reason}', pg_catalog.to_jsonb('isolated PostgreSQL integration test'::text), false);
   request_payload := pg_catalog.jsonb_set(request_payload, '{starts_at}',
-    pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
+    pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
   request_payload := pg_catalog.jsonb_set(request_payload, '{ends_at}',
     pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() + interval '1 hour') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
   replay_result := public.maintenance_event_create(request_payload);
@@ -255,7 +255,7 @@ BEGIN
     'idempotency_key', '00000000-0000-4000-8000-000000000099'
   ));
 END
-$;
+$function$;
 RESET ROLE;
 SELECT pg_catalog.pg_sleep(2.5);
 
