@@ -11,7 +11,8 @@ This change addresses the growth RPC exposures and activity-view exposure found 
 2. Restore the self/admin ownership check in `public.check_growth_achievements(uuid)` and deny anonymous execution.
 3. Repair `admin_delete_growth_reward(uuid)` and `admin_upsert_growth_reward(...)` so a missing `auth.uid()` fails closed.
 4. Split growth-level calculation into a private `_refresh_growth_level_internal(uuid)` helper and an authenticated self/admin `refresh_growth_level(uuid)` wrapper.
-5. Replace the broad public member aggregate read with a five-column public leaderboard projection, then harden the original member/admin view with `security_invoker=true`.
+5. Restore explicit NULL-identity denial in `check_activity_badges(uuid)` before cross-account checks.
+6. Replace the broad public member aggregate read with a five-column public leaderboard projection, then harden the original member/admin view with `security_invoker=true`.
 
 The public leaderboard still intentionally exposes nicknames and displayed attendance/late/no-show/activity-point aggregates. That product/privacy decision must be approved before production rollout.
 
@@ -23,6 +24,7 @@ The public leaderboard still intentionally exposes nicknames and displayed atten
 - Pins the growth award, achievement, admin-delete, and level-refresh SECURITY DEFINER routines to an empty `search_path`.
 - Repairs both NULL-sensitive admin reward guards (`admin_delete_growth_reward` and `admin_upsert_growth_reward`) so a missing `auth.uid()` fails closed.
 - Moves raw level calculation into `_refresh_growth_level_internal(uuid)`; the exposed wrapper permits only the member themself or an admin, and the internal helper is not directly executable by API roles.
+- Restores the missing `auth.uid() IS NULL` rejection in `check_activity_badges(uuid)`; keeps authenticated self/admin use and removes anonymous EXECUTE.
 - Repairs PostgreSQL function default privileges so future `postgres`-owned functions are not automatically executable by `PUBLIC`, `anon`, or `authenticated`.
 - Replaces `check_growth_achievements(uuid)` with the existing self/admin ownership guard.
 - Revokes `PUBLIC` and `anon` execution while preserving authenticated self-service.
@@ -50,6 +52,7 @@ The current `app.js` already reads the five-column public projection first. It f
   - self/admin achievement guard restored and cross-account call rejected;
   - anonymous admin reward delete/upsert denied; NULL-identity delete/upsert denied; authenticated admin operations still work; ordinary members remain denied;
   - anonymous level refresh denied, cross-account member refresh denied, and own-member/admin refresh remains available;
+  - anonymous badge processing with a supplied member UUID denied; member self-check remains available and cross-account badge processing is rejected;
   - five-column public projection and anonymous SELECT;
   - trusted SECURITY DEFINER trigger can still call the internal award helper.
 - The activity view workflow test now applies the new Stage B migration after creating the Stage A public projection, then runs member/admin RLS and public-output assertions.
