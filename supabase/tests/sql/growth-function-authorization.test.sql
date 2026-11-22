@@ -360,6 +360,115 @@ BEGIN
 END
 $anon_acl$;
 
+-- Prove that anonymous SQL callers are rejected at the EXECUTE boundary,
+-- not merely by catalog inspection. These calls must fail before function bodies run.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE anon;
+DO $anon_direct_calls_denied$
+DECLARE
+  denied boolean;
+BEGIN
+  denied := false;
+  BEGIN
+    PERFORM public.award_growth_points(
+      '00000000-0000-4000-8000-000000000003',50,'anon test','manual',NULL,NULL,NULL
+    );
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed award_growth_points'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed check_growth_achievements'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed check_activity_badges'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed refresh_growth_level'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000010');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed admin_delete_growth_reward'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.admin_upsert_growth_reward(
+      NULL,'anon-should-not-create','Anon should not create',NULL,'star','test',5,
+      NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,true
+    );
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed admin_upsert_growth_reward'; END IF;
+END
+$anon_direct_calls_denied$;
+RESET ROLE;
+
+-- A JWT-less authenticated database role must also fail closed for every
+-- user-targeted RPC, even when an explicit victim UUID is supplied.
+SET ROLE authenticated;
+DO $authenticated_missing_uid_denied$
+DECLARE
+  denied boolean;
+BEGIN
+  denied := false;
+  BEGIN
+    PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限檢查此會員成就' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: check_growth_achievements accepted missing auth.uid()'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: check_activity_badges accepted missing auth.uid()'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限更新此會員等級' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: refresh_growth_level accepted missing auth.uid()'; END IF;
+END
+$authenticated_missing_uid_denied$;
+RESET ROLE;
+
+DO $no_identity_side_effects$
+BEGIN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 0 THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls changed another member growth points';
+  END IF;
+  IF (SELECT growth_level FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 'newbie' THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls changed another member growth level';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.user_activity_badges WHERE user_id='00000000-0000-4000-8000-000000000003') THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls created another member activity badges';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.growth_user_achievements WHERE user_id='00000000-0000-4000-8000-000000000003') THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls created another member achievements';
+  END IF;
+END
+$no_identity_side_effects$;
+
 -- The authenticated-only download counter still updates published files.
 INSERT INTO public.download_files(id,published,download_count) VALUES
  ('00000000-0000-4000-8000-000000000030',true,0),
