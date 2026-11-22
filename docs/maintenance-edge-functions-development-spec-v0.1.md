@@ -1,9 +1,42 @@
 # Maintenance System Edge Functions 開發規格與 RPC 權限矩陣 v0.1
 
-> 日期：2026-11-08  
-> 分支：`feature/maintenance-system`  
-> 狀態：開發規格；五支 Edge Function 原始碼已提交，尚未完成測試或部署；五個 RPC 與 private schema 僅有未驗證 SQL 草案，未執行 SQL。  
-> 本文件依據 API 規格 v0.5、連線架構 v0.4、權限審查 v0.2 彙整。若有衝突，以最新 API 規格及安全決議為準；未決事項不得自行猜測。
+> 原始日期：2026-11-08；狀態補記：2026-11-22  
+> 原始分支：`feature/maintenance-system`；現行對照分支：`feature/maintenance-single-pass-migration-20261122`  
+> 狀態：本文件 v0.1 為歷史開發草稿；其中測試狀態、RPC 權限矩陣及 API 版本已由下方補記更新。現行契約以 `docs/maintenance-api-spec-v0.7.md` 為準。  
+> 原始內容依據 API v0.5、連線架構 v0.4、權限審查 v0.2 彙整；不可將舊版描述視為目前實作狀態。
+
+## 0. 2026-11-22 狀態更正與現行規格優先序
+
+本節為本文件的現行狀態補記。下方原始章節保留作歷史設計紀錄；若與本節或 `docs/maintenance-api-spec-v0.7.md` 不一致，一律以 API v0.7 及本節為準。
+
+### 目前實作與 RPC 權限契約
+
+- 五支 Edge Functions 與五個對應 public RPC 已提交於目前工作分支；呼叫端以單一 `p_request jsonb` 參數呼叫 RPC。
+- `maintenance_status_public` 使用 `SECURITY INVOKER`。
+- `maintenance_admin_list`、`maintenance_event_create`、`maintenance_event_update`、`maintenance_event_action` 使用由專用 `maintenance_rpc_executor`（`NOLOGIN`、`NOBYPASSRLS`）擁有的 `SECURITY DEFINER`；管理 RPC 仍在資料庫端檢查使用者 JWT 對應的管理員身分。
+- 公開 status RPC 的 EXECUTE 對象為 `anon`、`authenticated`；管理 RPC 的 EXECUTE 僅授予 `authenticated`。完整現行設計以 API v0.7 與 migration 原始碼為準。
+- 現行欄位限制：title 200、message 4,000、internal_note 4,000、reason 500 字元；Edge parser 與 SQL 驗證已對齊。
+- v1 不承諾 HTTP 429 `RATE_LIMITED`；原始第 5 節的 429 列是舊版規劃，不是目前已提供的功能。
+
+### 隔離 CI 狀態
+
+GitHub Actions run [#232](https://github.com/johnjohn114/smart-class/actions/runs/44927798716)，對應目前分支 commit `4183e34801471701a33c7e55953fcfe18b5e8967`，四個 jobs 全數成功：
+
+1. Deno type check、Edge validation tests、feature gate、Playwright 相容性及 SQL static guardrails。
+2. 隔離 PostgreSQL RPC / RLS 測試與相關回歸測試。
+3. GoTrue-issued JWT + PostgREST single-pass draft 整合測試。
+4. GoTrue-issued JWT + PostgREST legacy migration 路徑整合測試。
+
+以上均為隔離環境測試，不是正式 Supabase smoke test，也不代表正式 Migration 或 Edge Functions 已部署。
+
+### 尚未完成的正式環境事項
+
+- 正式 Supabase schema baseline、migration history 與 Data API Exposed schemas 確認。
+- 正式 CORS / Edge Function 環境設定與部署後 smoke test。
+- single-pass draft 是否取代既有 migration pair，仍須先確認所有可能使用環境的 migration 套用歷史；不得只憑目前 production catalog 沒有 Maintenance objects 就改寫 migration history。
+- 尚未合併至 `main`，亦未對正式 Supabase 執行 SQL 或部署 Edge Functions。
+
+---
 
 ## 1. 開發範圍
 
