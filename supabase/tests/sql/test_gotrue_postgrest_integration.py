@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import time
 from datetime import datetime, timedelta, timezone
 
 POSTGREST = os.environ["POSTGREST_URL"].rstrip("/")
@@ -181,17 +182,28 @@ def main():
         "status": "scheduled",
         "reason": "isolated GoTrue/PostgREST integration test",
     }
-    requests = []
-    for _ in range(2):
+    event_ids = []
+    for item_index in range(2):
         item = dict(base)
+        item["status"] = "draft"
         item["idempotency_key"] = str(uuid.uuid4())
-        requests.append(item)
+        create_status, created = rpc("maintenance_event_create", item, admin)
+        assert_true(create_status == 200 and created.get("ok") is True,
+                    f"created concurrent schedule draft {item_index + 1}")
+        event_ids.append(created["data"]["event_id"])
+
+    def schedule_concurrently(event_id):
+        action = {
+            "event_id": event_id,
+            "expected_version": 1,
+            "action": "schedule",
+            "reason": "concurrent schedule race test",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        return rpc("maintenance_event_action", action, admin)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(
-            lambda item: rpc("maintenance_event_create", item, admin),
-            requests,
-        ))
+        results = list(pool.map(schedule_concurrently, event_ids))
 
     successes = [r for r in results if r[0] == 200 and r[1] and r[1].get("ok") is True]
     conflicts = [r for r in results if r[0] in (400, 409, 422)]
@@ -427,23 +439,36 @@ def main():
         "scope_codes": [],
         "starts_at": iso(past_start),
         "ends_at": iso(past_end),
-        "status": "scheduled",
+        "status": "draft",
         "reason": "complete lifecycle integration test",
         "idempotency_key": str(uuid.uuid4()),
     }
+    past_event_payload["starts_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=1))
+    past_event_payload["ends_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=3))
     status, past_event = rpc("maintenance_event_create", past_event_payload, admin)
     assert_true(status == 200 and past_event.get("ok") is True,
-                "created an already-ended scheduled event for completion test")
-    complete_request = {
-        "event_id": past_event["data"]["event_id"],
+                "created a draft for the completion lifecycle test")
+    past_event_id = past_event["data"]["event_id"]
+    status, past_event_scheduled = rpc("maintenance_event_action", {
+        "event_id": past_event_id,
         "expected_version": 1,
+        "action": "schedule",
+        "reason": "schedule completion lifecycle fixture",
+        "idempotency_key": str(uuid.uuid4()),
+    }, admin)
+    assert_true(status == 200 and past_event_scheduled.get("data", {}).get("status") == "scheduled",
+                "completion fixture was scheduled through the lifecycle RPC")
+    time.sleep(4)
+    complete_request = {
+        "event_id": past_event_id,
+        "expected_version": 2,
         "action": "complete",
         "reason": "GoTrue complete action test",
         "idempotency_key": str(uuid.uuid4()),
     }
     status, completed = rpc("maintenance_event_action", complete_request, admin)
     assert_true(status == 200 and completed.get("data", {}).get("status") == "completed"
-                and completed.get("data", {}).get("version") == 2,
+                and completed.get("data", {}).get("version") == 3,
                 "ended scheduled event can be completed through lifecycle action RPC")
 
     cancel_request = {
@@ -470,13 +495,25 @@ def main():
         "scope_codes": ["membership_growth"],
         "starts_at": iso(active_start),
         "ends_at": iso(active_end),
-        "status": "scheduled",
+        "status": "draft",
         "reason": "public scope status test",
         "idempotency_key": str(uuid.uuid4()),
     }
+    public_scope_payload["starts_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=1))
+    public_scope_payload["ends_at"] = iso(datetime.now(timezone.utc) + timedelta(minutes=30))
     status, active_scope_created = rpc("maintenance_event_create", public_scope_payload, admin)
     assert_true(status == 200 and active_scope_created.get("ok") is True,
-                "admin can create an active local-scope event")
+                "admin can create a draft for public scope status")
+    status, active_scope_scheduled = rpc("maintenance_event_action", {
+        "event_id": active_scope_created["data"]["event_id"],
+        "expected_version": 1,
+        "action": "schedule",
+        "reason": "schedule public scope status fixture",
+        "idempotency_key": str(uuid.uuid4()),
+    }, admin)
+    assert_true(status == 200 and active_scope_scheduled.get("data", {}).get("status") == "scheduled",
+                "public scope fixture is scheduled through lifecycle RPC")
+    time.sleep(2)
 
     status, matching_scope_status = rpc(
         "maintenance_status_public", {"scope": "membership_growth"}, None
