@@ -114,3 +114,30 @@ This is a read-only repository and project inventory update. It does not authori
 5. Only after separate approval, integrate the frontend and consider enabling the feature flag. Keep `MAINTENANCE_FEATURE_ENABLED=false` until then.
 
 No production SQL, migration repair, Edge Function deployment, feature-flag change, PR merge, or paid service was used during this audit.
+
+
+## 2026-11-23 Combined operational confirmation — results
+
+This section records the requested combined read-only checks. No production configuration was changed.
+
+### Confirmed from repository and Supabase project inventory
+
+- [x] Repository `supabase/config.toml` defines five Maintenance Edge Functions:
+  - `maintenance-status`: `verify_jwt = false` because the handler performs optional user-token validation itself.
+  - `maintenance-admin-list`, `maintenance-event-create`, `maintenance-event-update`, `maintenance-event-action`: `verify_jwt = true`.
+- [x] Shared handler requires `SUPABASE_URL` and a publishable/anon key. It prefers `SUPABASE_PUBLISHABLE_KEY`, with `SUPABASE_ANON_KEY` and JSON `SUPABASE_PUBLISHABLE_KEYS.default` fallbacks. These are read at runtime; no credential values were accessed or recorded.
+- [x] CORS allowlist defaults to exactly `https://johnjohn114.github.io`. Optional `MAINTENANCE_ALLOWED_ORIGINS` overrides it as a comma-separated list. Automated tests verify allowed preflight and rejection of an unapproved origin.
+- [x] Supabase inventory currently lists six Edge Functions, none of which is a Maintenance function.
+- [x] Supabase inventory lists zero development branches and zero migrations.
+- [x] Current production schema inventory contains no `private` schema. The role grants query only confirms `public` schema usage for API roles; it does not prove the Data API Exposed schemas setting.
+- [x] Read-only `pg_db_role_setting` inspection found no `pgrst.db_schemas` setting on `authenticator`, `anon`, `authenticated`, or `service_role`. This is not authoritative evidence of the dashboard-level Data API Exposed schemas configuration.
+
+### Explicit unresolved items
+
+- [ ] The actual Supabase Dashboard setting under Data API → Exposed schemas cannot be read through the available project/database tools. It must be visually confirmed before any deployment. Expected target: keep `private` out of Exposed schemas; only expose `public` RPC wrappers if the final SQL architecture requires them.
+- [ ] Actual deployed Edge Function environment configuration cannot be confirmed because the Maintenance functions are not deployed. At deployment time, verify built-in `SUPABASE_URL` and publishable/anon key availability; if overriding CORS, configure `MAINTENANCE_ALLOWED_ORIGINS=https://johnjohn114.github.io`. Do not paste or store secret values in source control.
+- [ ] Hosted CORS cannot be smoke-tested until a Maintenance function is deployed to an explicitly authorized target.
+
+### Current decision
+
+Operational code-side prerequisites are documented and internally consistent. Dashboard Exposed schemas and hosted environment values remain unverified, so deployment remains blocked. No production SQL, migration, dashboard configuration, Edge Function deployment, feature-flag change, PR merge, or paid resource was used.
