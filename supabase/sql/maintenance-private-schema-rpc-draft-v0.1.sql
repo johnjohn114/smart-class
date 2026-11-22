@@ -526,8 +526,7 @@ BEGIN
      OR (v_note IS NOT NULL AND pg_catalog.char_length(v_note)>4000)
      OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
      OR v_start IS NULL OR v_end IS NULL OR v_start>=v_end
-     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled')
-     OR (v_status='scheduled' AND v_start<=pg_catalog.now()) THEN
+     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled') THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(p_request->'scope_codes') AS item(value)
