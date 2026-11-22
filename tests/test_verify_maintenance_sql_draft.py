@@ -63,7 +63,9 @@ GOOD = (
     + rpc("maintenance_event_action",
           "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'; 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);")
     + """
+BEGIN;
 CREATE ROLE maintenance_rpc_executor NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
 ALTER TABLE private.maintenance_scopes FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_events FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_event_private_notes FORCE ROW LEVEL SECURITY;
@@ -102,6 +104,8 @@ ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO maintenance_rpc_exe
 ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
+REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
+COMMIT;
 CREATE TRIGGER audit_no_mutation BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs
 FOR EACH ROW EXECUTE FUNCTION private.block_audit();
 CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON private.maintenance_audit_logs
