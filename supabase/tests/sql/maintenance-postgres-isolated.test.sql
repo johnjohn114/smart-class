@@ -38,6 +38,7 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 
 -- Apply the exact draft under test. This runs only in the ephemeral CI database.
 \ir ../../migrations/20261117121103_maintenance_system_initial.sql
+\ir ../../migrations/20261121140000_maintenance_rpc_least_privilege_upgrade.sql
 
 DO $$
 BEGIN
@@ -50,6 +51,74 @@ BEGIN
   IF NOT has_function_privilege('anon', 'public.maintenance_status_public(jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: anon cannot execute the public status RPC';
   END IF;
+END
+$$;
+
+-- The admin RPC owner is non-login, non-superuser, and cannot bypass RLS.
+DO $$
+DECLARE
+  executor record;
+  table_name text;
+  column_name text;
+  function_name text;
+BEGIN
+  SELECT rolcanlogin, rolinherit, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
+    INTO executor FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor';
+  IF executor.rolcanlogin OR executor.rolinherit OR executor.rolsuper OR executor.rolbypassrls
+     OR executor.rolcreatedb OR executor.rolcreaterole OR executor.rolreplication THEN
+    RAISE EXCEPTION 'FAIL: maintenance RPC executor has elevated role attributes';
+  END IF;
+  IF pg_catalog.has_schema_privilege('maintenance_rpc_executor','public','CREATE') THEN
+    RAISE EXCEPTION 'FAIL: maintenance RPC executor retained CREATE on public schema';
+  END IF;
+
+  FOREACH table_name IN ARRAY ARRAY[
+    'maintenance_scopes','maintenance_events','maintenance_event_private_notes',
+    'maintenance_event_scopes','maintenance_audit_logs','maintenance_idempotency'
+  ] LOOP
+    IF pg_catalog.has_table_privilege('authenticated','private.'||table_name,'INSERT')
+       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'UPDATE')
+       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'DELETE')
+       OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'TRUNCATE') THEN
+      RAISE EXCEPTION 'FAIL: authenticated has direct write privilege on %', table_name;
+    END IF;
+    -- Table-level privilege checks do not replace checking every column grant.
+    FOR column_name IN
+      SELECT a.attname
+      FROM pg_catalog.pg_attribute a
+      JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='private' AND c.relname=table_name
+        AND a.attnum>0 AND NOT a.attisdropped
+    LOOP
+      IF pg_catalog.has_column_privilege('authenticated','private.'||table_name,column_name,'INSERT')
+         OR pg_catalog.has_column_privilege('authenticated','private.'||table_name,column_name,'UPDATE') THEN
+        RAISE EXCEPTION 'FAIL: authenticated has direct column write privilege on %.%', table_name, column_name;
+      END IF;
+    END LOOP;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='private' AND c.relname=table_name
+        AND c.relrowsecurity AND c.relforcerowsecurity
+        AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor')
+    ) THEN
+      RAISE EXCEPTION 'FAIL: table % must FORCE RLS and not be owned by executor', table_name;
+    END IF;
+  END LOOP;
+
+  FOREACH function_name IN ARRAY ARRAY[
+    'maintenance_admin_list','maintenance_event_create',
+    'maintenance_event_update','maintenance_event_action'
+  ] LOOP
+    IF (SELECT r.rolname
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+        WHERE n.nspname='public' AND p.proname=function_name) <> 'maintenance_rpc_executor' THEN
+      RAISE EXCEPTION 'FAIL: admin RPC % is not owned by dedicated executor', function_name;
+    END IF;
+  END LOOP;
 END
 $$;
 
@@ -78,6 +147,8 @@ DECLARE
   first_result jsonb;
   replay_result jsonb;
   conflict_seen boolean := false;
+  invalid_scope_seen boolean := false;
+  invalid_scope_payload jsonb;
 BEGIN
   request_payload := jsonb_build_object(
     'title', '  CI isolated maintenance event  ', 
@@ -91,6 +162,19 @@ BEGIN
     'reason', '  isolated PostgreSQL integration test  ', 
     'idempotency_key', '00000000-0000-4000-8000-000000000011'
   );
+  -- JSON arrays must contain strings only; numeric values must not be coerced to text.
+  invalid_scope_payload := pg_catalog.jsonb_set(request_payload, '{scope_codes}', '[1]'::jsonb, false);
+  invalid_scope_payload := pg_catalog.jsonb_set(invalid_scope_payload, '{idempotency_key}',
+    pg_catalog.to_jsonb('00000000-0000-4000-8000-000000000012'::text), false);
+  BEGIN
+    PERFORM public.maintenance_event_create(invalid_scope_payload);
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_scope_seen := true;
+  END;
+  IF NOT invalid_scope_seen THEN
+    RAISE EXCEPTION 'FAIL: non-string scope_codes array element was accepted';
+  END IF;
+
   first_result := public.maintenance_event_create(request_payload);
   -- Equivalent semantic payload: trimmed text and UTC Z timestamps instead of +00:00.
   request_payload := pg_catalog.jsonb_set(request_payload, '{title}', pg_catalog.to_jsonb('CI isolated maintenance event'::text), false);

@@ -10,9 +10,10 @@ TABLES = (
 
 
 def rpc(name, body):
+    security = "INVOKER" if name == "maintenance_status_public" else "DEFINER"
     return (
         f"CREATE FUNCTION public.{name}(p_request jsonb) RETURNS jsonb "
-        "LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' "
+        f"LANGUAGE plpgsql SECURITY {security} SET search_path = '' "
         f"AS $$ BEGIN {body} RETURN '{{}}'::jsonb; END; $$;"
     )
 
@@ -27,6 +28,7 @@ jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string';
 starts_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 ends_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);
+jsonb_typeof(item.value) IS DISTINCT FROM 'string';
 """
 
 UPDATE_BODY = """
@@ -39,6 +41,7 @@ jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string';
 starts_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 ends_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);
+jsonb_typeof(item.value) IS DISTINCT FROM 'string';
 """
 
 GOOD = (
@@ -59,14 +62,45 @@ GOOD = (
     + rpc("maintenance_event_action",
           "jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'; 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);")
     + """
-GRANT SELECT ON private.maintenance_event_private_notes TO authenticated;
-GRANT INSERT (event_id,internal_note)
-  ON private.maintenance_event_private_notes TO authenticated;
-GRANT UPDATE (internal_note,updated_at)
-  ON private.maintenance_event_private_notes TO authenticated;
-CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());
-CREATE POLICY maintenance_event_private_notes_admin_insert ON private.maintenance_event_private_notes FOR INSERT TO authenticated WITH CHECK (public.is_admin());
-CREATE POLICY maintenance_event_private_notes_admin_update ON private.maintenance_event_private_notes FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE ROLE maintenance_rpc_executor NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER TABLE private.maintenance_scopes FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_events FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_event_private_notes FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_event_scopes FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_audit_logs FORCE ROW LEVEL SECURITY;
+ALTER TABLE private.maintenance_idempotency FORCE ROW LEVEL SECURITY;
+GRANT SELECT ON private.maintenance_event_private_notes,
+  private.maintenance_audit_logs, private.maintenance_idempotency TO authenticated;
+GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;
+GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO maintenance_rpc_executor;
+GRANT INSERT, DELETE ON private.maintenance_event_scopes TO maintenance_rpc_executor;
+GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO maintenance_rpc_executor;
+""" + "\n".join(
+        "CREATE POLICY {} ON private.{} FOR {} TO {} USING (public.is_admin())".format(
+            name, table, action,
+            "authenticated, maintenance_rpc_executor" if action == "SELECT" else "maintenance_rpc_executor"
+        )
+        for name, table, action in (
+            ("maintenance_scopes_admin_select","maintenance_scopes","SELECT"),
+            ("maintenance_events_admin_select","maintenance_events","SELECT"),
+            ("maintenance_events_admin_insert","maintenance_events","INSERT"),
+            ("maintenance_events_admin_update","maintenance_events","UPDATE"),
+            ("maintenance_event_private_notes_admin_select","maintenance_event_private_notes","SELECT"),
+            ("maintenance_event_private_notes_admin_insert","maintenance_event_private_notes","INSERT"),
+            ("maintenance_event_private_notes_admin_update","maintenance_event_private_notes","UPDATE"),
+            ("maintenance_event_scopes_admin_select","maintenance_event_scopes","SELECT"),
+            ("maintenance_event_scopes_admin_insert","maintenance_event_scopes","INSERT"),
+            ("maintenance_event_scopes_admin_delete","maintenance_event_scopes","DELETE"),
+            ("maintenance_audit_admin_select","maintenance_audit_logs","SELECT"),
+            ("maintenance_audit_admin_insert","maintenance_audit_logs","INSERT"),
+            ("maintenance_idempotency_admin_select","maintenance_idempotency","SELECT"),
+            ("maintenance_idempotency_admin_insert","maintenance_idempotency","INSERT"),
+        )
+    ) + """
+ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO maintenance_rpc_executor;
+ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_executor;
+ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
+ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
 CREATE TRIGGER audit_no_mutation BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs
 FOR EACH ROW EXECUTE FUNCTION private.block_audit();
 CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON private.maintenance_audit_logs
@@ -115,21 +149,27 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         result = inspect_sql(broken)
         self.assertFalse(result["creator_id_not_exposed_on_events"])
 
-    def test_private_notes_grants_are_column_scoped(self):
+    def test_executor_role_is_least_privilege_and_authenticated_has_no_writes(self):
         result = inspect_sql(GOOD)
-        self.assertTrue(result["notes_column_scoped_insert"])
-        self.assertTrue(result["notes_column_scoped_update"])
+        self.assertTrue(result["dedicated_executor_role"])
+        self.assertTrue(result["executor_owns_only_functions"])
+        self.assertTrue(result["force_rls_all_tables"])
+        self.assertTrue(result["admin_policies_target_executor"])
+        self.assertTrue(result["no_authenticated_direct_write_grants"])
+        self.assertTrue(result["executor_minimum_write_grants"])
 
-        broad = GOOD + "\\nGRANT SELECT, INSERT, UPDATE ON private.maintenance_event_private_notes TO authenticated;"
-        result = inspect_sql(broad)
-        self.assertFalse(result["notes_column_scoped_update"])
+        broken = GOOD + "\\nGRANT INSERT ON private.maintenance_events TO authenticated;"
+        result = inspect_sql(broken)
+        self.assertFalse(result["no_authenticated_direct_write_grants"])
 
     def test_missing_notes_admin_policy_is_detected(self):
-        result = inspect_sql(GOOD.replace(
-            "CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated USING (public.is_admin());",
+        broken = GOOD.replace(
+            "CREATE POLICY maintenance_event_private_notes_admin_select ON private.maintenance_event_private_notes FOR SELECT TO authenticated, maintenance_rpc_executor USING (public.is_admin())",
             ""
-        ))
+        )
+        result = inspect_sql(broken)
         self.assertFalse(result["notes_admin_only_rls"])
+        self.assertFalse(result["admin_policies_target_executor"])
 
     def test_missing_rls_is_detected(self):
         result = inspect_sql(GOOD.replace(
@@ -137,9 +177,18 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         ))
         self.assertFalse(result["rls:maintenance_events"])
 
-    def test_security_definer_is_rejected(self):
-        result = inspect_sql(GOOD + "\n-- SECURITY DEFINER")
-        self.assertFalse(result["no_security_definer"])
+    def test_admin_rpc_requires_security_definer_but_public_rpc_stays_invoker(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["security:maintenance_status_public"])
+        for name in ("maintenance_admin_list", "maintenance_event_create",
+                     "maintenance_event_update", "maintenance_event_action"):
+            self.assertTrue(result[f"security:{name}"])
+
+        broken = GOOD.replace("SECURITY DEFINER", "SECURITY INVOKER", 1)
+        result = inspect_sql(broken)
+        self.assertFalse(all(result[f"security:{name}"] for name in
+                             ("maintenance_admin_list", "maintenance_event_create",
+                              "maintenance_event_update", "maintenance_event_action")))
 
     def test_service_role_grant_is_rejected(self):
         result = inspect_sql(GOOD + "\nGRANT SELECT ON private.maintenance_events TO service_role;")
