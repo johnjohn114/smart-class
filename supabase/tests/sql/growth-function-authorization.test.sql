@@ -1007,8 +1007,10 @@ DECLARE denied boolean := false;
 BEGIN
   BEGIN
     PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000002');
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF;
+  EXCEPTION
+    WHEN insufficient_privilege THEN denied:=true;
+    WHEN OTHERS THEN
+      IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF;
   END;
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed anonymous cross-account badge processing'; END IF;
 END
