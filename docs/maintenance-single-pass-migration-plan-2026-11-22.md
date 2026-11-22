@@ -299,3 +299,24 @@ Decision remains unchanged: preserve both timestamped Maintenance migrations; do
 - **仍不建立最終 timestamped migration**：single-pass source 仍是 `supabase/sql/` 下的 development draft。Production migration listing 為空、`supabase_migrations` schema/table 未找到，且 repo 內其他既有 migration 與 production schema 存在差異；必須先完成 production global schema baseline reconciliation，否則新 migration 可能與尚未登記的歷史 migration 重複或衝突。
 - 因此下一步是受控取得並審核 production schema snapshot、驗證空白資料庫重建與現有 migration 序列，再決定 migration history 如何正式處理。不得直接 `db push`、`db reset`、migration repair 或執行 production SQL。
 - 本次沒有改動任何 executable migration、production database、Edge Function deployment、feature flag 或 PR merge 狀態；沒有新增付費服務。
+
+
+## Production schema baseline audit — 2026-11-23
+
+The read-only production inventory is now broader than the earlier Maintenance-only check:
+
+- Project is ACTIVE_HEALTHY on PostgreSQL 17.11. Supabase migration listing is empty; neither `supabase_migrations` nor `private` schema exists.
+- Catalog inventory contains 85 tables (44 public, 27 auth, 10 storage, 3 realtime, 1 vault), 98 public RLS policies, 7 public user triggers, and 38 public functions. This is not a complete pg_dump.
+- The `202610310001_app_releases.sql` schema/policy fingerprint matches current `public.app_releases`, while the alternate `20261031_app_releases.sql` is not fully reflected: `is_latest`, its index, HTTPS check and `is_app_release_admin()` are absent.
+- `26.11.3_calendar_fields.sql` columns, check constraints and partial index are present. Neither candidate can be marked applied because no ledger or execution record exists.
+- `202611160001_growth_function_authorization_hardening.sql` and `202611170001_default_privileges_and_trigger_hardening.sql` are not fully reflected in production. Live function definitions, ACLs, default privileges and `ensure_visitor_profile()` differ from their target SQL.
+- Production currently grants `anon` EXECUTE on several `SECURITY DEFINER` functions, including `award_growth_points`, `check_growth_achievements` and `admin_delete_growth_reward`; some live bodies do not fail closed for anonymous callers or arbitrary target IDs. This is a separate production security issue requiring a dedicated minimal patch review. Do not blindly replay the broad hardening migration.
+- Both Maintenance migrations remain absent from this production project: no private schema, six tables, five RPCs or custom executor role.
+
+### Snapshot procedure correction for current Supabase CLI
+
+Supabase CLI v3 (released November 2026) defaults database commands to the local stack; hosted targets require explicit `--remote=<project-ref>`. The official `supabase db dump --remote=fsoowongtavlsrwvzbze` is the intended read-only schema export path: it uses pg_dump, excludes Supabase-managed and extension schemas by default, and does not export data or custom roles. Managed-schema customizations must be checked separately.
+
+Do **not** use `supabase db pull --remote` as a read-only inspection command in this project: CLI v3's pull workflow writes a migration file and updates the remote `supabase_migrations.schema_migrations` history. That would mutate the very history state currently under investigation. Do not run `db push`, `migration repair`, `db reset`, or any production DDL/DML.
+
+The current execution environment has no `supabase`, `psql`, `pg_dump`, or `docker` executable, so the full schema-only dump and blank-database rebuild remain outstanding. No production schema, data, grants, migration history, functions, Edge Functions, feature flags, or PR merge state were changed during this audit.
