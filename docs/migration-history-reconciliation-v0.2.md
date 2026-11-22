@@ -110,3 +110,49 @@
 ### 6.5 本次操作界線
 
 本輪僅執行 Supabase catalog SELECT / inventory 與 GitHub source file review；未執行 DDL/DML、`db dump`、`db pull`、`db push`、migration repair、部署、feature flag 修改或 PR merge。
+
+
+### 6.6 2026-11-23 Production SECURITY DEFINER / anon RPC 深入核對
+
+#### Catalog facts
+
+- `anon` 對 `public` schema 有 USAGE。
+- Production 有 36 個 public SECURITY DEFINER functions，其中 34 個目前可由 `anon` EXECUTE。這是 ACL inventory，不代表 34 個函式全部可被利用；必須把每個函式的 body authorization 與預期公開用途分開判讀。
+- 下列六個 RPC 已確認同時具備 `SECURITY DEFINER`、`anon EXECUTE`，且存在實際授權缺陷：
+
+| Function | Live defect | Potential impact |
+|---|---|---|
+| `award_growth_points(uuid,integer,text,text,text,text,uuid)` | 無呼叫者身分／管理員驗證 | 可指定目標會員並改動積分及交易紀錄 |
+| `check_growth_achievements(uuid)` | 只在目標 ID 為 NULL 時返回；未驗證呼叫者與目標會員 | 可指定其他會員觸發成就檢查及相關獎勵副作用 |
+| `check_activity_badges(uuid)` | `p_user_id <> auth.uid()` 在匿名情境會得到 NULL，後續 IF 不會拒絕 | 可嘗試替其他會員觸發徽章寫入 |
+| `refresh_growth_level(uuid)` | 未驗證登入身分或目標會員 | 可指定其他會員更新 growth_level |
+| `admin_delete_growth_reward(uuid)` | `caller_role <> 'admin'` 在 caller_role 為 NULL 時結果為 NULL，IF 不會拒絕 | 未登入呼叫可能通過管理員檢查並刪除／停用獎勵 |
+| `admin_upsert_growth_reward(...)` | 同樣使用可被 NULL 繞過的 `caller_role <> 'admin'` | 未登入呼叫可能通過管理員檢查並新增／修改獎勵 |
+
+- 上述六個函式的 live owner 均為 `postgres`，且目前 ACL 都明確允許 `anon` EXECUTE；這不是僅由 PUBLIC 預設權限推測。
+- `increment_download_count(uuid)` 也目前允許 anon EXECUTE，雖然它只更新已發布檔案的下載計數；前端 `app.js` 在呼叫前要求 `visitorToken()`，且 candidate migration 將其改為 authenticated-only，與目前前端流程一致。
+- 多個 trigger-returning functions（例如 `ensure_visitor_profile()`、`growth_registration_reward()`、`growth_result_reward()`、`check_competition_registration_rules()`）也有多餘 API-role EXECUTE grants；candidate migration 會撤銷直接呼叫權限，但保留 trigger bindings。
+
+#### Existing candidate remediation review
+
+`202611160001_growth_function_authorization_hardening.sql` 已包含對上述六個問題的對應修補：
+
+1. `award_growth_points` 撤銷 PUBLIC、anon、authenticated 的直接 EXECUTE；保留 trusted server-side `service_role`，並讓 SECURITY DEFINER 內部呼叫及 trigger 呼叫繼續工作。
+2. `check_growth_achievements` 加入 `auth.uid() IS NULL` fail-closed 檢查，並拒絕跨會員操作（管理員例外）。
+3. `check_activity_badges` 改用 `IS DISTINCT FROM` 並明確拒絕 NULL UID，防止匿名 NULL 邏輯繞過。
+4. `refresh_growth_level` 限制只能更新本人，或由管理員更新其他會員。
+5. `admin_delete_growth_reward` 與 `admin_upsert_growth_reward` 加入明確 UID 檢查及 `caller_role IS DISTINCT FROM 'admin'`。
+6. ACL hardening block 先撤銷 public SECURITY DEFINER routines 的 PUBLIC/anon/authenticated grants，再依審核 allowlist 授權；trigger functions 不再有 API-role EXECUTE。
+
+#### Regression coverage and remaining gap
+
+- `supabase/tests/sql/growth-function-authorization.test.sql` 有檢查 anon ACL、登入者跨會員操作拒絕、缺少 JWT UID 時管理 RPC 拒絕、本人操作及管理員操作。
+- `supabase/tests/sql/growth-and-default-privileges-sequential.test.sql` 驗證兩份 hardening migrations 順序套用、trigger 行為與 default privileges。
+- PR #34 current head 的四項 CI checks 已通過；但這些仍是 disposable PostgreSQL fixtures，不能視為正式資料庫已修補，也不是對每個 live RPC 的 hosted PostgREST 行為完整驗證。
+- 仍需在隔離環境補上針對六個漏洞的明確匿名／跨帳號行為測試，並逐一審核其餘 anon-executable SECURITY DEFINER functions 的預期用途與授權路徑。
+
+#### Decision
+
+**Production RPC risk is confirmed and remediation candidate exists, but no production fix has been applied.** 不可在 global migration baseline reconciliation 前直接執行整份 `202611160001` 或 `202611170001`。下一個安全工作是把六項 live defect 轉成獨立、最小、可回歸測試的修補候選，先於 disposable PostgreSQL/PostgREST 驗證，再等待正式 baseline / migration governance 核准。
+
+本輪仍只執行唯讀 catalog SELECT、GitHub source/test review；未執行 production DDL/DML、權限變更、migration、部署或 PR merge。
