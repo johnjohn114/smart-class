@@ -365,7 +365,7 @@ BEGIN
     'idempotency_key', '00000000-0000-4000-8000-000000000012'
   );
   BEGIN
-    PERFORM public.maintenance_event_create(request_payload);
+    PERFORM pg_temp.maintenance_test_create(request_payload);
     RAISE EXCEPTION 'FAIL: conflicting schedule was accepted';
   EXCEPTION WHEN unique_violation THEN
     NULL;
@@ -413,7 +413,7 @@ BEGIN
     );
     conflict_seen := false;
     BEGIN
-      PERFORM public.maintenance_event_create(request_payload);
+      PERFORM pg_temp.maintenance_test_create(request_payload);
     EXCEPTION WHEN unique_violation THEN
       conflict_seen := true;
     END;
@@ -483,7 +483,7 @@ BEGIN
     'idempotency_key', '00000000-0000-4000-8000-000000000021'
   ));
 
-  local_result := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+  local_result := pg_temp.maintenance_test_create(pg_catalog.jsonb_build_object(
     'title', 'Local scope isolation test',
     'message', 'Only announcements_info is under maintenance',
     'is_global', false,
@@ -502,7 +502,7 @@ BEGIN
 
   -- A second overlapping event for the same local scope must be rejected.
   BEGIN
-    PERFORM public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    PERFORM pg_temp.maintenance_test_create(pg_catalog.jsonb_build_object(
       'title', 'Same scope conflict test',
       'message', 'This overlapping event must be rejected',
       'is_global', false,
@@ -521,7 +521,7 @@ BEGIN
   END IF;
 
   -- A different local scope may be scheduled at the same time.
-  disjoint_result := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+  disjoint_result := pg_temp.maintenance_test_create(pg_catalog.jsonb_build_object(
     'title', 'Disjoint scope coexistence test',
     'message', 'A different local scope may be scheduled concurrently',
     'is_global', false,
