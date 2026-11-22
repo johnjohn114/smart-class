@@ -289,3 +289,13 @@ Decision remains unchanged: preserve both timestamped Maintenance migrations; do
 ### 本次處理界線
 
 本次只校正開發分支文件並新增審查紀錄；不修改 SQL migration、既有 timestamped migration、正式 Supabase、Edge Functions deployment、feature flag、PR base/target 或 merge 狀態。不新增付費資源。
+
+
+## 2026-11-23 後續檢查決策補記
+
+- 使用者已確認沒有在其他已知 local/test/preview/staging/shared database 執行過 Maintenance migrations；這已更新 deployment matrix。
+- 正式 Supabase `public.is_admin()` 已完成唯讀核對：owner `postgres`、SECURITY DEFINER、固定空 search_path，依賴 schema-qualified `public.profiles` 與 `auth.uid()`；正式 ACL 尚未授予 `pg_database_owner`。Single-pass draft 包含必要 GRANT，且隔離測試已新增權限 assertion。
+- CI run #45043081949（commit `66bb27750beefcab3b578b75459f2a389570312d`）4/4 jobs success。
+- **仍不建立最終 timestamped migration**：single-pass source 仍是 `supabase/sql/` 下的 development draft。Production migration listing 為空、`supabase_migrations` schema/table 未找到，且 repo 內其他既有 migration 與 production schema 存在差異；必須先完成 production global schema baseline reconciliation，否則新 migration 可能與尚未登記的歷史 migration 重複或衝突。
+- 因此下一步是受控取得並審核 production schema snapshot、驗證空白資料庫重建與現有 migration 序列，再決定 migration history 如何正式處理。不得直接 `db push`、`db reset`、migration repair 或執行 production SQL。
+- 本次沒有改動任何 executable migration、production database、Edge Function deployment、feature flag 或 PR merge 狀態；沒有新增付費服務。
