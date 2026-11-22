@@ -16,8 +16,9 @@ BEGIN
   END IF;
   IF to_regprocedure('public.admin_delete_growth_reward(uuid)') IS NULL
      OR to_regprocedure('public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)') IS NULL
-     OR to_regprocedure('public.refresh_growth_level(uuid)') IS NULL THEN
-    RAISE EXCEPTION 'Required admin reward / growth level wrapper functions are missing';
+     OR to_regprocedure('public.refresh_growth_level(uuid)') IS NULL
+     OR to_regprocedure('public.check_activity_badges(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'Required admin reward / growth level / badge functions are missing';
   END IF;
   IF to_regclass('public.profiles') IS NULL
      OR to_regclass('public.competition_attendance') IS NULL THEN
@@ -153,6 +154,35 @@ begin
 end;
 $function$;
 
+-- Restore the explicit NULL-identity check before comparing a requested member ID.
+CREATE OR REPLACE FUNCTION public.check_activity_badges(p_user_id uuid DEFAULT auth.uid())
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_user uuid:=coalesce(p_user_id,auth.uid());
+  v_count integer; v_points integer; v_no_show integer; v_unlocked integer:=0; b record;
+begin
+  if v_user is null then raise exception '請先登入'; end if;
+  if auth.uid() is null or (p_user_id is not null and p_user_id is distinct from auth.uid() and not exists(select 1 from public.profiles where id=auth.uid() and role='admin')) then raise exception '沒有權限'; end if;
+  select count(*) into v_count from public.competition_attendance where user_id=v_user and status in ('checked_in','late');
+  select coalesce(sum(points_awarded)+sum(completion_points_awarded),0) into v_points from public.competition_attendance where user_id=v_user;
+  select count(*) into v_no_show from public.competition_attendance where user_id=v_user and status='no_show';
+  for b in select * from public.activity_badges where active=true loop
+    if (b.requirement_type='first_activity' and v_count>=1)
+       or (b.requirement_type='activity_count' and v_count>=b.requirement_value)
+       or (b.requirement_type='total_points' and v_points>=b.requirement_value)
+       or (b.requirement_type='perfect_attendance' and v_count>=b.requirement_value and v_no_show=0) then
+      insert into public.user_activity_badges(user_id,badge_id) values(v_user,b.id) on conflict do nothing;
+      if found then v_unlocked:=v_unlocked+1; end if;
+    end if;
+  end loop;
+  return jsonb_build_object('success',true,'new_badges',v_unlocked,'activity_count',v_count,'activity_points',v_points);
+end $function$
+;
+
 
 
 -- Ensure internal award processing uses the private helper, not the public RPC wrapper.
@@ -280,6 +310,10 @@ REVOKE ALL PRIVILEGES ON FUNCTION public._refresh_growth_level_internal(uuid)
 REVOKE EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
+  TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.check_activity_badges(uuid)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.check_activity_badges(uuid)
   TO authenticated;
 
 -- Stage A public projection: exactly the fields rendered by the public
