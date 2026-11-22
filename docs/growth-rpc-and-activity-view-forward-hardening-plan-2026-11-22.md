@@ -18,6 +18,7 @@ The public leaderboard still intentionally exposes nicknames and displayed atten
 ### Stage A — `20261122120000_growth_rpc_and_public_leaderboard_hardening.sql`
 
 - Revokes `PUBLIC`, `anon`, and `authenticated` EXECUTE on the internal award helper.
+- Pins both growth SECURITY DEFINER routines to an empty `search_path`.
 - Replaces `check_growth_achievements(uuid)` with the existing self/admin ownership guard.
 - Revokes `PUBLIC` and `anon` execution while preserving authenticated self-service.
 - Creates `activity_public_leaderboard` with exactly five presentation columns; it omits `user_id`, `checkin_points`, and `completion_points`.
