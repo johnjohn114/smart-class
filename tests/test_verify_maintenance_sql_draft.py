@@ -25,6 +25,7 @@ jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string';
 jsonb_typeof(p_request->'internal_note') NOT IN ('string','null');
 jsonb_typeof(p_request->'starts_at') IS DISTINCT FROM 'string';
 jsonb_typeof(p_request->'ends_at') IS DISTINCT FROM 'string';
+v_status IS DISTINCT FROM 'draft';
 starts_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 ends_at !~ '^[0-9]{4}-([Zz]|[+-][0-9]{2}:[0-9]{2})$';
 'site_core'=ANY(v_codes); es.scope_code='site_core' OR es.scope_code=ANY(v_codes);
