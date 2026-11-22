@@ -316,6 +316,79 @@ REVOKE EXECUTE ON FUNCTION public.check_activity_badges(uuid)
 GRANT EXECUTE ON FUNCTION public.check_activity_badges(uuid)
   TO authenticated;
 
+-- Reconcile all live SECURITY DEFINER grants using the reviewed fail-closed allowlist.
+-- Revoke inherited/default API grants first, then grant authenticated only to
+-- reviewed RPC signatures. New or overloaded routines remain denied by default.
+-- Trigger functions keep their trigger bindings but are not callable as RPCs.
+DO $acl_hardening$
+DECLARE
+  r record;
+  authenticated_allowlist text[] := ARRAY[
+    'admin_activity_analytics()',
+    'admin_adjust_growth_points(uuid,integer,text)',
+    'admin_apply_competition_rewards(uuid)',
+    'admin_cancel_order(uuid)',
+    'admin_complete_order(uuid)',
+    'admin_delete_growth_reward(uuid)',
+    'admin_delete_video(uuid)',
+    'admin_grant_competition_reward(uuid,text,text,text,integer,uuid)',
+    'admin_mark_competition_attendance(uuid,text,text)',
+    'admin_mark_competition_member_attendance(uuid,uuid,text,text)',
+    'admin_mark_order_paid(uuid)',
+    'admin_promote_competition_waitlist(uuid)',
+    'admin_reset_growth_member(uuid,text)',
+    'admin_settle_competition(uuid)',
+    'admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamp with time zone,timestamp with time zone,integer,boolean)',
+    'admin_upsert_video(jsonb)',
+    'check_activity_badges(uuid)',
+    'check_growth_achievements(uuid)',
+    'checkin_competition(uuid,text)',
+    'close_my_support_ticket(uuid)',
+    'complete_growth_task(text)',
+    'create_cash_order(uuid,integer,text)',
+    'increment_download_count(uuid)',
+    'is_admin_user()',
+    'join_competition_waitlist(uuid,text)',
+    'record_growth_activity()',
+    'redeem_growth_reward(uuid)',
+    'refresh_growth_level(uuid)',
+    'use_growth_coupon(uuid)'
+  ];
+BEGIN
+  FOR r IN
+    SELECT p.oid,
+           p.oid::regprocedure::text AS signature,
+           p.proname,
+           p.prorettype = 'trigger'::regtype AS is_trigger
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef = true
+      AND p.prokind = 'f'
+  LOOP
+    IF r.is_trigger THEN
+      EXECUTE format(
+        'REVOKE ALL PRIVILEGES ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role',
+        r.signature
+      );
+    ELSE
+      EXECUTE format(
+        'REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated',
+        r.signature
+      );
+
+      -- PUBLIC policies on published resources call is_admin(); anon needs
+      -- this helper only, and it returns false when auth.uid() is NULL.
+      IF r.signature = 'is_admin()' THEN
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon, authenticated', r.signature);
+      ELSIF replace(r.signature, ', ', ',') = ANY(authenticated_allowlist) THEN
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', r.signature);
+      END IF;
+    END IF;
+  END LOOP;
+END;
+$acl_hardening$;
+
 -- Stage A public projection: exactly the fields rendered by the public
 -- leaderboard. Account UUIDs and internal point subtotals are not exposed.
 CREATE OR REPLACE VIEW public.activity_public_leaderboard
