@@ -156,3 +156,12 @@
 **Production RPC risk is confirmed and remediation candidate exists, but no production fix has been applied.** 不可在 global migration baseline reconciliation 前直接執行整份 `202611160001` 或 `202611170001`。下一個安全工作是把六項 live defect 轉成獨立、最小、可回歸測試的修補候選，先於 disposable PostgreSQL/PostgREST 驗證，再等待正式 baseline / migration governance 核准。
 
 本輪仍只執行唯讀 catalog SELECT、GitHub source/test review；未執行 production DDL/DML、權限變更、migration、部署或 PR merge。
+
+
+### 6.7 2026-11-23 補強匿名及缺少 JWT 身分的回歸測試
+
+- 在 `supabase/tests/sql/growth-function-authorization.test.sql` 新增匿名角色直接呼叫六個受保護 RPC 的行為測試，要求在 EXECUTE 權限邊界收到 `insufficient_privilege`。
+- 新增 authenticated SQL role 缺少 JWT subject 時，對 `check_growth_achievements`、`check_activity_badges`、`refresh_growth_level` 指定其他會員 ID 必須拒絕的測試。
+- 新增 side-effect assertions，確認缺少身分的呼叫沒有更動目標會員積分、等級、徽章或成就紀錄。
+- GitHub Actions run `45045026995` 的 **Isolated PostgreSQL RPC and RLS tests** 已成功完成，包含 growth authorization regression、default privileges/trigger regression、sequential integration；該 run 其餘三項工作當時仍在執行，故不能將整體 CI 標記為通過。
+- 這些新增測試只在 disposable PostgreSQL fixture 執行；未連接正式 Supabase，也未更動正式權限。
