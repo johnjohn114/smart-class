@@ -507,8 +507,8 @@ BEGIN
     'message', 'Only announcements_info is under maintenance',
     'is_global', false,
     'scope_codes', pg_catalog.jsonb_build_array('announcements_info'),
-    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
-    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '35 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '30 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'local scope isolation integration test',
     'idempotency_key', '00000000-0000-4000-8000-000000000022'
