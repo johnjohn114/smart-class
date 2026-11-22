@@ -182,7 +182,7 @@ async function createPageErrors(page) {
     const configSource = fs.readFileSync(configPath, 'utf8');
     const disabledFlag = 'const MAINTENANCE_FEATURE_ENABLED = false;';
     assert.ok(configSource.includes(disabledFlag), 'expected default-off maintenance feature flag');
-    await page.route('**/config.js', route => route.fulfill({
+    await page.route('**/config.js**', route => route.fulfill({
       status: 200,
       contentType: 'application/javascript',
       body: configSource.replace(disabledFlag, 'const MAINTENANCE_FEATURE_ENABLED = true;')
@@ -219,7 +219,7 @@ async function createPageErrors(page) {
     const configSource = fs.readFileSync(configPath, 'utf8');
     const disabledFlag = 'const MAINTENANCE_FEATURE_ENABLED = false;';
     assert.ok(configSource.includes(disabledFlag), 'expected default-off maintenance feature flag');
-    await page.route('**/config.js', route => route.fulfill({
+    await page.route('**/config.js**', route => route.fulfill({
       status: 200,
       contentType: 'application/javascript',
       body: configSource.replace(disabledFlag, 'const MAINTENANCE_FEATURE_ENABLED = true;')
