@@ -973,15 +973,15 @@ ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO pg_database_owner
 ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO pg_database_owner;
 
 -- The public status RPC remains SECURITY INVOKER and owned by the migration role.
-REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC, service_role;
 GRANT EXECUTE ON FUNCTION public.maintenance_status_public(jsonb) TO anon, authenticated;
 
 -- Apply the admin RPC ACLs as their built-in function owner.
 SET ROLE pg_database_owner;
-REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.maintenance_admin_list(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_create(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticated;
