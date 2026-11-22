@@ -778,14 +778,24 @@ function renderMyNotifications(){
   const unread=myNotificationRows.filter(x=>!x.read_at).length;
   const summary=$('notificationSummary');
   if(summary)summary.textContent='共 '+myNotificationRows.length+' 則通知 · 未讀 '+unread+' 則';
-  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at||'').slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title||'（未命名通知）')+'</h3><p>'+esc(x.content||'').replace(/\n/g,'<br>')+'</p>'+((x.type==='客服'&&x.ticket_id)?'<button class="btn secondary notificationTicketBtn" type="button" data-ticket-notice="'+esc(x.ticket_id)+'">💬 查看客服案件</button> ':'')+(!x.read_at?'<button class="markRead" type="button" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
+  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at||'').slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title||'（未命名通知）')+'</h3><p>'+esc(x.content||'').replace(/\n/g,'<br>')+'</p>'+((x.type==='客服'&&x.ticket_id)?'<button class="btn secondary notificationTicketBtn" type="button" data-ticket-notice="'+esc(x.ticket_id)+'" data-notice="'+esc(x.id)+'">💬 查看客服案件</button> ':'')+(!x.read_at?'<button class="markRead" type="button" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
   box.querySelectorAll('.markRead').forEach(b=>b.addEventListener('click',()=>markNotificationRead(b.dataset.notice)));
-  box.querySelectorAll('[data-ticket-notice]').forEach(b=>b.addEventListener('click',()=>{showMySection('mySupportPanel');location.hash='mySupportPanel';}));
+  box.querySelectorAll('[data-ticket-notice]').forEach(b=>b.addEventListener('click',async()=>{await markNotificationRead(b.dataset.notice);showMySection('mySupportPanel');location.hash='mySupportPanel';}));
 }
 async function loadMyNotifications(){
   const box=$('myNotifications');
-  if(!box||!visitorToken()||!configured())return;
+  if(!box)return;
   const summary=$('notificationSummary');
+  if(!configured()){
+    if(summary)summary.textContent='系統設定未完成';
+    box.innerHTML='<div class="empty">通知服務目前尚未設定，請稍後再試。</div>';
+    return;
+  }
+  if(!visitorToken()){
+    if(summary)summary.textContent='尚未登入';
+    box.innerHTML='<div class="empty">請先登入會員，再查看通知。</div>';
+    return;
+  }
   box.innerHTML='<div class="loading">正在載入通知…</div>';
   if(summary)summary.textContent='正在載入…';
   try{
@@ -812,7 +822,7 @@ async function loadMyNotifications(){
 async function markNotificationRead(id){
   if(!id)return;
   try{
-    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id)+'&user_id=eq.'+encodeURIComponent((await getCurrentUser())?.id||''),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
     if(!r.ok)throw new Error('HTTP '+r.status);
     await loadMyNotifications();
   }catch(e){console.error('標記通知已讀失敗：',e);show('notificationMsg','❌ 標記已讀失敗，請重新整理後再試。');}
