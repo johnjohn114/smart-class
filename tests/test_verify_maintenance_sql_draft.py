@@ -66,6 +66,11 @@ GOOD = (
 BEGIN;
 CREATE ROLE maintenance_rpc_executor NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
+CREATE FUNCTION private.maintenance_uid() RETURNS uuid;
+GRANT USAGE ON SCHEMA private TO maintenance_rpc_executor;
+GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, maintenance_rpc_executor;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO maintenance_rpc_executor;
+GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
 ALTER TABLE private.maintenance_scopes FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_events FORCE ROW LEVEL SECURITY;
 ALTER TABLE private.maintenance_event_private_notes FORCE ROW LEVEL SECURITY;
@@ -104,6 +109,10 @@ ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO maintenance_rpc_exe
 ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
+SET ROLE maintenance_rpc_executor;
+RESET ROLE;
+REVOKE maintenance_rpc_executor FROM CURRENT_USER;
+COMMIT;
 REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 COMMIT;
 CREATE TRIGGER audit_no_mutation BEFORE UPDATE OR DELETE ON private.maintenance_audit_logs
