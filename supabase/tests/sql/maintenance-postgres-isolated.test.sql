@@ -54,7 +54,7 @@ END
 $$;
 
 -- The admin RPC owner is PostgreSQL's built-in database-owner pseudo-role.
-DO $
+DO $$
 DECLARE
   db_owner record;
   table_name text;
