@@ -15,6 +15,7 @@ BEGIN
     RAISE EXCEPTION 'Required function public.check_growth_achievements(uuid) is missing';
   END IF;
   IF to_regprocedure('public.admin_delete_growth_reward(uuid)') IS NULL
+     OR to_regprocedure('public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean))') IS NULL
      OR to_regprocedure('public.refresh_growth_level(uuid)') IS NULL THEN
     RAISE EXCEPTION 'Required admin reward / growth level wrapper functions are missing';
   END IF;
@@ -75,6 +76,40 @@ begin
     raise exception '獎勵刪除失敗';
   end if;
   return jsonb_build_object('success', true, 'action', 'deleted', 'redemptions', 0);
+end;
+$function$;
+
+-- Repair the same NULL-sensitive role comparison in reward upsert.
+CREATE OR REPLACE FUNCTION public.admin_upsert_growth_reward(p_reward_id uuid, p_code text, p_title text, p_description text, p_icon text, p_category text, p_point_cost integer, p_min_level text, p_required_achievement_id uuid, p_user_limit integer, p_total_limit integer, p_coupon_title text, p_coupon_description text, p_coupon_discount text, p_coupon_expires_days integer, p_available_from timestamp with time zone, p_available_until timestamp with time zone, p_sort_order integer, p_enabled boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  caller_role text;
+  row_data public.growth_rewards%rowtype;
+begin
+  select role into caller_role from public.profiles where id=auth.uid() limit 1;
+  if auth.uid() is null or caller_role is distinct from 'admin' then raise exception '只有管理員可以管理獎勵'; end if;
+  if coalesce(trim(p_code),'')='' then raise exception '獎勵代碼不可空白'; end if;
+  if coalesce(trim(p_title),'')='' then raise exception '獎勵名稱不可空白'; end if;
+  if p_point_cost is null or p_point_cost < 1 then raise exception '所需積分必須大於 0'; end if;
+  if p_user_limit is not null and p_user_limit < 1 then raise exception '每人兌換上限必須大於 0'; end if;
+  if p_total_limit is not null and p_total_limit < 1 then raise exception '總兌換上限必須大於 0'; end if;
+  if p_coupon_expires_days is not null and p_coupon_expires_days < 1 then raise exception '優惠券有效天數必須大於 0'; end if;
+  if p_available_from is not null and p_available_until is not null and p_available_from >= p_available_until then raise exception '開始時間必須早於結束時間'; end if;
+  if p_reward_id is null then
+    insert into public.growth_rewards(code,title,description,icon,category,reward_type,point_cost,min_level,required_achievement_id,user_limit,total_limit,coupon_title,coupon_description,coupon_discount,coupon_expires_days,available_from,available_until,sort_order,enabled)
+    values(p_code,p_title,p_description,p_icon,p_category,'coupon',p_point_cost,p_min_level,p_required_achievement_id,p_user_limit,p_total_limit,p_coupon_title,p_coupon_description,p_coupon_discount,p_coupon_expires_days,p_available_from,p_available_until,p_sort_order,p_enabled)
+    returning * into row_data;
+  else
+    update public.growth_rewards set
+      code=p_code,title=p_title,description=p_description,icon=p_icon,category=p_category,reward_type='coupon',point_cost=p_point_cost,min_level=p_min_level,required_achievement_id=p_required_achievement_id,user_limit=p_user_limit,total_limit=p_total_limit,coupon_title=p_coupon_title,coupon_description=p_coupon_description,coupon_discount=p_coupon_discount,coupon_expires_days=p_coupon_expires_days,available_from=p_available_from,available_until=p_available_until,sort_order=p_sort_order,enabled=p_enabled,updated_at=now()
+    where id=p_reward_id returning * into row_data;
+    if row_data.id is null then raise exception '找不到這個獎勵'; end if;
+  end if;
+  return jsonb_build_object('success',true,'id',row_data.id,'action',case when p_reward_id is null then 'created' else 'updated' end);
 end;
 $function$;
 
@@ -233,6 +268,10 @@ GRANT EXECUTE ON FUNCTION public.check_growth_achievements(uuid)
 REVOKE EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid)
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid)
+  TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean))
   TO authenticated;
 
 -- The private helper is callable only by its owner/definer routines.
