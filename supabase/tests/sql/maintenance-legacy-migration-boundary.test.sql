@@ -91,15 +91,18 @@ BEGIN
     FROM pg_catalog.pg_roles
     WHERE rolname = 'maintenance_rpc_executor';
 
-  IF NOT FOUND
-     OR executor.rolcanlogin
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL: maintenance_rpc_executor role is missing';
+  END IF;
+
+  IF executor.rolcanlogin
      OR executor.rolinherit
      OR executor.rolsuper
      OR executor.rolbypassrls
      OR executor.rolcreatedb
      OR executor.rolcreaterole
      OR executor.rolreplication THEN
-    RAISE EXCEPTION 'FAIL: maintenance_rpc_executor is missing or has elevated role attributes';
+    RAISE EXCEPTION 'FAIL: maintenance_rpc_executor has elevated role attributes';
   END IF;
 
   IF EXISTS (
