@@ -776,32 +776,66 @@ function renderMyNotifications(){
   const filter=$('notificationFilter')?.value||'all';
   const rows=filter==='unread'?myNotificationRows.filter(x=>!x.read_at):filter==='read'?myNotificationRows.filter(x=>x.read_at):myNotificationRows;
   const unread=myNotificationRows.filter(x=>!x.read_at).length;
-  const summary=$('notificationSummary'); if(summary)summary.textContent='共 '+myNotificationRows.length+' 則通知 · 未讀 '+unread+' 則';
-  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at).slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.content).replace(/\n/g,'<br>')+'</p>'+((x.type==='客服'&&x.ticket_id)?'<button class="btn secondary notificationTicketBtn" type="button" data-ticket-notice="'+esc(x.ticket_id)+'">💬 查看客服案件</button> ':'')+(!x.read_at?'<button class="markRead" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
-  document.querySelectorAll('.markRead').forEach(b=>b.onclick=()=>markNotificationRead(b.dataset.notice));
-  document.querySelectorAll('[data-ticket-notice]').forEach(b=>b.onclick=async()=>{await markNotificationRead(b.closest('.notice')?.querySelector('[data-notice]')?.dataset.notice||''); showMySection('mySupportPanel'); location.hash='mySupportPanel';});
+  const summary=$('notificationSummary');
+  if(summary)summary.textContent='共 '+myNotificationRows.length+' 則通知 · 未讀 '+unread+' 則';
+  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at||'').slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title||'（未命名通知）')+'</h3><p>'+esc(x.content||'').replace(/\n/g,'<br>')+'</p>'+((x.type==='客服'&&x.ticket_id)?'<button class="btn secondary notificationTicketBtn" type="button" data-ticket-notice="'+esc(x.ticket_id)+'">💬 查看客服案件</button> ':'')+(!x.read_at?'<button class="markRead" type="button" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
+  box.querySelectorAll('.markRead').forEach(b=>b.addEventListener('click',()=>markNotificationRead(b.dataset.notice)));
+  box.querySelectorAll('[data-ticket-notice]').forEach(b=>b.addEventListener('click',()=>{showMySection('mySupportPanel');location.hash='mySupportPanel';}));
 }
 async function loadMyNotifications(){
-  const box=$('myNotifications'); if(!box||!visitorToken())return;
-  const uid=(await getCurrentUser())?.id;if(!uid)return;
-  const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?select=*&user_id=eq.'+encodeURIComponent(uid)+'&order=created_at.desc',{headers:auth()});
-  myNotificationRows=r.ok?await r.json():[]; renderMyNotifications(); loadNotificationBadge();
+  const box=$('myNotifications');
+  if(!box||!visitorToken()||!configured())return;
+  const summary=$('notificationSummary');
+  box.innerHTML='<div class="loading">正在載入通知…</div>';
+  if(summary)summary.textContent='正在載入…';
+  try{
+    const user=await getCurrentUser();
+    if(!user?.id)throw new Error('無法確認登入會員，請重新登入後再試。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?select=*&user_id=eq.'+encodeURIComponent(user.id)+'&order=created_at.desc',{headers:auth()});
+    if(!r.ok){
+      const detail=await r.text().catch(()=> '');
+      throw new Error('通知讀取失敗（HTTP '+r.status+'）'+(detail?'：'+detail.slice(0,180):''));
+    }
+    const rows=await r.json();
+    if(!Array.isArray(rows))throw new Error('通知資料格式不正確。');
+    myNotificationRows=rows;
+    renderMyNotifications();
+    loadNotificationBadge();
+  }catch(e){
+    console.error('我的通知載入失敗：',e);
+    myNotificationRows=[];
+    if(summary)summary.textContent='通知載入失敗';
+    box.innerHTML='<div class="empty">無法載入通知：'+esc(e?.message||'未知錯誤')+'<br><button class="btn secondary" type="button" id="retryMyNotifications">重新載入</button></div>';
+    $('retryMyNotifications')?.addEventListener('click',loadMyNotifications);
+  }
 }
-async function markNotificationRead(id){const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});if(r.ok)await loadMyNotifications();}
+async function markNotificationRead(id){
+  if(!id)return;
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    await loadMyNotifications();
+  }catch(e){console.error('標記通知已讀失敗：',e);show('notificationMsg','❌ 標記已讀失敗，請重新整理後再試。');}
+}
 async function markAllNotificationsRead(){
-  const uid=(await getCurrentUser())?.id;if(!uid)return;
-  const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(uid)+'&read_at=is.null',{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
-  if(r.ok){show('notificationMsg','✅ 已全部標記為已讀。');await loadMyNotifications();}else show('notificationMsg','❌ 操作失敗，請稍後再試。');
+  try{
+    const user=await getCurrentUser();if(!user?.id)throw new Error('請重新登入。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(user.id)+'&read_at=is.null',{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    show('notificationMsg','✅ 已全部標記為已讀。');await loadMyNotifications();
+  }catch(e){console.error('全部標記已讀失敗：',e);show('notificationMsg','❌ 操作失敗：'+esc(e?.message||'請稍後再試。'));}
 }
 async function deleteReadNotifications(){
-  const uid=(await getCurrentUser())?.id;if(!uid)return;
   const count=myNotificationRows.filter(x=>x.read_at).length;
   if(!count){show('notificationMsg','目前沒有已讀通知可刪除。');return;}
   if(!confirm('確定刪除全部 '+count+' 則已讀通知？刪除後無法復原。'))return;
-  const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(uid)+'&read_at=not.is.null',{method:'DELETE',headers:{...auth(),Prefer:'return=minimal'}});
-  if(r.ok){show('notificationMsg','✅ 已刪除 '+count+' 則已讀通知。');await loadMyNotifications();}else show('notificationMsg','❌ 刪除失敗，請確認資料庫權限後再試。');
+  try{
+    const user=await getCurrentUser();if(!user?.id)throw new Error('請重新登入。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(user.id)+'&read_at=not.is.null',{method:'DELETE',headers:{...auth(),Prefer:'return=minimal'}});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    show('notificationMsg','✅ 已刪除 '+count+' 則已讀通知。');await loadMyNotifications();
+  }catch(e){console.error('刪除已讀通知失敗：',e);show('notificationMsg','❌ 刪除失敗：'+esc(e?.message||'請確認資料庫權限後再試。'));}
 }
-
 
 function searchTextScore(row, q, fields){
   const query=q.toLowerCase();
