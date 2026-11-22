@@ -112,6 +112,7 @@ ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_e
 SET ROLE maintenance_rpc_executor;
 RESET ROLE;
 REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
+REVOKE ADMIN OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 COMMIT;
 REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 COMMIT;
