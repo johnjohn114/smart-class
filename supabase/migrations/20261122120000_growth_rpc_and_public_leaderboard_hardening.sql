@@ -34,10 +34,134 @@ REVOKE EXECUTE ON FUNCTION
   public.award_growth_points(uuid, integer, text, text, text, text, uuid)
   FROM PUBLIC, anon, authenticated;
 
--- Keep the internal SECURITY DEFINER helper independent of caller-controlled
--- search_path settings even though its object references are schema-qualified.
-ALTER FUNCTION public.award_growth_points(uuid, integer, text, text, text, text, uuid)
-  SET search_path TO '';
+-- Repair the NULL-sensitive admin check. A missing auth.uid() must fail closed.
+
+CREATE OR REPLACE FUNCTION public.admin_delete_growth_reward(p_reward_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  n integer := 0;
+  caller_role text;
+begin
+  select role into caller_role from public.profiles where id = auth.uid() limit 1;
+  if auth.uid() is null or caller_role is distinct from 'admin' then
+    raise exception '只有管理員可以刪除獎勵';
+  end if;
+
+  if not exists(select 1 from public.growth_rewards where id = p_reward_id) then
+    raise exception '找不到這個獎勵';
+  end if;
+
+  select count(*) into n
+  from public.growth_reward_redemptions
+  where reward_id = p_reward_id;
+
+  if n > 0 then
+    update public.growth_rewards
+    set enabled = false, updated_at = now()
+    where id = p_reward_id;
+    return jsonb_build_object('success', true, 'action', 'disabled', 'redemptions', n);
+  end if;
+
+  delete from public.growth_rewards where id = p_reward_id;
+  if not found then
+    raise exception '獎勵刪除失敗';
+  end if;
+  return jsonb_build_object('success', true, 'action', 'deleted', 'redemptions', 0);
+end;
+$function$;
+
+
+
+-- Split internal level calculation from the authenticated member/admin RPC.
+
+CREATE OR REPLACE FUNCTION public._refresh_growth_level_internal(p_user_id uuid)
+ RETURNS text
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare lvl public.growth_levels%rowtype;
+begin
+ select * into lvl from public.growth_levels where min_points <= coalesce((select growth_points from public.profiles where id=p_user_id),0) order by min_points desc,sort_order desc limit 1;
+ if lvl.code is null then lvl.code:='newbie'; end if;
+ update public.profiles set growth_level=lvl.code where id=p_user_id;
+ return lvl.code;
+end; $function$;
+
+
+
+CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
+ RETURNS text
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+begin
+  if auth.uid() is null
+     or (auth.uid() is distinct from p_user_id
+         and not exists (
+           select 1 from public.profiles
+           where id = auth.uid() and role = 'admin'
+         )) then
+    raise exception '沒有權限更新此會員等級';
+  end if;
+
+  return public._refresh_growth_level_internal(p_user_id);
+end;
+$function$;
+
+
+
+-- Ensure internal award processing uses the private helper, not the public RPC wrapper.
+
+CREATE OR REPLACE FUNCTION public.award_growth_points(p_user_id uuid, p_amount integer, p_reason text, p_source_type text DEFAULT 'manual'::text, p_source_id text DEFAULT NULL::text, p_source_key text DEFAULT NULL::text, p_admin_user_id uuid DEFAULT NULL::uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  new_points integer;
+  old_points integer;
+  old_level text;
+  new_level text;
+  level_name text;
+begin
+  if p_user_id is null or p_amount=0 then raise exception '積分資料無效'; end if;
+  if p_source_key is not null and exists(select 1 from public.growth_point_transactions where source_key=p_source_key) then
+    return coalesce((select growth_points from public.profiles where id=p_user_id),0);
+  end if;
+  select growth_points,growth_level into old_points,old_level from public.profiles where id=p_user_id for update;
+  if old_points is null then raise exception '找不到會員'; end if;
+  new_points:=old_points+p_amount;
+  if new_points<0 then raise exception '積分不足，無法扣除'; end if;
+  update public.profiles set growth_points=new_points where id=p_user_id;
+  insert into public.growth_point_transactions(user_id,amount,reason,source_type,source_id,source_key,admin_user_id)
+  values(p_user_id,p_amount,p_reason,p_source_type,p_source_id,p_source_key,p_admin_user_id);
+  new_level:=public._refresh_growth_level_internal(p_user_id);
+
+  if p_source_type <> 'reward' then
+    insert into public.notifications(user_id,title,content,type)
+    values(
+      p_user_id,
+      case when p_amount>0 then '💎 獲得成長積分' else '💎 使用成長積分' end,
+      case when p_amount>0 then '你獲得 +'||p_amount||' 積分：'||coalesce(p_reason,'')
+           else '你使用 '||abs(p_amount)||' 積分：'||coalesce(p_reason,'') end,
+      '成長'
+    );
+  end if;
+
+  if coalesce(old_level,'newbie') is distinct from new_level then
+    select name into level_name from public.growth_levels where code=new_level;
+    insert into public.notifications(user_id,title,content,type)
+    values(p_user_id,'🎉 會員等級升級！','恭喜你從「'||coalesce((select name from public.growth_levels where code=old_level),'新手')||'」升級為「'||coalesce(level_name,new_level)||'」！','成長');
+  end if;
+  return new_points;
+end; $function$;
 
 -- Restore the self/admin ownership guard even if an older live definition was
 -- installed without it. Keep the existing achievement calculation behavior.
@@ -99,6 +223,20 @@ end; $function$;
 REVOKE EXECUTE ON FUNCTION public.check_growth_achievements(uuid)
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.check_growth_achievements(uuid)
+  TO authenticated;
+
+-- Keep the admin reward operation authenticated-only; its body enforces admin role.
+REVOKE EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid)
+  TO authenticated;
+
+-- The private helper is callable only by its owner/definer routines.
+REVOKE ALL PRIVILEGES ON FUNCTION public._refresh_growth_level_internal(uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
   TO authenticated;
 
 -- Stage A public projection: exactly the fields rendered by the public
