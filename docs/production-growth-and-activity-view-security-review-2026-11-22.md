@@ -48,10 +48,10 @@ A forward-only remediation must restore the self/admin guard and remove anonymou
 
 A further read-only catalog inspection confirmed:
 
-- `admin_delete_growth_reward(uuid)` is `SECURITY DEFINER`, callable by `anon`, and its live guard uses `caller_role <> 'admin'` without first rejecting `auth.uid() IS NULL`. SQL NULL semantics mean a missing identity does not satisfy the rejection condition. The routine can disable or delete a growth reward.
+- `admin_delete_growth_reward(uuid)` and `admin_upsert_growth_reward(...)` are `SECURITY DEFINER`, callable by `anon`, and both live guards use `caller_role <> 'admin'` without first rejecting `auth.uid() IS NULL`. SQL NULL semantics mean a missing identity does not satisfy the rejection condition. These routines can disable/delete or create/update growth rewards.
 - `refresh_growth_level(uuid)` is `SECURITY DEFINER`, callable by `anon` and `authenticated`, and the live body updates the target member's `profiles.growth_level` without checking caller ownership or admin status.
 
-The candidate Stage A migration now restores a fail-closed admin check and separates internal level calculation into `_refresh_growth_level_internal(uuid)`, while the public `refresh_growth_level(uuid)` wrapper enforces self/admin ownership. Tests cover anonymous denial, missing-identity denial, cross-account denial, and successful admin/self flows. These are candidate changes only; the production catalog remains unchanged.
+The candidate Stage A migration now restores fail-closed admin checks for both reward RPCs and separates internal level calculation into `_refresh_growth_level_internal(uuid)`, while the public `refresh_growth_level(uuid)` wrapper enforces self/admin ownership. Tests cover anonymous denial, missing-identity denial, cross-account denial, and successful admin/self flows. These are candidate changes only; the production catalog remains unchanged.
 
 ## 4. `activity_member_stats` view
 
