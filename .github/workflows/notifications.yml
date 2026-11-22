@@ -65,6 +65,15 @@ jobs:
       - name: Run isolated browser flow
         run: node tests/notification_browser.spec.cjs
 
+      - name: Upload isolated preview screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-preview-screenshot
+          path: artifacts/notification-preview.png
+          if-no-files-found: warn
+          retention-days: 3
+
       - name: Stop local preview server
         if: always()
         run: |
