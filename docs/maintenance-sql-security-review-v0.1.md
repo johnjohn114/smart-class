@@ -45,9 +45,17 @@
 
 API v0.7、RPC contract、single-pass plan 的部分段落仍寫自訂 maintenance_rpc_executor，RPC contract 也有「五個 RPC 全部 SECURITY INVOKER」及 actor 使用 auth.uid() 的舊描述。這與現行 SQL 不一致。已在本分支校正主要規格文件並於 plan 加入更正紀錄；舊 migration 的歷史描述保留為歷史，不作為新草案部署指示。
 
-### R2 — production public.is_admin() 尚未完成唯讀核實
+### R2 — production public.is_admin() 的既有 ACL 必須由 migration 補齊
 
-SQL preflight 只檢查 public.is_admin() 存在且目前 migration actor 可 EXECUTE，並未核實其實際 owner、SECURITY mode、search_path、profiles/auth 依賴或 ACL。CI bootstrap 內的 public.is_admin() 是 disposable 測試 helper，不能證明正式資料庫 helper 的實際定義。正式部署前必須在目標資料庫唯讀檢查該函式定義及權限；若其安全屬性或依賴不符合預期，停止部署並先設計相容方案。
+已對正式 Supabase 執行唯讀 catalog 核對（inspection role：postgres；沒有執行 DDL/DML）：
+
+- 實際 signature：public.is_admin() RETURNS boolean；owner 為 postgres；LANGUAGE sql、STABLE、SECURITY DEFINER；固定 search_path 為空字串。
+- 函式內容使用完整限定名稱 public.profiles 與 auth.uid()，條件為 profiles.id = auth.uid() 且 role = 'admin'。因此空 search_path 不會造成這兩個物件名稱解析問題；函式以 postgres 權限讀取 profiles 並只回傳 boolean。
+- 現有 EXECUTE ACL 包含 postgres、authenticated、service_role；正式資料庫目前尚未授予 pg_database_owner。唯讀 has_function_privilege 結果：pg_database_owner = false、authenticated = true、service_role = true；auth.uid() 對 pg_database_owner 可執行。
+- single-pass SQL 草案已明確包含 GRANT EXECUTE ON FUNCTION public.is_admin() TO pg_database_owner，且 migration actor preflight 要求目前角色可呼叫該 helper。套用最終 migration 後，管理 RPC 的 SECURITY DEFINER owner 才能成功呼叫 helper。此 grant 是必要部署條件，不能省略。
+- 已在隔離 PostgreSQL 測試增加明確 assertion，確保 pg_database_owner 對 public.is_admin() 有 EXECUTE；CI 將驗證這項權限不會回歸。
+
+結論：既有 helper 的 owner、SECURITY DEFINER、固定空 search_path 與 schema-qualified 依賴，與草案的呼叫方式相容；但正式資料庫目前 ACL 尚未補齊。只有在核准的最終 migration 中保留並成功執行上述 GRANT，才可視為通過此項相容性檢查。
 
 ### R3 — Audit append-only 的保證範圍有限
 
@@ -70,7 +78,7 @@ CI 的 Deno.serve handler harness、PostgreSQL、GoTrue、PostgREST 與 Playwrig
 **開發分支 SQL 草案：主要權限與資料流程設計可進入後續驗證，但本次不核准正式部署。**
 
 正式部署前至少必須完成：
-1. production public.is_admin() 函式定義、owner、security mode、search_path、依賴與 ACL 的唯讀核實。
+1. 最終 migration 必須保留並驗證 `GRANT EXECUTE ON FUNCTION public.is_admin() TO pg_database_owner`；正式資料庫目前尚未授予此權限。
 2. Data API Exposed schemas、CORS、Edge Function environment variables 的設定核對。
 3. production schema baseline / migration history reconciliation。
 4. 在另行核准的非正式 hosted Supabase 環境完成 Edge Runtime / gateway smoke test。
