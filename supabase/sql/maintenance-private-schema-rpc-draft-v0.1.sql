@@ -43,6 +43,21 @@ CREATE ROLE maintenance_rpc_executor
 GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;
 
 CREATE SCHEMA private;
+
+-- Read the subject from PostgREST's verified request JWT without depending on
+-- USAGE grants on Supabase-managed auth schema. This function never accepts input.
+CREATE FUNCTION private.maintenance_uid()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = ''
+AS $
+  SELECT NULLIF(COALESCE(
+    NULLIF(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb->>'sub',
+    NULLIF(pg_catalog.current_setting('request.jwt.claim.sub', true), '')
+  ), '')::uuid
+$;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 GRANT USAGE ON SCHEMA private TO anon, authenticated;
 
@@ -96,7 +111,7 @@ CREATE TABLE private.maintenance_event_scopes (
 CREATE TABLE private.maintenance_audit_logs (
   id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
   event_id uuid NOT NULL REFERENCES private.maintenance_events(id) ON DELETE RESTRICT,
-  admin_id uuid NOT NULL DEFAULT auth.uid(),
+  admin_id uuid NOT NULL DEFAULT private.maintenance_uid(),
   action text NOT NULL,
   reason text NOT NULL CHECK (pg_catalog.char_length(reason) BETWEEN 1 AND 500),
   before_data jsonb,
@@ -105,7 +120,7 @@ CREATE TABLE private.maintenance_audit_logs (
 );
 
 CREATE TABLE private.maintenance_idempotency (
-  actor_id uuid NOT NULL DEFAULT auth.uid(),
+  actor_id uuid NOT NULL DEFAULT private.maintenance_uid(),
   idempotency_key uuid NOT NULL,
   request_hash bytea NOT NULL CHECK (pg_catalog.octet_length(request_hash) = 32),
   response_json jsonb NOT NULL,
@@ -142,32 +157,32 @@ CREATE POLICY maintenance_scopes_public_enabled_select
   USING (enabled = true);
 CREATE POLICY maintenance_scopes_admin_select
   ON private.maintenance_scopes FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_events_public_active_select
   ON private.maintenance_events FOR SELECT TO anon, authenticated
   USING (status = 'scheduled' AND starts_at <= pg_catalog.now() AND ends_at > pg_catalog.now());
 CREATE POLICY maintenance_events_admin_select
   ON private.maintenance_events FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_events_admin_insert
   ON private.maintenance_events FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_events_admin_update
   ON private.maintenance_events FOR UPDATE TO maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin())
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin())
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_event_private_notes_admin_select
   ON private.maintenance_event_private_notes FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_insert
   ON private.maintenance_event_private_notes FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_update
   ON private.maintenance_event_private_notes FOR UPDATE TO maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin())
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin())
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_event_scopes_public_select
   ON private.maintenance_event_scopes FOR SELECT TO anon, authenticated
@@ -178,33 +193,36 @@ CREATE POLICY maintenance_event_scopes_public_select
   ));
 CREATE POLICY maintenance_event_scopes_admin_select
   ON private.maintenance_event_scopes FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_scopes_admin_insert
   ON private.maintenance_event_scopes FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_scopes_admin_delete
   ON private.maintenance_event_scopes FOR DELETE TO maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_audit_admin_select
   ON private.maintenance_audit_logs FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_audit_admin_insert
   ON private.maintenance_audit_logs FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin() AND admin_id = auth.uid());
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin() AND admin_id = private.maintenance_uid());
 
 CREATE POLICY maintenance_idempotency_admin_select
   ON private.maintenance_idempotency FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
+  USING (private.maintenance_uid() IS NOT NULL AND actor_id = private.maintenance_uid() AND public.is_admin());
 CREATE POLICY maintenance_idempotency_admin_insert
   ON private.maintenance_idempotency FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND actor_id = private.maintenance_uid() AND public.is_admin());
 
 -- Reset object-level privileges before applying the explicit least-privilege grants below.
 -- This is scoped to the newly-created private schema and avoids inheriting broader grants.
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;
+
+-- The claim helper returns only the caller's own JWT subject (NULL for anon).
+GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, maintenance_rpc_executor;
 
 -- Internal notes are isolated in an admin-only table, independent of public event-row visibility.
 -- Keep private excluded from Data API Exposed schemas as an additional security boundary.
@@ -219,8 +237,9 @@ GRANT SELECT ON private.maintenance_event_private_notes,
   private.maintenance_audit_logs, private.maintenance_idempotency TO authenticated;
 
 -- Only the dedicated RPC owner receives the table privileges needed for validated mutations.
-GRANT USAGE ON SCHEMA public, private, auth TO maintenance_rpc_executor;
-GRANT EXECUTE ON FUNCTION auth.uid() TO maintenance_rpc_executor;
+GRANT USAGE ON SCHEMA private TO maintenance_rpc_executor;
+-- private.maintenance_uid() is intentionally not called under the executor: Supabase's auth schema
+-- is owned by supabase_admin. The private helper below reads the verified JWT claims.
 GRANT EXECUTE ON FUNCTION public.is_admin() TO maintenance_rpc_executor;
 GRANT SELECT ON private.maintenance_scopes, private.maintenance_events,
   private.maintenance_event_private_notes, private.maintenance_event_scopes,
@@ -298,7 +317,7 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
 
-  IF auth.uid() IS NOT NULL THEN
+  IF private.maintenance_uid() IS NOT NULL THEN
     v_is_admin := public.is_admin();
   END IF;
 
@@ -358,7 +377,7 @@ DECLARE
   v_has_more boolean := false;
   v_next_cursor text;
 BEGIN
-  IF auth.uid() IS NULL OR NOT public.is_admin() THEN
+  IF private.maintenance_uid() IS NULL OR NOT public.is_admin() THEN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'FORBIDDEN';
   END IF;
   IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request) <> 'object'
@@ -483,7 +502,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor uuid := auth.uid();
+  v_actor uuid := private.maintenance_uid();
   v_key uuid;
   v_payload jsonb;
   v_request_hash bytea;
@@ -619,7 +638,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor uuid := auth.uid();
+  v_actor uuid := private.maintenance_uid();
   v_key uuid;
   v_payload jsonb;
   v_request_hash bytea;
@@ -832,7 +851,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor uuid := auth.uid();
+  v_actor uuid := private.maintenance_uid();
   v_key uuid;
   v_payload jsonb;
   v_request_hash bytea;
@@ -961,7 +980,7 @@ ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_e
 ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
 REVOKE CREATE ON SCHEMA public FROM maintenance_rpc_executor;
 -- Keep the owner role non-inheritable and remove the temporary SET ROLE capability.
-REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
+REVOKE maintenance_rpc_executor FROM CURRENT_USER;
 
 -- RPC ACLs: revoke PostgreSQL's default PUBLIC EXECUTE first.
 REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
