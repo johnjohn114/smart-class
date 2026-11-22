@@ -18,6 +18,7 @@ on:
       - "supabase/tests/sql/**"
       - "tests/test_verify_maintenance_sql_draft.py"
       - "scripts/verify_maintenance_sql_draft.py"
+      - "scripts/test_maintenance_sql_rollback.py"
       - "supabase/sql/**"
       - "supabase/migrations/**"
       - "supabase/tests/sql/growth-function-authorization.test.sql"
@@ -202,13 +203,36 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-legacy-migration-boundary.test.sql
 
-      - name: Apply single-pass draft to disposable GoTrue database
+      - name: Verify single-pass draft rollback after injected late failure
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: python scripts/test_maintenance_sql_rollback.py
+
+      - name: Prepare hosted-style non-superuser CREATEROLE deployer
         if: matrix.migration_track == 'single-pass-draft'
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/maintenance-deployer-role-setup.sql
+
+      - name: Apply single-pass draft as non-superuser CREATEROLE deployer
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -c "SET ROLE maintenance_deployer" \
             -f supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql
+
+      - name: Verify hosted-style executor ownership and privilege cleanup
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/maintenance-supabase-deployer-role.test.sql
 
       - name: Start PostgREST against GoTrue database
         run: |
