@@ -1,8 +1,8 @@
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 const baseUrl = 'http://127.0.0.1:4173';
-const supabaseHost = 'https://fsoowongtavlsrwvzbze.supabase.co';
 const memberId = 'preview-member-001';
 let rows = [
   { id: 'notice-unread', user_id: memberId, type: '一般', title: '預覽未讀通知', content: '這是一則模擬的未讀通知。', created_at: '2026-11-22T09:00:00Z', read_at: null },
@@ -12,7 +12,7 @@ let rows = [
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage();
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     await page.addInitScript(() => localStorage.setItem('visitor_access_token', 'preview-only-token'));
 
     // Every Supabase request is intercepted here. This test never contacts the real project.
@@ -74,6 +74,9 @@ let rows = [
     await page.getByText('預覽未讀通知').waitFor();
     await page.getByText('預覽已讀通知').waitFor();
     assert.match(await page.locator('#notificationSummary').innerText(), /共 2 則通知.*未讀 1 則/);
+
+    fs.mkdirSync('artifacts', { recursive: true });
+    await page.screenshot({ path: 'artifacts/notification-preview.png', fullPage: true });
 
     await page.locator('#notificationFilter').selectOption('unread');
     await page.getByText('預覽未讀通知').waitFor();
