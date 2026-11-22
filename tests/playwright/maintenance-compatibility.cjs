@@ -135,6 +135,112 @@ async function createPageErrors(page) {
     assert.equal(refreshResult.storedRefresh, 'rotated-test-refresh');
     assert.deepEqual(refreshResult.data, { events: [], next_cursor: null });
 
+    // A sessionStorage-backed login must remain session-only after rotation.
+    const sessionStorageResult = await page.evaluate(async () => {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      sessionStorage.setItem('access_token', 'session-test-access');
+      sessionStorage.setItem('refresh_token', 'session-test-refresh');
+      const originalFetch = window.fetch;
+      window.fetch = async url => {
+        if (String(url).includes('/auth/v1/token?grant_type=refresh_token')) {
+          return new Response(JSON.stringify({
+            access_token: 'session-fresh-access',
+            refresh_token: 'session-rotated-refresh'
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return originalFetch(url);
+      };
+      try {
+        await refreshAdminSession();
+        return {
+          localAccess: localStorage.getItem('access_token'),
+          localRefresh: localStorage.getItem('refresh_token'),
+          sessionAccess: sessionStorage.getItem('access_token'),
+          sessionRefresh: sessionStorage.getItem('refresh_token')
+        };
+      } finally {
+        window.fetch = originalFetch;
+        sessionStorage.removeItem('access_token');
+        sessionStorage.removeItem('refresh_token');
+      }
+    });
+    assert.equal(sessionStorageResult.localAccess, null, 'session-only access token must not be promoted to localStorage');
+    assert.equal(sessionStorageResult.localRefresh, null, 'session-only refresh token must not be promoted to localStorage');
+    assert.equal(sessionStorageResult.sessionAccess, 'session-fresh-access');
+    assert.equal(sessionStorageResult.sessionRefresh, 'session-rotated-refresh');
+
+    // An invalid refresh token clears stale credentials and reports a login error.
+    const refreshFailure = await page.evaluate(async () => {
+      localStorage.setItem('access_token', 'expired-access');
+      localStorage.setItem('refresh_token', 'invalid-refresh');
+      const originalFetch = window.fetch;
+      window.fetch = async url => String(url).includes('/auth/v1/token?grant_type=refresh_token')
+        ? new Response(JSON.stringify({ error: 'invalid_grant' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' }
+          })
+        : originalFetch(url);
+      let message = '';
+      try { await refreshAdminSession(); }
+      catch (error) { message = error.message; }
+      finally {
+        window.fetch = originalFetch;
+      }
+      const result = {
+        message,
+        localAccess: localStorage.getItem('access_token'),
+        localRefresh: localStorage.getItem('refresh_token'),
+        sessionAccess: sessionStorage.getItem('access_token'),
+        sessionRefresh: sessionStorage.getItem('refresh_token')
+      };
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      return result;
+    });
+    assert.match(refreshFailure.message, /登入狀態已失效/);
+    assert.equal(refreshFailure.localAccess, null);
+    assert.equal(refreshFailure.localRefresh, null);
+    assert.equal(refreshFailure.sessionAccess, null);
+    assert.equal(refreshFailure.sessionRefresh, null);
+
+    // If the post-refresh retry is still unauthorized, do not refresh again.
+    const repeated401 = await page.evaluate(async () => {
+      localStorage.setItem('access_token', 'expired-again-access');
+      localStorage.setItem('refresh_token', 'retry-test-refresh');
+      const originalFetch = window.fetch;
+      let refreshCalls = 0;
+      let requestCalls = 0;
+      window.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (target.includes('/auth/v1/token?grant_type=refresh_token')) {
+          refreshCalls += 1;
+          return new Response(JSON.stringify({
+            access_token: 'fresh-but-rejected-access',
+            refresh_token: 'fresh-but-rejected-refresh'
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (target.includes('/functions/v1/maintenance-admin-list')) {
+          requestCalls += 1;
+          return new Response(JSON.stringify({ ok: false, error: { message: 'still unauthorized' } }), {
+            status: 401, headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return originalFetch(url, options);
+      };
+      let message = '';
+      try { await maintenanceAdminRequest('maintenance-admin-list'); }
+      catch (error) { message = error.message; }
+      finally {
+        window.fetch = originalFetch;
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+      return { refreshCalls, requestCalls, message };
+    });
+    assert.equal(repeated401.refreshCalls, 1, 'a failed retry must not trigger another refresh');
+    assert.equal(repeated401.requestCalls, 2, 'the request should run once and retry once');
+    assert.match(repeated401.message, /still unauthorized/);
+
     // Pending idempotency keys survive a reload in the same tab, but successful
     // operations clear them so a later intentional retry receives a fresh key.
     const firstKey = await page.evaluate(async () => {
