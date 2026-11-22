@@ -153,7 +153,7 @@ Request：
 - `scope_codes`
 - `starts_at`
 - `ends_at`
-- `status`（僅允許初始狀態 `draft` 或 `scheduled`）
+- `status`（建立時固定為 `draft`；不得直接建立 `scheduled`）
 - `reason`（audit 原因）
 - `idempotency_key`（UUID）
 
@@ -161,7 +161,8 @@ Request：
 - `starts_at < ends_at`。
 - `is_global=true` 時 `scope_codes` 必須為空陣列。
 - `is_global=false` 時至少一個有效且 enabled scope。
-- 初始 `draft` 不佔用排程；`scheduled` 必須通過排程衝突檢查。
+- 建立 RPC 僅允許 `draft`，不會直接建立 `scheduled`。
+- 事件必須透過 `maintenance-event-action` 的 `schedule` 動作進入 `scheduled`；該動作會檢查開始時間必須晚於資料庫目前時間，並執行排程衝突檢查。
 - title/message 長度及文字內容由資料模型/前端需求定稿前設定明確上限；不得無限制輸入。
 - event、scope links、audit、idempotency 必須在同一 DB transaction 完成。
 
