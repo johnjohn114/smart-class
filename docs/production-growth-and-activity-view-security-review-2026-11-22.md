@@ -113,7 +113,7 @@ Prepare a new, idempotent forward migration that:
 - Applies the already-reviewed public leaderboard projection and private view hardening in the staged release sequence, after the migration baseline and frontend deployment state are reconciled.
 - Includes explicit post-migration ACL, function-body, view-option, and role-based assertions.
 
-Do not apply this migration to production until all relevant environments and migration history are reconciled, the disposable tests pass, and the public leaderboard privacy decision is approved.
+Do not apply this migration to production until all relevant environments and migration history are reconciled, the disposable tests pass, and the hosted rollout checks are completed. The five-field public leaderboard visibility decision is already approved.
 
 ## 10. Safety record
 
