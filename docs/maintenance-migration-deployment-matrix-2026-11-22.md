@@ -125,3 +125,12 @@
 - 正式 Supabase 的唯讀檢查顯示 `public.is_admin()` 由 `postgres` 擁有，為 `SECURITY DEFINER`、固定空 `search_path`，並使用 schema-qualified `public.profiles` 與 `auth.uid()`；目前 ACL 尚未授予 `pg_database_owner`。single-pass draft 中的 `GRANT EXECUTE ON FUNCTION public.is_admin() TO pg_database_owner` 是必要部署語句，但尚未在正式資料庫執行。
 - 此 helper ACL 核對不等於 migration baseline 已修復。正式 production 的 migration listing 仍為空，`supabase_migrations` schema/table 未找到；需依正式 Supabase schema snapshot 完成獨立 baseline reconciliation。
 - 本次仍未建立 timestamped migration、未修改既有 migration history、未執行 production SQL、未部署 Edge Functions、未變更 feature flag、未合併 PR #34。
+
+
+## 11. 最終檢查補記（CI run #45043081949）
+
+- 最新提交 `66bb27750beefcab3b578b75459f2a389570312d` 的 CI run #45043081949 已完成，4/4 jobs success：Deno type check/tests、legacy GoTrue/PostgREST、isolated PostgreSQL RPC/RLS、single-pass GoTrue/PostgREST。
+- 隔離 SQL 測試包含 `pg_database_owner` 必須能執行 `public.is_admin()` 的 assertion；該 CI run 成功，代表此權限契約在 disposable test database 中通過。
+- Single-pass SQL 仍位於 `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`，檔首明確標示 DEVELOPMENT DRAFT ONLY，並非 timestamped migration。此分支沒有建立 replacement timestamped migration。
+- 原兩份 timestamped Maintenance migrations 仍保留；未 squash、刪除、改名、重排或改寫。這是刻意的安全決定：正式 production migration ledger 缺失與全域 schema baseline 未 reconciliation，不能僅依使用者對其他環境的確認就進行正式 migration history 操作。
+- 下一個阻擋項目是 production schema baseline / migration history reconciliation；完成前不產生可部署 migration、不執行 `db push` / migration repair、不部署 Edge Functions、不啟用 feature flag。
