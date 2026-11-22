@@ -4,7 +4,12 @@
 -- The auth.uid() and public.is_admin() functions below are test stubs only.
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
+CREATE ROLE service_role NOLOGIN;
 CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD 'authenticator';
+
+-- Match Supabase's production default EXECUTE grant for new public functions.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO service_role;
 GRANT anon, authenticated TO authenticator;
 
 CREATE SCHEMA auth;
@@ -39,8 +44,15 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 -- Apply the single-pass development draft under test. This runs only in the ephemeral CI database.
 \ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
-DO $$
+DO $
 BEGIN
+  IF has_function_privilege('service_role', 'public.maintenance_status_public(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_admin_list(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_event_create(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_event_update(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_event_action(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: service_role retained default EXECUTE on a Maintenance RPC';
+  END IF;
   IF has_function_privilege('anon', 'public.maintenance_event_create(jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.maintenance_event_update(jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.maintenance_event_action(jsonb)', 'EXECUTE')
