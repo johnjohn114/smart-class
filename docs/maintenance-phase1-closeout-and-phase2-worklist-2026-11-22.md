@@ -164,3 +164,22 @@ The user supplied a Supabase Dashboard → Integrations → Data API → Setting
 - No Dashboard setting was changed based on this screenshot.
 
 This screenshot resolves the previously outstanding visual confirmation for the current Exposed schemas selection. Hosted function configuration and deployment smoke tests remain outstanding.
+
+
+### Exposed functions — user supplied expanded-list screenshot and clarification
+
+The three unchecked functions are identified as:
+
+1. `public.assign_member_no_and_nickname()`
+2. `public.award_growth_points(uuid,integer,text,text,text,text,uuid)`
+3. `public.is_admin()`
+
+Assessment against the current authorization design:
+
+- Keep all three unchecked in Data API → Exposed functions.
+- `assign_member_no_and_nickname()` is a trigger/internal helper and should not be callable as a public RPC.
+- `award_growth_points(...)` is an internal point-awarding function. The authorization migration explicitly denies direct EXECUTE to anon and authenticated; it must not be exposed as an RPC.
+- `is_admin()` is a SECURITY DEFINER authorization helper. It is used internally by RLS policies and Maintenance RPCs; the single-pass Maintenance SQL draft grants EXECUTE to `pg_database_owner` so the admin RPC owner can call it. This database EXECUTE grant does not require exposing `is_admin()` as a Data API RPC endpoint. Keep it unchecked in the Exposed functions list.
+- The Dashboard exposure toggle and PostgreSQL EXECUTE ACL are separate controls. Do not enable a function in the Data API merely to satisfy an internal SQL EXECUTE dependency.
+
+The screenshot therefore shows a suitable exposure posture for these three functions. This does not substitute for validating the full final function ACL matrix or applying the migration to an approved target.
