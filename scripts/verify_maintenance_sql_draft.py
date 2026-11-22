@@ -97,6 +97,19 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["no_service_role_grants"] = not bool(
         re.search(r"GRANT\b[^;]*\bTO\s+[^;]*service_role", sql, re.I | re.S)
     )
+    checks["transaction_wrapped"] = bool(
+        re.search(r"^BEGIN;\\s*$", sql, re.I | re.M)
+        and re.search(r"^COMMIT;\\s*$", sql, re.I | re.M)
+    )
+    checks["executor_owner_transfer_set_membership"] = all(
+        marker in sql for marker in (
+            "GRANT maintenance_rpc_executor TO CURRENT_USER WITH SET TRUE, INHERIT FALSE;",
+            "REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;",
+        )
+    )
+    checks["migration_role_preflight"] = (
+        "rolname = current_user AND (rolsuper OR rolcreaterole)" in sql
+    )
     checks["dedicated_executor_role"] = bool(re.search(
         r"CREATE ROLE maintenance_rpc_executor\s+NOLOGIN NOINHERIT NOSUPERUSER "
         r"NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS", sql, re.I
