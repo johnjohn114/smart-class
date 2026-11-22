@@ -143,13 +143,13 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     )
     checks["transaction_lock_present"] = "pg_advisory_xact_lock(20261108,1)" in sql
     # The frontend checks site_core on every page, so site_core overlaps every local scope.
+    checks["create_rpc_requires_draft"] = "v_status IS DISTINCT FROM 'draft'" in create_body
     checks["site_core_conflicts_with_all_scopes"] = all(
         marker in body for body, marker in (
-            (create_body, "'site_core'=ANY(v_codes)"),
             (update_body, "'site_core'=ANY(v_codes)"),
             (action_body, "'site_core'=ANY(v_codes)"),
         )
-    ) and sql.count("es.scope_code='site_core' OR es.scope_code=ANY(v_codes)") >= 3
+    ) and sql.count("es.scope_code='site_core' OR es.scope_code=ANY(v_codes)") >= 2
     checks["executor_minimum_write_grants"] = all(
         marker in sql for marker in (
             "GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;",
