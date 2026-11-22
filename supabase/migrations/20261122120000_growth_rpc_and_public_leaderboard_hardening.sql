@@ -21,6 +21,13 @@ BEGIN
 END
 $preflight$;
 
+-- Reconcile the live PostgreSQL defaults as well as the two known functions.
+-- New postgres-owned functions must not become browser-callable by default.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;
+
 -- The award helper is internal to reviewed SECURITY DEFINER RPCs and triggers.
 -- Its owner (postgres) retains execution; browser API roles do not.
 REVOKE EXECUTE ON FUNCTION
