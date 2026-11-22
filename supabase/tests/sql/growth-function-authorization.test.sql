@@ -716,6 +716,22 @@ END;
 $legacy_admin_delete$;
 GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid) TO anon;
 
+-- Recreate the live badge routine's NULL-sensitive ownership check.
+CREATE OR REPLACE FUNCTION public.check_activity_badges(p_user_id uuid DEFAULT auth.uid())
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_badges$
+DECLARE v_user uuid:=coalesce(p_user_id,auth.uid());
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION '請先登入'; END IF;
+  IF p_user_id IS NOT NULL AND p_user_id<>auth.uid()
+     AND NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role='admin') THEN
+    RAISE EXCEPTION '沒有權限';
+  END IF;
+  RETURN jsonb_build_object('success',true);
+END;
+$legacy_badges$;
+GRANT EXECUTE ON FUNCTION public.check_activity_badges(uuid) TO anon;
+
 -- Recreate the vulnerable reward upsert role check as seen in production.
 CREATE OR REPLACE FUNCTION public.admin_upsert_growth_reward(
  p_reward_id uuid,p_code text,p_title text,p_description text,p_icon text,p_category text,
@@ -797,6 +813,12 @@ BEGIN
   IF has_function_privilege('anon','public.refresh_growth_level(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A left anonymous growth level refresh EXECUTE';
   END IF;
+  IF has_function_privilege('anon','public.check_activity_badges(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous activity badge EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.check_activity_badges(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated activity badge RPC';
+  END IF;
   IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A removed authenticated growth level RPC';
   END IF;
@@ -867,6 +889,41 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed cross-account level refresh'; END IF;
 END
 $forward_level_cross_account$;
+RESET ROLE;
+
+-- Anonymous callers cannot process badges for a supplied member UUID.
+SET ROLE anon;
+DO $forward_badge_anon$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000002');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed anonymous cross-account badge processing'; END IF;
+END
+$forward_badge_anon$;
+RESET ROLE;
+
+-- Authenticated members may check their own badges, not another member's.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_badge_member$
+DECLARE denied boolean := false; result jsonb;
+BEGIN
+  result := public.check_activity_badges(auth.uid());
+  IF result->>'success' IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'FAIL: Stage A member could not check own badges';
+  END IF;
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed cross-account badge processing'; END IF;
+END
+$forward_badge_member$;
 RESET ROLE;
 
 -- Missing identity must fail closed for the admin delete RPC.
