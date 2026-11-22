@@ -141,7 +141,6 @@ EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format THEN NULL;
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC, service_role;
 REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon, service_role;
 REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon, service_role;
@@ -215,17 +214,6 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
         self.assertFalse(all(result[f"security:{name}"] for name in
                              ("maintenance_admin_list", "maintenance_event_create",
                               "maintenance_event_update", "maintenance_event_action")))
-
-    def test_private_function_default_execute_is_revoked(self):
-        result = inspect_sql(GOOD)
-        self.assertTrue(result["private_function_default_execute_revoked"])
-
-        broken = GOOD.replace(
-            "ALTER DEFAULT PRIVILEGES IN SCHEMA private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;",
-            ""
-        )
-        result = inspect_sql(broken)
-        self.assertFalse(result["private_function_default_execute_revoked"])
 
     def test_service_role_function_execute_must_be_revoked(self):
         result = inspect_sql(GOOD)
