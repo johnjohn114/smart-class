@@ -54,8 +54,8 @@
 
 - 管理 Edge Functions 設定 `verify_jwt=true`，並在函式內使用 Supabase Auth 驗證呼叫者。
 - Edge Function 使用原始使用者 bearer token 與 publishable/anon key 呼叫 RPC；不得使用 service_role 代表使用者執行管理 RPC。
-- actor ID 一律取自資料庫端 `auth.uid()`；不可採信前端傳入的 actor_id、user_id、role、isAdmin 或 email。
-- 管理 RPC 必須在資料庫端檢查 `auth.uid() IS NOT NULL AND public.is_admin()`；新版 SQL 由專用 `maintenance_rpc_executor`（`NOLOGIN`、`NOBYPASSRLS`）擁有管理 RPC，管理 RPC 使用 `SECURITY DEFINER`，並在函式內執行上述檢查。
+- actor ID 一律取自資料庫端 `private.maintenance_uid()`，由 PostgREST 已驗證的 JWT subject claim 取得；不可採信前端傳入的 actor_id、user_id、role、isAdmin 或 email。
+- 管理 RPC 必須在資料庫端檢查 `private.maintenance_uid() IS NOT NULL AND public.is_admin()`；新版 SQL 由專用 `maintenance_rpc_executor`（`NOLOGIN`、`NOBYPASSRLS`）擁有管理 RPC，管理 RPC 使用 `SECURITY DEFINER`，並在函式內執行上述檢查。
 - `public.is_admin()` 是目前候選 helper；`public.is_admin_user()` 禁止用於此功能。
 - 管理 API 的 Edge Function 驗證不能取代 RPC 內的授權檢查。
 
@@ -63,6 +63,7 @@
 
 - 採用 Edge Function + 使用者 JWT + private schema tables + RLS。公開 status RPC 使用 `SECURITY INVOKER`；管理 RPC 使用專用 `maintenance_rpc_executor` 擁有的 `SECURITY DEFINER`，並在資料庫函式內檢查使用者 JWT 對應的管理員身分。
 - private schema 不加入 Data API Exposed schemas。
+- `private.maintenance_uid()` 以 `SECURITY INVOKER` 讀取 PostgREST 已驗證的 `request.jwt.claims` / `request.jwt.claim.sub`；它只回傳目前請求的 JWT subject，不接受外部參數。這讓管理 RPC owner 不必取得 Supabase 管理的 `auth` schema USAGE，也不必向 `auth.uid()` 轉授權限。公開 status RPC 的匿名呼叫會得到 NULL subject；anon、authenticated 與 executor 僅取得呼叫此 helper 所需的 EXECUTE 權限。
 - 所有 RPC 固定 `search_path = ''`，所有 schema/table/function 名稱完整限定。`maintenance_status_public` 使用 `SECURITY INVOKER`；`maintenance_admin_list`、`maintenance_event_create`、`maintenance_event_update`、`maintenance_event_action` 使用 `SECURITY DEFINER`，owner 為專用 `maintenance_rpc_executor`。
 - 新 RPC 先撤銷 `PUBLIC` EXECUTE，再明確授權。
 - 管理 RPC 的 EXECUTE 僅授予 `authenticated`；公開 status RPC 的 EXECUTE 授予 `anon`、`authenticated`。管理 RPC 由 `maintenance_rpc_executor` 執行受 RLS 約束的資料表操作。
