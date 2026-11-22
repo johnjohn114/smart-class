@@ -66,10 +66,17 @@ Record the verified first-stage status and the remaining non-security work for t
 
 **Phase 1 documentation and CI closeout: complete.**
 
-**Phase 2: not started; migration/environment history is the first blocking decision.**
+**Phase 2: in progress.** 使用者已明確確認沒有在其他 local/test/preview/staging/shared database 執行 Maintenance migrations；正式 production 的 migration ledger/schema baseline 仍未完成核對，故仍阻擋 migration history 改寫與正式部署。
 
 No production readiness claim is made. No production changes are authorized by this document.
 
 ## Source note
 
 The uploaded file `啟動第一步檢查.txt` records an earlier SQL review snapshot describing a four-table design and service-role grants. The current Maintenance implementation has since evolved to a private-schema design with six tables, five RPCs, and Edge Function wrappers. Use the current API v0.7, Edge Function development specification, SQL compatibility audit, and current single-pass migration plan as the working references; do not treat the earlier snapshot as the current schema specification.
+
+
+## 2026-11-22 使用者環境確認補記
+
+使用者已明確回答「無」：沒有在其他 local、test、preview、staging 或 shared database 執行過 Maintenance migrations。此回答更新本文件較早「未確認」的使用者回憶狀態。CI PostgreSQL/GoTrue/PostgREST 服務為 disposable 測試環境，不視為持續存在的使用者資料庫。
+
+仍須區分：此回答不等同 production migration ledger 已修復。正式 Supabase 的 migration history/schema baseline 仍有獨立缺口；production catalog 未見 Maintenance objects 不能替代完整 baseline reconciliation。因此 timestamped migrations 先保持不動，不執行 production SQL、migration repair、Edge Function deploy、feature flag change 或 PR merge。
