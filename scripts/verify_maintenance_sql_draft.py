@@ -97,6 +97,15 @@ def inspect_sql(sql: str) -> dict[str, bool]:
     checks["no_service_role_grants"] = not bool(
         re.search(r"GRANT\b[^;]*\bTO\s+[^;]*service_role", sql, re.I | re.S)
     )
+    checks["service_role_function_execute_revoked"] = all(
+        marker in sql for marker in (
+            "REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC, service_role;",
+            "REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon, service_role;",
+            "REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon, service_role;",
+            "REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon, service_role;",
+            "REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon, service_role;",
+        )
+    )
     checks["transaction_wrapped"] = bool(
         re.search(r"^BEGIN;\s*$", sql, re.I | re.M)
         and re.search(r"^COMMIT;\s*$", sql, re.I | re.M)
