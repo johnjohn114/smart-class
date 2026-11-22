@@ -44,7 +44,7 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 -- Apply the single-pass development draft under test. This runs only in the ephemeral CI database.
 \ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
-DO $
+DO $service_role_acl$
 BEGIN
   IF has_function_privilege('service_role', 'public.maintenance_status_public(jsonb)', 'EXECUTE')
      OR has_function_privilege('service_role', 'public.maintenance_admin_list(jsonb)', 'EXECUTE')
@@ -63,7 +63,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: anon cannot execute the public status RPC';
   END IF;
 END
-$$;
+$service_role_acl$;
 
 -- The admin RPC owner is PostgreSQL's built-in database-owner pseudo-role.
 DO $$
