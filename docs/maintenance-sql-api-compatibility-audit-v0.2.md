@@ -146,13 +146,13 @@ repository 內可讀取到兩個正式命名的 migration 檔案：
 
 ### 8.3 隔離 CI 證據
 
-GitHub Actions run [#232](https://github.com/johnjohn114/smart-class/actions/runs/44927798716) 對應目前分支 commit `4183e34801471701a33c7e55953fcfe18b5e8967`，四個 jobs 全數成功：
-- Deno type check / validation tests / feature gate / Playwright / SQL static guardrails。
+最新 GitHub Actions run [#270](https://github.com/johnjohn114/smart-class/actions/runs/44997928704) 對應分支 commit `182eef7377a313c3f98431410daee2608aef1f73`，四個 jobs 全數成功：
+- Deno type check（27 項 validation tests）/ feature gate / Playwright（首頁、管理頁、維護生命週期 UI）/ SQL static guardrails。
 - 隔離 PostgreSQL RPC、RLS 與回歸測試。
 - GoTrue-issued JWT + PostgREST single-pass draft 整合測試。
 - GoTrue-issued JWT + PostgREST legacy migration 路徑整合測試。
 
-此 CI run 驗證的是隔離測試資料庫與測試服務；不是正式 Supabase smoke test，不證明 production migration history，也不代表已部署。
+此 CI run 驗證的是隔離測試資料庫與測試服務；Playwright 管理操作使用 in-memory mock。它不是正式 Supabase smoke test，不證明 production migration history，也不代表已部署。
 
 ### 8.4 仍然有效的限制
 
