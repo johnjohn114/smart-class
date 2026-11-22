@@ -42,9 +42,18 @@ Live read-only catalog evidence:
 
 This creates a second route by which an anonymous caller can request achievement processing for another member. The repository's existing `202611160001_growth_function_authorization_hardening.sql` already contains a self/admin ownership guard and revokes anonymous execution, but the live production function does not match that hardened definition.
 
-A forward-only remediation must restore the self/admin guard and remove anonymous EXECUTE. Keep authenticated self-service behavior and the admin path.
+A forward-only remediation must restore the self/admin guard and remove anonymous EXECUTE. Keep authenticated self-service behavior and the admin path. The related admin-delete and level-refresh exposures are documented below.
 
-## 3. `activity_member_stats` view
+## 3. Related growth RPC findings: admin delete and level refresh
+
+A further read-only catalog inspection confirmed:
+
+- `admin_delete_growth_reward(uuid)` is `SECURITY DEFINER`, callable by `anon`, and its live guard uses `caller_role <> 'admin'` without first rejecting `auth.uid() IS NULL`. SQL NULL semantics mean a missing identity does not satisfy the rejection condition. The routine can disable or delete a growth reward.
+- `refresh_growth_level(uuid)` is `SECURITY DEFINER`, callable by `anon` and `authenticated`, and the live body updates the target member's `profiles.growth_level` without checking caller ownership or admin status.
+
+The candidate Stage A migration now restores a fail-closed admin check and separates internal level calculation into `_refresh_growth_level_internal(uuid)`, while the public `refresh_growth_level(uuid)` wrapper enforces self/admin ownership. Tests cover anonymous denial, missing-identity denial, cross-account denial, and successful admin/self flows. These are candidate changes only; the production catalog remains unchanged.
+
+## 4. `activity_member_stats` view
 
 Live read-only catalog evidence:
 
@@ -56,7 +65,7 @@ Live read-only catalog evidence:
 
 The existing candidate `supabase/candidate_sql/activity_member_stats_view_hardening.sql` changes the view to `security_invoker=true`, revokes `PUBLIC` / `anon` access, and retains SELECT for `authenticated` and `service_role`.
 
-## 4. Frontend compatibility already present in main
+## 5. Frontend compatibility already present in main
 
 The current `app.js` has two relevant paths:
 
@@ -69,7 +78,7 @@ The fallback is a compatibility bridge only. It does not harden the legacy view.
 
 Public nickname and displayed aggregate visibility remains a product/privacy decision that must be confirmed before production release.
 
-## 5. Existing tests and required additions
+## 6. Existing tests and required additions
 
 Existing isolated test assets already cover substantial behavior:
 
@@ -86,7 +95,7 @@ Required test additions before release:
 5. Preserve `admin_adjust_growth_points` only for admins.
 6. Run both growth and view suites in the same disposable PostgreSQL environment and verify the full app-level compatibility sequence.
 
-## 6. Forward-only remediation outline
+## 7. Forward-only remediation outline
 
 Do not rewrite or delete existing migration files because other environments may have applied them.
 
@@ -99,6 +108,6 @@ Prepare a new, idempotent forward migration that:
 
 Do not apply this migration to production until all relevant environments and migration history are reconciled, the disposable tests pass, and the public leaderboard privacy decision is approved.
 
-## 7. Safety record
+## 8. Safety record
 
 This review used GitHub source reads and read-only PostgreSQL catalog queries only. No production SQL writes, data reads, data updates, migrations, Edge Function deployments, frontend deployments, feature-flag changes, or PR merges were performed.
