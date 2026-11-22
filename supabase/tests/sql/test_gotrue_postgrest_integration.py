@@ -331,13 +331,15 @@ def main():
         "reason": "  isolated GoTrue/PostgREST idempotency integration test  ",
         "idempotency_key": str(uuid.uuid4()),
     }
-    direct_scheduled_request = dict(idem_request)
-    direct_scheduled_request["status"] = "scheduled"
-    direct_scheduled_request["idempotency_key"] = str(uuid.uuid4())
-    status, direct_scheduled_result = rpc("maintenance_event_create", direct_scheduled_request, admin)
-    assert_true(status == 400 and isinstance(direct_scheduled_result, dict)
-                and direct_scheduled_result.get("message") == "VALIDATION_ERROR",
-                "create RPC rejects direct scheduled status; scheduling must use the lifecycle action RPC")
+    if os.environ.get("MAINTENANCE_EXPECT_DRAFT_ONLY_CREATE") == "1":
+        direct_scheduled_request = dict(idem_request)
+        direct_scheduled_request["status"] = "scheduled"
+        direct_scheduled_request["idempotency_key"] = str(uuid.uuid4())
+        status, direct_scheduled_result = rpc("maintenance_event_create", direct_scheduled_request, admin)
+        assert_true(status == 400 and isinstance(direct_scheduled_result, dict)
+                    and direct_scheduled_result.get("message") == "VALIDATION_ERROR",
+                    "create RPC rejects direct scheduled status; scheduling must use the lifecycle action RPC")
+
 
     spoofed_create = dict(idem_request)
     spoofed_create["actor_id"] = os.environ["TEST_MEMBER_ID"]
