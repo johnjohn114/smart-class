@@ -80,3 +80,37 @@ The uploaded file `啟動第一步檢查.txt` records an earlier SQL review snap
 使用者已明確回答「無」：沒有在其他 local、test、preview、staging 或 shared database 執行過 Maintenance migrations。此回答更新本文件較早「未確認」的使用者回憶狀態。CI PostgreSQL/GoTrue/PostgREST 服務為 disposable 測試環境，不視為持續存在的使用者資料庫。
 
 仍須區分：此回答不等同 production migration ledger 已修復。正式 Supabase 的 migration history/schema baseline 仍有獨立缺口；production catalog 未見 Maintenance objects 不能替代完整 baseline reconciliation。因此 timestamped migrations 先保持不動，不執行 production SQL、migration repair、Edge Function deploy、feature flag change 或 PR merge。
+
+
+## 2026-11-23 Operational preflight audit
+
+This is a read-only repository and project inventory update. It does not authorize deployment or any production change.
+
+### Verified
+
+- [x] Supabase project `private-website` is `ACTIVE_HEALTHY`, PostgreSQL 17.11, region `ap-northeast-1`.
+- [x] Supabase currently lists no development branches.
+- [x] Supabase currently lists no Maintenance Edge Functions. The five Maintenance functions remain repository-only; no hosted endpoint has been deployed.
+- [x] Supabase migration listing remains empty. This is not a substitute for a reconstructed production migration baseline.
+- [x] Repository config sets `maintenance-status` to `verify_jwt = false`; all four admin endpoints use `verify_jwt = true`.
+- [x] Shared handler defaults CORS to the exact GitHub Pages origin `https://johnjohn114.github.io`; `MAINTENANCE_ALLOWED_ORIGINS` can explicitly override it with a comma-separated allowlist.
+- [x] Deno tests cover the default allowed preflight origin and rejection of an unapproved origin.
+- [x] Shared handler requires `SUPABASE_URL` and a publishable/anon key (prefers `SUPABASE_PUBLISHABLE_KEY`, with documented fallbacks). Secret values were not read, requested, or recorded.
+- [x] A read-only SQL check of `current_setting('pgrst.db_schemas', true)` returned NULL; this does not reveal the hosted Data API Exposed schemas configuration.
+
+### Still unverified / blocked
+
+- [ ] Confirm the actual Data API Exposed schemas setting in the Supabase project configuration. The private Maintenance schema must remain unexposed; the required public RPC arrangement must be confirmed against the final SQL design.
+- [ ] Confirm the deployed Edge Function environment contains the required built-in Supabase URL/key variables. Do not copy secret values into GitHub, chat, or documentation.
+- [ ] Confirm the actual hosted CORS override, if any. The repository default is verified, but no Maintenance function is deployed to exercise hosted CORS.
+- [ ] Run hosted-runtime smoke tests only after a separately approved non-production or production deployment. No free hosted non-production branch currently exists, and no paid branch/service will be created.
+
+### Proposed release sequence (not authorization)
+
+1. Reconcile the production migration baseline and finalize the exact timestamped migration source.
+2. Apply the approved database migration to the specifically authorized target.
+3. Deploy the five Edge Functions with the verified environment configuration.
+4. Run hosted smoke tests for public status, admin authentication/authorization, lifecycle actions, pagination, idempotent retries, CORS, and Taiwan UTC+8 display.
+5. Only after separate approval, integrate the frontend and consider enabling the feature flag. Keep `MAINTENANCE_FEATURE_ENABLED=false` until then.
+
+No production SQL, migration repair, Edge Function deployment, feature-flag change, PR merge, or paid service was used during this audit.
