@@ -215,6 +215,17 @@ class MaintenanceSqlDraftStaticTests(unittest.TestCase):
                              ("maintenance_admin_list", "maintenance_event_create",
                               "maintenance_event_update", "maintenance_event_action")))
 
+    def test_private_function_default_execute_is_revoked(self):
+        result = inspect_sql(GOOD)
+        self.assertTrue(result["private_function_default_execute_revoked"])
+
+        broken = GOOD.replace(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;",
+            ""
+        )
+        result = inspect_sql(broken)
+        self.assertFalse(result["private_function_default_execute_revoked"])
+
     def test_service_role_function_execute_must_be_revoked(self):
         result = inspect_sql(GOOD)
         self.assertTrue(result["service_role_function_execute_revoked"])
