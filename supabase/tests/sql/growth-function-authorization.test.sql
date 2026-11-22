@@ -860,16 +860,18 @@ END
 $forward_admin_null_identity$;
 RESET ROLE;
 
+-- Seed the reward as the database owner; the authenticated admin then
+-- exercises only the RPC, not direct table INSERT privileges.
+INSERT INTO public.growth_rewards(id,code,title,reward_type,point_cost,enabled)
+VALUES('00000000-0000-4000-8000-000000000099','stage-a-delete-test','Stage A delete test','coupon',5,true);
+
 -- After Stage A, an authenticated administrator can still delete a reward.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
 SET ROLE authenticated;
 DO $forward_admin_positive$
-DECLARE result jsonb; reward_id uuid;
+DECLARE result jsonb;
 BEGIN
-  INSERT INTO public.growth_rewards(code,title,reward_type,point_cost,enabled)
-  VALUES('stage-a-delete-test','Stage A delete test','coupon',5,true)
-  RETURNING id INTO reward_id;
-  result := public.admin_delete_growth_reward(reward_id);
+  result := public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000099');
   IF result->>'action' <> 'deleted' THEN
     RAISE EXCEPTION 'FAIL: Stage A admin reward delete no longer works';
   END IF;
