@@ -256,3 +256,36 @@ Updated assessment:
 - Independent local/external execution: not established; residual uncertainty remains.
 
 Decision remains unchanged: preserve both timestamped Maintenance migrations; do not squash, replace, apply, or repair migration history based on recollection alone. No SQL was executed and no database, deployment, feature flag, or PR merge was changed during this cross-check.
+
+
+## 2026-11-22 合併審查補記：使用者環境確認與 SQL owner 模型更正
+
+### 使用者環境歷史回答
+
+使用者已明確回答「無」：沒有在其他 local、test、preview、staging 或 shared database 執行過 Maintenance migrations。這取代本文件較早的「好像沒有／未確認」回憶紀錄。已知 Supabase 帳戶盤點只有正式 production project，沒有 Supabase-managed development branch；GitHub Actions 的 PostgreSQL、GoTrue、PostgREST 均為 disposable CI services。
+
+此回答可作為目前已知非正式環境的使用者確認，但不能證明未被提及的外部資料庫不存在，也不能補足正式 production migration ledger 缺失。production catalog 未找到 Maintenance objects，但 production 的全域 migration baseline 仍有獨立問題。因此目前仍不改寫 timestamped migration history、不執行 production SQL、不做 migration repair。
+
+### Single-pass SQL 實際 owner 模型更正
+
+本分支 supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql 的實際設計是：
+
+- maintenance_status_public 使用 SECURITY INVOKER。
+- maintenance_admin_list、maintenance_event_create、maintenance_event_update、maintenance_event_action 使用 SECURITY DEFINER，owner 為 PostgreSQL 內建 pg_database_owner。
+- 草案不建立自訂 maintenance_rpc_executor role；管理 table grants 與 RLS policies 授予／指定 pg_database_owner。
+- 六張 private tables 全部啟用並 FORCE RLS；authenticated 沒有直接 table write grants。
+- actor 由 private.maintenance_uid() 讀取已驗證的 PostgREST JWT subject；管理員判斷仍依賴 public.is_admin()。
+
+本文件較早段落中提及自訂 maintenance_rpc_executor 的內容屬於先前設計，已由此補記及 API v0.7 / RPC SQL contract 的現行更正取代。不得依舊文字部署。
+
+### 合併安全審查結論
+
+- 已檢視 single-pass SQL 的六張表、RLS/FORCE RLS、五個 RPC、最小 table grants、EXECUTE ACL、audit triggers、idempotency 與 advisory transaction lock。
+- SQL 草案具備主要的角色分離、RLS、輸入白名單、交易式 audit/idempotency、排程衝突序列化設計；現有 CI 使用 disposable PostgreSQL 17、GoTrue-issued JWT 與 PostgREST 測試，並非 hosted production smoke test。
+- **尚未核准正式部署**：SQL preflight 只檢查 public.is_admin() 存在且可執行，未驗證目標 production helper 的 owner、SECURITY mode、固定 search_path、底層 profiles/auth 依賴及 ACL。CI 的 public.is_admin() 是測試 helper，不能替代正式 helper 的唯讀核對。
+- Data API Exposed schemas 必須確認 private 未暴露；正式 CORS/env 與 hosted Edge Runtime smoke test 尚未完成。
+- audit trigger 是一般資料庫操作路徑的防護，不是對 database owner/superuser 的絕對防竄改保證。
+
+### 本次處理界線
+
+本次只校正開發分支文件並新增審查紀錄；不修改 SQL migration、既有 timestamped migration、正式 Supabase、Edge Functions deployment、feature flag、PR base/target 或 merge 狀態。不新增付費資源。
