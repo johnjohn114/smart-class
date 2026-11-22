@@ -776,32 +776,78 @@ function renderMyNotifications(){
   const filter=$('notificationFilter')?.value||'all';
   const rows=filter==='unread'?myNotificationRows.filter(x=>!x.read_at):filter==='read'?myNotificationRows.filter(x=>x.read_at):myNotificationRows;
   const unread=myNotificationRows.filter(x=>!x.read_at).length;
-  const summary=$('notificationSummary'); if(summary)summary.textContent='共 '+myNotificationRows.length+' 則通知 · 未讀 '+unread+' 則';
-  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at).slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.content).replace(/\n/g,'<br>')+'</p>'+((x.type==='客服'&&x.ticket_id)?'<button class="btn secondary notificationTicketBtn" type="button" data-ticket-notice="'+esc(x.ticket_id)+'">💬 查看客服案件</button> ':'')+(!x.read_at?'<button class="markRead" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
-  document.querySelectorAll('.markRead').forEach(b=>b.onclick=()=>markNotificationRead(b.dataset.notice));
-  document.querySelectorAll('[data-ticket-notice]').forEach(b=>b.onclick=async()=>{await markNotificationRead(b.closest('.notice')?.querySelector('[data-notice]')?.dataset.notice||''); showMySection('mySupportPanel'); location.hash='mySupportPanel';});
+  const summary=$('notificationSummary');
+  if(summary)summary.textContent='共 '+myNotificationRows.length+' 則通知 · 未讀 '+unread+' 則';
+  box.innerHTML=rows.length?rows.map(x=>'<article class="notice '+(x.read_at?'':'unreadNotice')+'"><div class="date">'+(x.read_at?'':'🔴 未讀 · ')+notificationIcon(x.type)+' '+esc(x.type||'一般')+' · '+esc(String(x.created_at||'').slice(0,16).replace('T',' '))+'</div><h3>'+esc(x.title||'（未命名通知）')+'</h3><p>'+esc(x.content||'').replace(/\n/g,'<br>')+'</p>'+((x.type==='客服'&&x.ticket_id)?'<button class="btn secondary notificationTicketBtn" type="button" data-ticket-notice="'+esc(x.ticket_id)+'" data-notice="'+esc(x.id)+'">💬 查看客服案件</button> ':'')+(!x.read_at?'<button class="markRead" type="button" data-notice="'+esc(x.id)+'">標記已讀</button>':'')+'</article>').join(''):'<div class="empty">'+(filter==='unread'?'目前沒有未讀通知。':filter==='read'?'目前沒有已讀通知。':'目前沒有通知。')+'</div>';
+  box.querySelectorAll('.markRead').forEach(b=>b.addEventListener('click',()=>markNotificationRead(b.dataset.notice)));
+  box.querySelectorAll('[data-ticket-notice]').forEach(b=>b.addEventListener('click',async()=>{await markNotificationRead(b.dataset.notice);showMySection('mySupportPanel');location.hash='mySupportPanel';}));
 }
 async function loadMyNotifications(){
-  const box=$('myNotifications'); if(!box||!visitorToken())return;
-  const uid=(await getCurrentUser())?.id;if(!uid)return;
-  const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?select=*&user_id=eq.'+encodeURIComponent(uid)+'&order=created_at.desc',{headers:auth()});
-  myNotificationRows=r.ok?await r.json():[]; renderMyNotifications(); loadNotificationBadge();
+  const box=$('myNotifications');
+  if(!box)return;
+  const summary=$('notificationSummary');
+  if(!configured()){
+    if(summary)summary.textContent='系統設定未完成';
+    box.innerHTML='<div class="empty">通知服務目前尚未設定，請稍後再試。</div>';
+    return;
+  }
+  if(!visitorToken()){
+    if(summary)summary.textContent='尚未登入';
+    box.innerHTML='<div class="empty">請先登入會員，再查看通知。</div>';
+    return;
+  }
+  box.innerHTML='<div class="loading">正在載入通知…</div>';
+  if(summary)summary.textContent='正在載入…';
+  try{
+    const user=await getCurrentUser();
+    if(!user?.id)throw new Error('無法確認登入會員，請重新登入後再試。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?select=*&user_id=eq.'+encodeURIComponent(user.id)+'&order=created_at.desc',{headers:auth()});
+    if(!r.ok){
+      const detail=await r.text().catch(()=> '');
+      throw new Error('通知讀取失敗（HTTP '+r.status+'）'+(detail?'：'+detail.slice(0,180):''));
+    }
+    const rows=await r.json();
+    if(!Array.isArray(rows))throw new Error('通知資料格式不正確。');
+    myNotificationRows=rows;
+    renderMyNotifications();
+    loadNotificationBadge();
+  }catch(e){
+    console.error('我的通知載入失敗：',e);
+    myNotificationRows=[];
+    if(summary)summary.textContent='通知載入失敗';
+    box.innerHTML='<div class="empty">無法載入通知：'+esc(e?.message||'未知錯誤')+'<br><button class="btn secondary" type="button" id="retryMyNotifications">重新載入</button></div>';
+    $('retryMyNotifications')?.addEventListener('click',loadMyNotifications);
+  }
 }
-async function markNotificationRead(id){const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});if(r.ok)await loadMyNotifications();}
+async function markNotificationRead(id){
+  if(!id)return;
+  try{
+    const user=await getCurrentUser();
+    if(!user?.id)throw new Error('請重新登入。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+encodeURIComponent(id)+'&user_id=eq.'+encodeURIComponent(user.id),{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    await loadMyNotifications();
+  }catch(e){console.error('標記通知已讀失敗：',e);show('notificationMsg','❌ 標記已讀失敗，請重新整理後再試。');}
+}
 async function markAllNotificationsRead(){
-  const uid=(await getCurrentUser())?.id;if(!uid)return;
-  const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(uid)+'&read_at=is.null',{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
-  if(r.ok){show('notificationMsg','✅ 已全部標記為已讀。');await loadMyNotifications();}else show('notificationMsg','❌ 操作失敗，請稍後再試。');
+  try{
+    const user=await getCurrentUser();if(!user?.id)throw new Error('請重新登入。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(user.id)+'&read_at=is.null',{method:'PATCH',headers:{...auth(),Prefer:'return=minimal'},body:JSON.stringify({read_at:new Date().toISOString()})});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    show('notificationMsg','✅ 已全部標記為已讀。');await loadMyNotifications();
+  }catch(e){console.error('全部標記已讀失敗：',e);show('notificationMsg','❌ 操作失敗：'+esc(e?.message||'請稍後再試。'));}
 }
 async function deleteReadNotifications(){
-  const uid=(await getCurrentUser())?.id;if(!uid)return;
   const count=myNotificationRows.filter(x=>x.read_at).length;
   if(!count){show('notificationMsg','目前沒有已讀通知可刪除。');return;}
   if(!confirm('確定刪除全部 '+count+' 則已讀通知？刪除後無法復原。'))return;
-  const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(uid)+'&read_at=not.is.null',{method:'DELETE',headers:{...auth(),Prefer:'return=minimal'}});
-  if(r.ok){show('notificationMsg','✅ 已刪除 '+count+' 則已讀通知。');await loadMyNotifications();}else show('notificationMsg','❌ 刪除失敗，請確認資料庫權限後再試。');
+  try{
+    const user=await getCurrentUser();if(!user?.id)throw new Error('請重新登入。');
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+encodeURIComponent(user.id)+'&read_at=not.is.null',{method:'DELETE',headers:{...auth(),Prefer:'return=minimal'}});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    show('notificationMsg','✅ 已刪除 '+count+' 則已讀通知。');await loadMyNotifications();
+  }catch(e){console.error('刪除已讀通知失敗：',e);show('notificationMsg','❌ 刪除失敗：'+esc(e?.message||'請確認資料庫權限後再試。'));}
 }
-
 
 function searchTextScore(row, q, fields){
   const query=q.toLowerCase();
@@ -867,5 +913,5 @@ function showMySection(id){const target=$(id);if(!target||!target.classList.cont
 const escD=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function loadDownloadFilesPublic(){const el=$('downloadList');if(!el)return;el.innerHTML='<div class="loading">正在載入…</div>';try{const r=await fetch(SUPABASE_URL+'/rest/v1/download_files?select=*&published=eq.true&order=created_at.desc',{headers:{apikey:SUPABASE_ANON_KEY}});const rows=r.ok?await r.json():[];el.innerHTML=rows.length?rows.map(x=>'<article class="notice"><div class="date">📦 '+escD(x.file_size?formatFileSizePublic(x.file_size):'檔案')+(x.version?' · v'+escD(x.version):'')+'</div><h3>📎 '+escD(x.title)+'</h3>'+(x.description?'<p>'+escD(x.description)+'</p>':'')+'<div class="competitionActions"><button class="btn" type="button" data-download-file="'+escD(x.id)+'">⬇️ 下載檔案</button></div></article>').join(''):'<div class="empty">目前沒有可下載的檔案。</div>';document.querySelectorAll('[data-download-file]').forEach(btn=>btn.onclick=async()=>{const id=btn.dataset.downloadFile;if(!visitorToken()){alert('請先登入會員。');return}btn.disabled=true;btn.textContent='⏳ 準備下載…';try{const row=rows.find(x=>String(x.id)===String(id));if(row?.storage_provider==='github'&&row?.file_url){await fetch(SUPABASE_URL+'/rest/v1/rpc/increment_download_count',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+visitorToken()},body:JSON.stringify({p_file_id:id})}).catch(()=>{});window.location.href=row.file_url;return}const t=visitorToken();const rr=await fetch(SUPABASE_URL+'/functions/v1/r2-downloads',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+t},body:JSON.stringify({action:'download-url',id})});const d=await rr.json().catch(()=>({}));if(!rr.ok||!d.url)throw new Error(d.error||'無法取得下載連結。');window.location.href=d.url;btn.textContent='⬇️ 下載檔案'}catch(e){alert(e.message);btn.textContent='⬇️ 下載檔案';btn.disabled=false}})}catch(e){el.innerHTML='<div class="empty">載入失敗，請稍後再試。</div>'}}
 function formatFileSizePublic(n){const v=Number(n||0);if(!v)return '';const units=['B','KB','MB','GB','TB'];let i=0,x=v;while(x>=1024&&i<units.length-1){x/=1024;i++;}return x.toFixed(i?1:0)+' '+units[i]}
-window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden');requestNativePushToken()}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();loadDownloadFilesPublic();if($('competitionList')){loadCompetitionPage();loadActivityLeaderboard();}if($('myProfile')&&sessionOk){initMyAppSettings();loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();loadMyOrders();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
+window.addEventListener('DOMContentLoaded',async()=>{bindMobileNav();initSiteSearch();if($('visitorLoginButton'))$('visitorLoginButton').onclick=visitorLogin;if($('visitorLogout'))$('visitorLogout').onclick=visitorLogout;const sessionOk=await ensureVisitorSession();if(sessionOk){$('visitorGate')?.classList.add('hidden');$('visitorLogout')?.classList.remove('hidden');requestNativePushToken()}else if($('visitorGate'))$('visitorGate').classList.remove('hidden');if($('sendTicket'))$('sendTicket').onclick=sendTicket;loadSite();if($('myCoupons')&&sessionOk)loadMyCoupons();loadQuickLinks();loadCompetitionMenu();loadNotificationBadge();loadDownloadFilesPublic();if($('competitionList')){loadCompetitionPage();loadActivityLeaderboard();}if($('myProfile')&&sessionOk){initMyAppSettings();loadMyProfile();loadMyCompetitions();loadMyAwards();loadMyNotifications();loadMyOrders();$('saveMyProfile')?.addEventListener('click',saveMyProfile);$('changeMyPassword')?.addEventListener('click',changeMyPassword);$('markAllNotifications')?.addEventListener('click',markAllNotificationsRead);$('deleteReadNotifications')?.addEventListener('click',deleteReadNotifications);$('notificationFilter')?.addEventListener('change',renderMyNotifications);showMySection(location.hash?location.hash.slice(1):'myProfilePanel');document.querySelectorAll('.mySubnav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();const target=a.dataset.target;history.replaceState(null,'','#'+target);showMySection(target);}));} });
 window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(id&&$(id))showMySection(id);});
