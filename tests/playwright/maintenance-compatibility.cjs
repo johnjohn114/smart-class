@@ -241,11 +241,14 @@ async function createPageErrors(page) {
     page.on('dialog', dialog => dialog.accept());
 
     await page.goto(BASE_URL + '/admin.html', { waitUntil: 'domcontentloaded' });
-    await page.locator('[data-tab="maintenanceTab"]').waitFor({ state: 'visible' });
-    await page.locator('#maintenanceBanner').waitFor({ state: 'visible' }).catch(() => {});
+    // Reveal the dashboard before asserting tab visibility: the tab is nested
+    // inside #dashboard, which is hidden until an admin logs in.
     await page.evaluate(() => {
       document.querySelector('#login')?.classList.add('hidden');
       document.querySelector('#dashboard')?.classList.remove('hidden');
+    });
+    await page.locator('[data-tab="maintenanceTab"]').waitFor({ state: 'visible' });
+    await page.evaluate(() => {
       window.__maintenanceEvents = [];
       window.__maintenanceCalls = [];
       window.maintenanceAdminRequest = async (endpoint, options = {}) => {
