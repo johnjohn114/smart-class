@@ -62,6 +62,9 @@ BEGIN
   IF NOT has_function_privilege('anon', 'public.maintenance_status_public(jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: anon cannot execute the public status RPC';
   END IF;
+  IF NOT has_function_privilege('pg_database_owner', 'public.is_admin()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: pg_database_owner cannot execute the existing admin helper';
+  END IF;
 END
 $service_role_acl$;
 
