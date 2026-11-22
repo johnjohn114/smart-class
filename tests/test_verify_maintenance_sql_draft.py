@@ -109,10 +109,9 @@ ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO maintenance_rpc_exe
 ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
 ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
-SELECT pg_catalog.set_config('maintenance.migration_actor', current_user, true);
 SET ROLE maintenance_rpc_executor;
 RESET ROLE;
-REVOKE SET OPTION FOR maintenance_rpc_executor FROM %I;
+REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 COMMIT;
 REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 COMMIT;
