@@ -236,3 +236,23 @@ This is CI evidence from disposable test services, not a hosted production Supab
 - The January 2027 security review remains separate and is not advanced by this closeout.
 
 **Disposition:** documentation and isolated CI closeout complete; production readiness is not established. Keep the feature disabled and do not merge or deploy until the remaining environment-history and hosted-release gates are resolved with separate approval.
+
+
+## Project conversation and uploaded-record cross-check — 2026-11-22
+
+The available project conversation excerpts and the user-provided record `啟動第一步檢查.txt` were reviewed as supporting evidence for the user's recollection about Maintenance SQL execution.
+
+The uploaded record documents an initial SQL review, labels the SQL as a review draft, and explicitly instructs not to press Run in Supabase. The available project conversation excerpts likewise show repeated instructions to perform read-only inspection, avoid executing SQL/migrations, and keep production changes paused. The reviewed excerpts do not show an instruction from the assistant asking the user to manually apply the Maintenance SQL.
+
+Evidence boundary:
+- This supports the user's recollection that they were not instructed by the assistant to run the Maintenance SQL in a local/test database.
+- The uploaded record and available conversation excerpts cannot prove that no independent manual action occurred outside those conversations.
+- The known Supabase inventory remains one production project with no Supabase-managed development branches; CI databases are disposable.
+- The production read-only inspection showed no Maintenance objects, but does not prove the state of any unobserved local or external database.
+
+Updated assessment:
+- User recollection: likely not manually applied.
+- Assistant-directed execution in the reviewed conversation material: no such instruction found.
+- Independent local/external execution: not established; residual uncertainty remains.
+
+Decision remains unchanged: preserve both timestamped Maintenance migrations; do not squash, replace, apply, or repair migration history based on recollection alone. No SQL was executed and no database, deployment, feature flag, or PR merge was changed during this cross-check.
