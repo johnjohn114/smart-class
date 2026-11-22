@@ -339,23 +339,6 @@ END
 $anon_is_admin_result$;
 RESET ROLE;
 
--- SECURITY DEFINER growth routines must not inherit a caller-controlled search_path.
-DO $search_path_hardening$
-DECLARE award_config text[]; achievement_config text[];
-BEGIN
-  SELECT proconfig INTO award_config FROM pg_proc
-  WHERE oid='public.award_growth_points(uuid,integer,text,text,text,text,uuid)'::regprocedure;
-  SELECT proconfig INTO achievement_config FROM pg_proc
-  WHERE oid='public.check_growth_achievements(uuid)'::regprocedure;
-  IF NOT coalesce(award_config @> ARRAY['search_path=""'],false) THEN
-    RAISE EXCEPTION 'FAIL: award_growth_points must use an empty search_path';
-  END IF;
-  IF NOT coalesce(achievement_config @> ARRAY['search_path=""'],false) THEN
-    RAISE EXCEPTION 'FAIL: check_growth_achievements must use an empty search_path';
-  END IF;
-END
-$search_path_hardening$;
-
 -- Anonymous callers cannot execute privileged RPCs or internal helpers.
 DO $anon_acl$
 BEGIN
@@ -753,6 +736,23 @@ BEGIN
   END IF;
 END
 $forward_acl$;
+
+-- SECURITY DEFINER growth routines must not inherit a caller-controlled search_path.
+DO $search_path_hardening$
+DECLARE award_config text[]; achievement_config text[];
+BEGIN
+  SELECT proconfig INTO award_config FROM pg_proc
+  WHERE oid='public.award_growth_points(uuid,integer,text,text,text,text,uuid)'::regprocedure;
+  SELECT proconfig INTO achievement_config FROM pg_proc
+  WHERE oid='public.check_growth_achievements(uuid)'::regprocedure;
+  IF NOT coalesce(award_config @> ARRAY['search_path=""'],false) THEN
+    RAISE EXCEPTION 'FAIL: award_growth_points must use an empty search_path';
+  END IF;
+  IF NOT coalesce(achievement_config @> ARRAY['search_path=""'],false) THEN
+    RAISE EXCEPTION 'FAIL: check_growth_achievements must use an empty search_path';
+  END IF;
+END
+$search_path_hardening$;
 
 -- Stage A must also repair unsafe defaults for future SECURITY DEFINER functions.
 CREATE FUNCTION public.ci_forward_future_definer()
