@@ -17,6 +17,7 @@
 - 公開 status RPC 的 EXECUTE 對象為 `anon`、`authenticated`；管理 RPC 的 EXECUTE 僅授予 `authenticated`。完整現行設計以 API v0.7 與 migration 原始碼為準。
 - 現行欄位限制：title 200、message 4,000、internal_note 4,000、reason 500 字元；Edge parser 與 SQL 驗證已對齊。
 - v1 不承諾 HTTP 429 `RATE_LIMITED`；原始第 5 節的 429 列是舊版規劃，不是目前已提供的功能。
+- Maintenance create RPC 與 Edge parser 僅允許建立 `draft`；`scheduled` 必須由 `maintenance_event_action` 的 `schedule` 動作產生，並由資料庫檢查未來開始時間及排程衝突。
 
 ### 隔離 CI 狀態
 
