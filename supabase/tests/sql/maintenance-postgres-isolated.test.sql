@@ -46,7 +46,7 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 
 -- A function created after the draft must not inherit PUBLIC EXECUTE in private.
 CREATE FUNCTION private.maintenance_default_acl_probe()
-RETURNS boolean LANGUAGE sql AS $ SELECT true $;
+RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
 DO $private_default_acl$
 BEGIN
   IF has_function_privilege('anon', 'private.maintenance_default_acl_probe()', 'EXECUTE')
