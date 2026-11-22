@@ -999,6 +999,8 @@ RESET ROLE;
 -- Keep the membership record as the grantor of dependent ACLs, but remove SET access.
 -- INHERIT was disabled when the membership was created, so no executor privileges flow in.
 REVOKE SET OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
+-- A CREATEROLE role that creates a role may receive ADMIN OPTION; remove that too.
+REVOKE ADMIN OPTION FOR maintenance_rpc_executor FROM CURRENT_USER;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
 COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
