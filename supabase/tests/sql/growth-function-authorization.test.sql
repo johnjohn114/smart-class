@@ -860,6 +860,37 @@ END
 $forward_admin_null_identity$;
 RESET ROLE;
 
+-- After Stage A, an authenticated administrator can still delete a reward.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
+SET ROLE authenticated;
+DO $forward_admin_positive$
+DECLARE result jsonb; reward_id uuid;
+BEGIN
+  INSERT INTO public.growth_rewards(code,title,reward_type,point_cost,enabled)
+  VALUES('stage-a-delete-test','Stage A delete test','coupon',5,true)
+  RETURNING id INTO reward_id;
+  result := public.admin_delete_growth_reward(reward_id);
+  IF result->>'action' <> 'deleted' THEN
+    RAISE EXCEPTION 'FAIL: Stage A admin reward delete no longer works';
+  END IF;
+END
+$forward_admin_positive$;
+RESET ROLE;
+
+-- The member can still refresh their own level after Stage A.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_level_self$
+DECLARE level_code text;
+BEGIN
+  level_code := public.refresh_growth_level(auth.uid());
+  IF level_code <> 'sprout' THEN
+    RAISE EXCEPTION 'FAIL: Stage A member could not refresh own growth level';
+  END IF;
+END
+$forward_level_self$;
+RESET ROLE;
+
 -- Internal SECURITY DEFINER trigger paths continue to award points even though
 -- browser roles cannot call the helper directly.
 CREATE TABLE public.ci_forward_award_trigger_source(
