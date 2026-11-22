@@ -712,6 +712,13 @@ END;
 $legacy_unguarded$;
 GRANT EXECUTE ON FUNCTION public.check_growth_achievements(uuid) TO anon;
 
+-- Reintroduce unsafe default ACLs to model the production drift independently
+-- of the earlier historical hardening migration.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
 \ir ../../migrations/20261122120000_growth_rpc_and_public_leaderboard_hardening.sql
 
 DO $forward_acl$
@@ -746,6 +753,18 @@ BEGIN
   END IF;
 END
 $forward_acl$;
+
+-- Stage A must also repair unsafe defaults for future SECURITY DEFINER functions.
+CREATE FUNCTION public.ci_forward_future_definer()
+RETURNS integer LANGUAGE sql SECURITY DEFINER AS $ SELECT 1 $;
+DO $forward_defaults$
+BEGIN
+  IF has_function_privilege('anon','public.ci_forward_future_definer()','EXECUTE')
+     OR has_function_privilege('authenticated','public.ci_forward_future_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left unsafe default EXECUTE grants on future functions';
+  END IF;
+END
+$forward_defaults$;
 
 -- A member still processes only their own achievements after the forward fix.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
