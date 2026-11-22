@@ -124,7 +124,7 @@ def inspect_sql(sql: str) -> dict[str, bool]:
         for table in TABLES
     )
     checks["admin_policies_target_database_owner"] = all(
-        re.search(rf"CREATE POLICY {policy}\b.*?TO pg_database_owner", sql, re.I | re.S)
+        re.search(rf"CREATE POLICY {policy}\b.*?TO (?:authenticated\s*,\s*)?pg_database_owner", sql, re.I | re.S)
         for policy in (
             "maintenance_scopes_admin_select", "maintenance_events_admin_select",
             "maintenance_events_admin_insert", "maintenance_events_admin_update",
