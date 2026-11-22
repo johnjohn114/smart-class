@@ -331,7 +331,7 @@ async function createPageErrors(page) {
 
     await page.locator('#maintenanceReason').fill('隔離瀏覽器排程測試');
     await page.locator('[data-maintenance-action="schedule"][data-maintenance-id="browser-event-1"]').click();
-    await page.getByText('已排程', { exact: false }).waitFor();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已排程' }).waitFor({ state: 'visible' });
 
     // Simulate the scheduled event reaching its end time without waiting in CI.
     await page.evaluate(async () => {
@@ -340,7 +340,7 @@ async function createPageErrors(page) {
     });
     await page.locator('#maintenanceReason').fill('隔離瀏覽器完成測試');
     await page.locator('[data-maintenance-action="complete"][data-maintenance-id="browser-event-1"]').click();
-    await page.getByText('已完成', { exact: false }).waitFor();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已完成' }).waitFor({ state: 'visible' });
 
     // A second event exercises the cancellation path independently.
     await page.locator('#maintenanceTitle').fill('瀏覽器測試取消事件');
@@ -353,10 +353,10 @@ async function createPageErrors(page) {
     await page.getByText('瀏覽器測試取消事件').waitFor();
     await page.locator('#maintenanceReason').fill('隔離瀏覽器取消測試');
     await page.locator('[data-maintenance-action="schedule"][data-maintenance-id="browser-event-2"]').click();
-    await page.getByText('已排程', { exact: false }).waitFor();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已排程' }).waitFor({ state: 'visible' });
     await page.locator('#maintenanceReason').fill('隔離瀏覽器取消測試');
     await page.locator('[data-maintenance-action="cancel"][data-maintenance-id="browser-event-2"]').click();
-    await page.getByText('已取消', { exact: false }).waitFor();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已取消' }).waitFor({ state: 'visible' });
 
     calls = await page.evaluate(() => window.__maintenanceCalls);
     for (const endpoint of [
