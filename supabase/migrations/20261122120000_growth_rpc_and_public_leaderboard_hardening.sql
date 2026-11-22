@@ -15,9 +15,8 @@ BEGIN
     RAISE EXCEPTION 'Required function public.check_growth_achievements(uuid) is missing';
   END IF;
   IF to_regprocedure('public.admin_delete_growth_reward(uuid)') IS NULL
-     OR to_regprocedure('public.refresh_growth_level(uuid)') IS NULL
-     OR to_regprocedure('public._refresh_growth_level_internal(uuid)') IS NULL THEN
-    RAISE EXCEPTION 'Required admin reward / growth level functions are missing';
+     OR to_regprocedure('public.refresh_growth_level(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'Required admin reward / growth level wrapper functions are missing';
   END IF;
   IF to_regclass('public.profiles') IS NULL
      OR to_regclass('public.competition_attendance') IS NULL THEN
