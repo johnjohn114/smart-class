@@ -526,7 +526,8 @@ BEGIN
      OR (v_note IS NOT NULL AND pg_catalog.char_length(v_note)>4000)
      OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
      OR v_start IS NULL OR v_end IS NULL OR v_start>=v_end
-     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled') THEN
+     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled')
+     OR (v_status='scheduled' AND v_start<=pg_catalog.now()) THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(p_request->'scope_codes') AS item(value)
@@ -774,7 +775,7 @@ BEGIN
     'scope_codes', COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
               FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id),'[]'::jsonb));
   v_schedule_changed := p_request ?| ARRAY['is_global','scope_codes','starts_at','ends_at'];
-  IF v_event.status='scheduled' AND v_event.starts_at<=pg_catalog.now() AND v_schedule_changed THEN
+  IF v_event.status='scheduled' AND v_schedule_changed AND v_start<=pg_catalog.now() THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   IF v_event.status='scheduled' AND EXISTS (
@@ -903,7 +904,7 @@ BEGIN
     'scope_codes',v_codes);
 
   IF v_action='schedule' THEN
-    IF v_event.status<>'draft' THEN
+    IF v_event.status<>'draft' OR v_event.starts_at<=pg_catalog.now() THEN
       RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
     END IF;
     IF EXISTS (
