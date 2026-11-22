@@ -53,22 +53,32 @@ BEGIN
 END
 $$;
 
--- The admin RPC owner is non-login, non-superuser, and cannot bypass RLS.
-DO $$
+-- The admin RPC owner is PostgreSQL's built-in database-owner pseudo-role.
+DO $
 DECLARE
-  executor record;
+  db_owner record;
   table_name text;
   column_name text;
   function_name text;
 BEGIN
-  SELECT rolcanlogin, rolinherit, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
-    INTO executor FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor';
-  IF executor.rolcanlogin OR executor.rolinherit OR executor.rolsuper OR executor.rolbypassrls
-     OR executor.rolcreatedb OR executor.rolcreaterole OR executor.rolreplication THEN
-    RAISE EXCEPTION 'FAIL: maintenance RPC executor has elevated role attributes';
+  SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
+    INTO db_owner FROM pg_catalog.pg_roles WHERE rolname='pg_database_owner';
+  IF db_owner.rolcanlogin OR db_owner.rolsuper OR db_owner.rolbypassrls
+     OR db_owner.rolcreatedb OR db_owner.rolcreaterole OR db_owner.rolreplication THEN
+    RAISE EXCEPTION 'FAIL: pg_database_owner has elevated role attributes';
   END IF;
-  IF pg_catalog.has_schema_privilege('maintenance_rpc_executor','public','CREATE') THEN
-    RAISE EXCEPTION 'FAIL: maintenance RPC executor retained CREATE on public schema';
+  IF NOT pg_catalog.pg_has_role(current_user,'pg_database_owner','SET') THEN
+    RAISE EXCEPTION 'FAIL: current database owner cannot SET ROLE pg_database_owner';
+  END IF;
+  IF pg_catalog.pg_has_role('authenticated','pg_database_owner','MEMBER')
+     OR pg_catalog.pg_has_role('anon','pg_database_owner','MEMBER') THEN
+    RAISE EXCEPTION 'FAIL: application roles are members of pg_database_owner';
+  END IF;
+  IF NOT pg_catalog.has_schema_privilege('pg_database_owner','public','CREATE') THEN
+    RAISE EXCEPTION 'FAIL: pg_database_owner must own public schema';
+  END IF;
+  IF pg_catalog.has_schema_privilege('pg_database_owner','auth','USAGE') THEN
+    RAISE EXCEPTION 'FAIL: admin RPC owner unexpectedly depends on auth schema access';
   END IF;
 
   FOREACH table_name IN ARRAY ARRAY[
@@ -100,9 +110,9 @@ BEGIN
       JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname='private' AND c.relname=table_name
         AND c.relrowsecurity AND c.relforcerowsecurity
-        AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor')
+        AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='pg_database_owner')
     ) THEN
-      RAISE EXCEPTION 'FAIL: table % must FORCE RLS and not be owned by executor', table_name;
+      RAISE EXCEPTION 'FAIL: table % must FORCE RLS and not be owned by pg_database_owner', table_name;
     END IF;
   END LOOP;
 
@@ -114,8 +124,8 @@ BEGIN
         FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
-        WHERE n.nspname='public' AND p.proname=function_name) <> 'maintenance_rpc_executor' THEN
-      RAISE EXCEPTION 'FAIL: admin RPC % is not owned by dedicated executor', function_name;
+        WHERE n.nspname='public' AND p.proname=function_name) <> 'pg_database_owner' THEN
+      RAISE EXCEPTION 'FAIL: admin RPC % is not owned by pg_database_owner', function_name;
     END IF;
   END LOOP;
 END
