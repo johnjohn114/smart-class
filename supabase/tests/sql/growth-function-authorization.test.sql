@@ -922,6 +922,42 @@ END
 $forward_admin_positive$;
 RESET ROLE;
 
+-- The authenticated admin can still create a reward after Stage A.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
+SET ROLE authenticated;
+DO $forward_admin_upsert_positive$
+DECLARE result jsonb;
+BEGIN
+  result := public.admin_upsert_growth_reward(
+    NULL,'stage-a-upsert-test','Stage A Upsert Test',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,2,true
+  );
+  IF result->>'action' <> 'created' THEN
+    RAISE EXCEPTION 'FAIL: Stage A admin reward upsert no longer works';
+  END IF;
+END
+$forward_admin_upsert_positive$;
+RESET ROLE;
+
+-- A normal authenticated member still cannot use the admin reward upsert.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_admin_upsert_member_denied$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_upsert_growth_reward(
+      NULL,'stage-a-member-test','Stage A Member Test',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+      NULL,NULL,NULL,NULL,NULL,NULL,3,true
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='只有管理員可以管理獎勵' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed a normal member to upsert rewards'; END IF;
+END
+$forward_admin_upsert_member_denied$;
+RESET ROLE;
+
 -- The member can still refresh their own level after Stage A.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
 SET ROLE authenticated;
