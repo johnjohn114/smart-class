@@ -63,7 +63,7 @@ The live function also has a NULL-sensitive ownership comparison:
 
 The candidate Stage A migration restores an explicit `auth.uid() IS NULL` denial, retains authenticated self/admin behavior, revokes anonymous execution, and adds tests for anonymous and cross-account attempts.
 
-## 5. `activity_member_stats` view
+## 6. `activity_member_stats` view
 
 Live read-only catalog evidence:
 
@@ -75,7 +75,7 @@ Live read-only catalog evidence:
 
 The existing candidate `supabase/candidate_sql/activity_member_stats_view_hardening.sql` changes the view to `security_invoker=true`, revokes `PUBLIC` / `anon` access, and retains SELECT for `authenticated` and `service_role`.
 
-## 6. Frontend compatibility already present in main
+## 7. Frontend compatibility already present in main
 
 The current `app.js` has two relevant paths:
 
@@ -88,7 +88,7 @@ The fallback is a compatibility bridge only. It does not harden the legacy view.
 
 Public nickname and displayed aggregate visibility remains a product/privacy decision that must be confirmed before production release.
 
-## 7. Existing tests and required additions
+## 8. Existing tests and required additions
 
 Existing isolated test assets already cover substantial behavior:
 
@@ -105,7 +105,7 @@ Required test additions before release:
 5. Preserve `admin_adjust_growth_points` only for admins.
 6. Run both growth and view suites in the same disposable PostgreSQL environment and verify the full app-level compatibility sequence.
 
-## 8. Forward-only remediation outline
+## 9. Forward-only remediation outline
 
 Do not rewrite or delete existing migration files because other environments may have applied them.
 
@@ -118,6 +118,6 @@ Prepare a new, idempotent forward migration that:
 
 Do not apply this migration to production until all relevant environments and migration history are reconciled, the disposable tests pass, and the public leaderboard privacy decision is approved.
 
-## 9. Safety record
+## 10. Safety record
 
 This review used GitHub source reads and read-only PostgreSQL catalog queries only. No production SQL writes, data reads, data updates, migrations, Edge Function deployments, frontend deployments, feature-flag changes, or PR merges were performed.
