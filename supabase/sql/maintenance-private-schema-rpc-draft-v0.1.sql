@@ -984,7 +984,10 @@ REVOKE CREATE ON SCHEMA public FROM maintenance_rpc_executor;
 REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.maintenance_status_public(jsonb) TO anon, authenticated;
 
--- Switch to the new function owner to apply its ACLs, then return and remove membership.
+-- Preserve the original migration actor before switching to the function owner.
+SELECT pg_catalog.set_config('maintenance.migration_actor', current_user, true);
+
+-- Switch to the new function owner to apply its ACLs.
 SET ROLE maintenance_rpc_executor;
 REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon;
@@ -996,8 +999,17 @@ GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticate
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
 RESET ROLE;
 
--- Remove the temporary membership after ownership and ACL transfer are complete.
-REVOKE maintenance_rpc_executor FROM CURRENT_USER;
+-- RESET ROLE returns to SESSION_USER, which may differ from the migration actor
+-- (for example, when CI deliberately SET ROLE to emulate hosted Supabase postgres).
+DO $revoke_executor_membership$
+DECLARE
+  v_migration_actor name := pg_catalog.current_setting('maintenance.migration_actor')::name;
+BEGIN
+  EXECUTE pg_catalog.format(
+    'REVOKE maintenance_rpc_executor FROM %I', v_migration_actor
+  );
+END
+$revoke_executor_membership$;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
 COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
