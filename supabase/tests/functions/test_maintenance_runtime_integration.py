@@ -91,6 +91,16 @@ def main():
           "Deno Edge handler validates and creates an event through PostgREST")
     event_id = created["data"]["event_id"]
 
+    status, replayed_create = request(EDGE + "/maintenance-event-create", "POST", admin, create)
+    check(status == 200 and replayed_create == created,
+          "Deno Edge handler replays an identical create request without creating a second event")
+
+    reused_create_key = dict(create)
+    reused_create_key["title"] = "Changed content with the original idempotency key"
+    status, rejected_reuse = request(EDGE + "/maintenance-event-create", "POST", admin, reused_create_key)
+    check(status == 409 and rejected_reuse.get("error", {}).get("code") == "IDEMPOTENCY_KEY_REUSED",
+          "Deno Edge handler maps changed content with a reused create key to HTTP 409")
+
     update = {
         "event_id": event_id,
         "expected_version": 1,
@@ -101,6 +111,9 @@ def main():
     status, updated = request(EDGE + "/maintenance-event-update", "POST", admin, update)
     check(status == 200 and updated.get("data", {}).get("version") == 2,
           "Deno Edge handler updates an event with optimistic version control")
+    status, replayed_update = request(EDGE + "/maintenance-event-update", "POST", admin, update)
+    check(status == 200 and replayed_update == updated,
+          "Deno Edge handler replays an identical update after the event version has advanced")
 
     action = {
         "event_id": event_id,
@@ -112,6 +125,9 @@ def main():
     status, cancelled = request(EDGE + "/maintenance-event-action", "POST", admin, action)
     check(status == 200 and cancelled.get("data", {}).get("status") == "cancelled",
           "Deno Edge handler executes the lifecycle action RPC")
+    status, replayed_action = request(EDGE + "/maintenance-event-action", "POST", admin, action)
+    check(status == 200 and replayed_action == cancelled,
+          "Deno Edge handler replays an identical lifecycle action after cancellation")
 
     status, rejected = request(EDGE + "/maintenance-event-create", "POST", member, create)
     check(status == 403 and rejected.get("error", {}).get("code") == "FORBIDDEN",
