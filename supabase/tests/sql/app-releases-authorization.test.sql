@@ -99,12 +99,16 @@ RESET ROLE;
 SET ROLE authenticated;
 SET request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
 DO $member$
-DECLARE visible_count integer; denied boolean := false;
+DECLARE
+  visible_count integer;
+  affected_count integer;
+  denied boolean := false;
 BEGIN
   SELECT count(*) INTO visible_count FROM public.app_releases;
   IF visible_count <> 1 THEN
     RAISE EXCEPTION 'FAIL: ordinary member should see exactly one published release, saw %', visible_count;
   END IF;
+
   BEGIN
     INSERT INTO public.app_releases(version_code,version_name,release_notes,apk_url,created_by)
     VALUES(102,'1.0.2','member attempt','https://example.test/member.apk',auth.uid());
@@ -113,6 +117,33 @@ BEGIN
   END;
   IF NOT denied THEN
     RAISE EXCEPTION 'FAIL: ordinary member unexpectedly inserted a release';
+  END IF;
+
+  -- UPDATE/DELETE RLS USING policies filter rows rather than necessarily
+  -- raising an exception. Assert zero affected rows and unchanged data.
+  UPDATE public.app_releases
+    SET release_notes='member unauthorized update'
+    WHERE version_code=100;
+  GET DIAGNOSTICS affected_count = ROW_COUNT;
+  IF affected_count <> 0 THEN
+    RAISE EXCEPTION 'FAIL: ordinary member unexpectedly updated % release row(s)', affected_count;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.app_releases
+    WHERE version_code=100 AND release_notes='公開版本'
+  ) THEN
+    RAISE EXCEPTION 'FAIL: ordinary member changed the published release';
+  END IF;
+
+  DELETE FROM public.app_releases WHERE version_code=100;
+  GET DIAGNOSTICS affected_count = ROW_COUNT;
+  IF affected_count <> 0 THEN
+    RAISE EXCEPTION 'FAIL: ordinary member unexpectedly deleted % release row(s)', affected_count;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.app_releases WHERE version_code=100
+  ) THEN
+    RAISE EXCEPTION 'FAIL: ordinary member deleted the published release';
   END IF;
 END
 $member$;
@@ -145,4 +176,4 @@ $admin$;
 RESET ROLE;
 RESET request.jwt.claim.sub;
 
-\echo 'PASS: App Releases table ACL, published-row visibility, member denial, and admin CRUD tests'
+\echo 'PASS: App Releases table ACL, published-row visibility, member INSERT/UPDATE/DELETE denial, and admin CRUD tests'
