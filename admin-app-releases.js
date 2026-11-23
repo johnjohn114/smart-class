@@ -2,7 +2,9 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function headers(){const h={apikey:SUPABASE_ANON_KEY,'Content-Type':'application/json',Prefer:'return=representation'};const token=localStorage.getItem('access_token');if(token)h.Authorization='Bearer '+token;return h}
+function accessToken(){const session=typeof recoverStoredSession==='function'?recoverStoredSession():{};return session?.access||localStorage.getItem('access_token')||sessionStorage.getItem('access_token')||''}
+function headers(){const h={apikey:SUPABASE_ANON_KEY,'Content-Type':'application/json',Prefer:'return=representation'};const token=accessToken();if(token)h.Authorization='Bearer '+token;return h}
+async function currentUserId(){const token=accessToken();if(!token)throw new Error('管理員登入狀態已失效，請重新登入。');const r=await fetch(SUPABASE_URL+'/auth/v1/user',{headers:{apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+token}});const user=await r.json().catch(()=>({}));if(!r.ok||!user.id)throw new Error('無法確認目前管理員帳號，請重新登入後再試。');return user.id}
 function msg(t){$('appReleaseMsg').textContent=t}
 async function load(){
  const r=await fetch(SUPABASE_URL+'/rest/v1/app_releases?select=*&order=version_code.desc',{headers:headers()});
@@ -20,7 +22,7 @@ async function save(){
  const id=$('releaseId').value,code=Number($('releaseVersionCode').value),name=$('releaseVersionName').value.trim(),notes=$('releaseNotes').value.trim(),url=$('releaseApkUrl').value.trim(),published=$('releasePublished').checked;
  if(!Number.isInteger(code)||code<1||!name||!url){msg('請填寫有效的 versionCode、版本號及 APK 下載網址。');return}
  try{const u=new URL(url);if(u.protocol!=='https:')throw new Error()}catch(e){msg('APK 下載網址必須是有效的 HTTPS 網址。');return}
- const body={version_code:code,version_name:name,release_notes:notes,apk_url:url,published,published_at:published?new Date().toISOString():null,created_by:localStorage.getItem('admin_user_id')||null};
+ const body={version_code:code,version_name:name,release_notes:notes,apk_url:url,published,published_at:published?new Date().toISOString():null};if(!id){try{body.created_by=await currentUserId()}catch(e){msg(e.message);return}}
  const r=await fetch(SUPABASE_URL+'/rest/v1/app_releases'+(id?'?id=eq.'+encodeURIComponent(id):''),{method:id?'PATCH':'POST',headers:headers(),body:JSON.stringify(body)});
  if(!r.ok){const d=await r.json().catch(()=>({}));msg('儲存失敗：'+(d.message||d.details||'請確認管理員權限、SQL 與 versionCode 是否重複。'));return}
  msg('✅ 已儲存版本資訊。');clear();await load();
