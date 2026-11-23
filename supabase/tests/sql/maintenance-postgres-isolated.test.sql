@@ -92,6 +92,13 @@ BEGIN
   IF NOT pg_catalog.has_schema_privilege('pg_database_owner','public','CREATE') THEN
     RAISE EXCEPTION 'FAIL: pg_database_owner must own public schema';
   END IF;
+  -- service_role must not receive direct access to the private Maintenance data plane.
+  IF pg_catalog.has_schema_privilege('service_role','private','USAGE') THEN
+    RAISE EXCEPTION 'FAIL: service_role has USAGE on the private Maintenance schema';
+  END IF;
+  IF pg_catalog.has_function_privilege('service_role','private.maintenance_uid()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: service_role can execute the private JWT subject helper';
+  END IF;
   IF pg_catalog.has_schema_privilege('pg_database_owner','auth','USAGE') THEN
     RAISE EXCEPTION 'FAIL: admin RPC owner unexpectedly depends on auth schema access';
   END IF;
@@ -105,6 +112,15 @@ BEGIN
        OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'DELETE')
        OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'TRUNCATE') THEN
       RAISE EXCEPTION 'FAIL: authenticated has direct write privilege on %', table_name;
+    END IF;
+    IF pg_catalog.has_table_privilege('service_role','private.'||table_name,'SELECT')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'INSERT')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'UPDATE')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'DELETE')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'TRUNCATE')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'REFERENCES')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'TRIGGER') THEN
+      RAISE EXCEPTION 'FAIL: service_role has direct privilege on private.%', table_name;
     END IF;
     -- Table-level privilege checks do not replace checking every column grant.
     FOR column_name IN
