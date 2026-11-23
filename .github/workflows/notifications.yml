@@ -1,0 +1,80 @@
+name: Notification Page Checks
+
+on:
+  pull_request:
+    paths:
+      - "my.html"
+      - "app.js"
+      - "tests/test_notifications_contract.py"
+      - "tests/notification_browser.spec.cjs"
+      - ".github/workflows/notifications.yml"
+  push:
+    branches:
+      - fix/notifications-page-loading-20261122
+    paths:
+      - "my.html"
+      - "app.js"
+      - "tests/test_notifications_contract.py"
+      - "tests/notification_browser.spec.cjs"
+      - ".github/workflows/notifications.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  notification-contract:
+    name: Notification markup and behavior contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Check browser JavaScript syntax
+        run: node --check app.js
+
+      - name: Run notification contract tests
+        run: python -m unittest discover -s tests -p 'test_notifications_contract.py' -v
+
+  notification-browser-preview:
+    name: Isolated notification browser preview
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Start local preview server
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/smart-class-preview.log 2>&1 &
+          echo $! > /tmp/smart-class-preview.pid
+
+      - name: Run isolated browser flow
+        run: node tests/notification_browser.spec.cjs
+
+      - name: Upload isolated preview screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-preview-screenshot
+          path: artifacts/notification-preview.png
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Stop local preview server
+        if: always()
+        run: |
+          if [ -f /tmp/smart-class-preview.pid ]; then kill "$(cat /tmp/smart-class-preview.pid)" || true; fi
