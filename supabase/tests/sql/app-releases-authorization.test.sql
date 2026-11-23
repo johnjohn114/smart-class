@@ -2,11 +2,11 @@
 -- Run from repository root in a fresh database:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/app-releases-authorization.test.sql
 --
--- This test exercises the canonical migration only. It does not connect to or
--- modify the hosted production Supabase project. service_role is intentionally
--- not assigned an access contract here: the canonical migration grants table
--- DML to authenticated only, and any backend service_role use must be audited
--- against actual backend call sites before adding grants.
+-- This test exercises the canonical migration plus the forward ACL draft in a
+-- disposable PostgreSQL database. It never connects to production. The test
+-- simulates the broad postgres-owned default table ACL observed in production.
+-- service_role is deliberately left unchanged by the draft pending an audit of
+-- consumers outside this repository.
 
 DO $roles$
 BEGIN
@@ -32,7 +32,11 @@ CREATE TABLE public.profiles(
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
 GRANT SELECT ON public.profiles TO authenticated;
 
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT ALL PRIVILEGES ON TABLES TO anon, authenticated, service_role;
+
 \ir ../../migrations/202610310001_app_releases.sql
+\ir ../../sql/app-releases-acl-hardening.sql
 
 INSERT INTO auth.users(id,email) VALUES
   ('00000000-0000-4000-8000-000000000001','admin@example.test'),
@@ -64,8 +68,15 @@ BEGIN
      OR NOT has_table_privilege('authenticated','public.app_releases','DELETE') THEN
     RAISE EXCEPTION 'FAIL: authenticated is missing a privilege explicitly granted by the canonical migration';
   END IF;
-  IF has_table_privilege('authenticated','public.app_releases','TRUNCATE') THEN
-    RAISE EXCEPTION 'FAIL: authenticated unexpectedly has TRUNCATE';
+  IF has_table_privilege('authenticated','public.app_releases','TRUNCATE')
+     OR has_table_privilege('authenticated','public.app_releases','REFERENCES')
+     OR has_table_privilege('authenticated','public.app_releases','TRIGGER') THEN
+    RAISE EXCEPTION 'FAIL: authenticated has an unnecessary TRUNCATE/REFERENCES/TRIGGER privilege';
+  END IF;
+  -- The candidate intentionally leaves service_role unchanged until external
+  -- consumers are audited; simulated broad default ACLs therefore remain.
+  IF NOT has_table_privilege('service_role','public.app_releases','TRUNCATE') THEN
+    RAISE EXCEPTION 'FAIL: service_role was unexpectedly modified by this scoped draft';
   END IF;
 END
 $acl$;
