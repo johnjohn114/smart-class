@@ -21,6 +21,18 @@ class MaintenanceFeatureGateTests(unittest.TestCase):
         self.assertIn("if (maintenanceEnabled) maintenanceTabButton?.removeAttribute('hidden');", script)
         self.assertIn("if (!maintenanceEnabled) return;", script)
 
+    def test_existing_page_script_order_is_preserved(self):
+        index = (ROOT / "index.html").read_text(encoding="utf-8")
+        admin = (ROOT / "admin.html").read_text(encoding="utf-8")
+        self.assertLess(index.index('<script src="config.js"></script>'), index.index('<script src="app.js'))
+        self.assertLess(admin.index('<script src="config.js"></script>'), admin.index('<script src="admin.js'))
+        self.assertIn("const MAINTENANCE_FEATURE_ENABLED = false;", (ROOT / "config.js").read_text(encoding="utf-8"))
+
+    def test_public_app_bundle_is_not_replaced_by_maintenance_client(self):
+        index = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<script src="app.js', index)
+        self.assertNotIn('<script src="maintenance-client.js', index)
+
 
 if __name__ == "__main__":
     unittest.main()

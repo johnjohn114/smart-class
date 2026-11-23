@@ -12,11 +12,7 @@ on:
       - "admin.js"
       - "admin.html"
       - "tests/test_maintenance_feature_gate.py"
-      - "config.js"
-      - "maintenance-client.js"
-      - "admin.js"
-      - "admin.html"
-      - "tests/test_maintenance_feature_gate.py"
+      - "tests/playwright/**"
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
@@ -28,6 +24,13 @@ on:
       - ".github/workflows/maintenance-edge-functions.yml"
   pull_request:
     paths:
+      - "config.js"
+      - "maintenance-client.js"
+      - "admin.js"
+      - "admin.html"
+      - "index.html"
+      - "tests/test_maintenance_feature_gate.py"
+      - "tests/playwright/**"
       - "app.js"
       - "my.html"
       - "tests/test_notifications_contract.py"
@@ -53,7 +56,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check browser JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check admin.js
+          node --check config.js
+          node --check maintenance-client.js
 
       - name: Run notification page contract tests
         run: python -m unittest discover -s tests -p 'test_notifications_contract.py' -v
@@ -74,10 +81,18 @@ jobs:
             supabase/tests/functions/maintenance-validation.test.ts
 
       - name: Run maintenance validation tests
-        run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS supabase/tests/functions/maintenance-validation.test.ts
+        run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS,SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY supabase/tests/functions/maintenance-validation.test.ts
 
       - name: Test maintenance feature gate
         run: python -m unittest discover -s tests -p 'test_maintenance_feature_gate.py'
+
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run isolated browser compatibility tests
+        run: node tests/playwright/maintenance-compatibility.cjs
 
       - name: Run maintenance SQL static guardrails
         run: python scripts/verify_maintenance_sql_draft.py
