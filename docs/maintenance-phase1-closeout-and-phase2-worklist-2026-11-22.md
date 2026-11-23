@@ -183,3 +183,33 @@ Assessment against the current authorization design:
 - The Dashboard exposure toggle and PostgreSQL EXECUTE ACL are separate controls. Do not enable a function in the Data API merely to satisfy an internal SQL EXECUTE dependency.
 
 The screenshot therefore shows a suitable exposure posture for these three functions. This does not substitute for validating the full final function ACL matrix or applying the migration to an approved target.
+
+
+## 2026-11-23 Review — Automatically expose new tables
+
+The user agreed to review the Dashboard setting. This review was read-only; the toggle was not changed.
+
+### Dashboard observation
+
+- Screenshot shows “Automatically expose new tables” enabled.
+- Dashboard text says it grants Data API role privileges to new tables by default.
+- The Maintenance SQL draft creates its six tables under the separate `private` schema, not `public`.
+- The confirmed exposed schema selection is only `public` and `graphql_public`; `private` is not exposed.
+
+### Production catalog cross-check (read-only)
+
+- Current production `pg_default_acl` contains explicit `postgres` defaults for tables, sequences and functions in `public` and `storage`; there is no global `postgres` default ACL row and no `private` schema default ACL.
+- The `postgres` table default ACL for `public` currently grants broad table privileges to `anon`, `authenticated` and `service_role`. This is relevant to future tables created in `public`; it is not evidence that the Maintenance tables in `private` will be exposed.
+- Existing default ACLs owned by Supabase-managed roles were not changed or recommended for modification.
+
+### Maintenance draft review
+
+- The draft explicitly creates `private`, keeps it out of the Data API exposed schema list, enables and FORCEs RLS on all six tables, and applies explicit table grants/policies.
+- The draft revokes table privileges from `PUBLIC`, `anon` and `authenticated` before applying the narrow read/write grants. It does not include `service_role` in that table-level REVOKE statement; this should remain a focused ACL assertion in isolated tests before release.
+- The dashboard auto-expose toggle is not a substitute for explicit PostgreSQL grants, RLS, and keeping `private` out of Exposed schemas.
+
+### Recommendation and decision
+
+- Recommended hardening: disable “Automatically expose new tables” to prevent accidental Data API grants when future tables are created in exposed schemas, then explicitly grant only the required roles for each new public table.
+- This is a preventive project-wide workflow change, not a prerequisite for the current Maintenance draft because its tables are created in the unexposed `private` schema with explicit ACL/RLS design.
+- Do not change the Dashboard toggle without separate explicit confirmation. No settings, grants, schemas, tables, or production data were changed during this review.
