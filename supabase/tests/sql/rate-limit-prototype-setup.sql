@@ -101,3 +101,76 @@ $roles$;
 REVOKE ALL ON SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON ALL TABLES IN SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
+
+-- Identity-aware lab endpoint: actor identity is read from the verified-JWT
+-- claim setting, never accepted as a function argument. This SECURITY DEFINER
+-- function exists only in the disposable CI database.
+CREATE TABLE rate_limit_lab.identity_buckets (
+  endpoint_key text NOT NULL,
+  actor_id uuid NOT NULL,
+  window_started_at timestamptz NOT NULL,
+  request_count integer NOT NULL CHECK (request_count >= 1),
+  PRIMARY KEY (endpoint_key, actor_id)
+);
+
+CREATE FUNCTION rate_limit_lab.consume_authenticated_admin()
+RETURNS TABLE (allowed boolean, remaining integer, retry_after_seconds integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $identity$
+DECLARE
+  v_actor uuid;
+  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_started timestamptz;
+  v_count integer;
+  v_claims text;
+BEGIN
+  v_claims := nullif(pg_catalog.current_setting('request.jwt.claim.sub', true), '');
+  IF v_claims IS NULL THEN
+    v_claims := nullif(
+      (nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'),
+      ''
+    );
+  END IF;
+  IF v_claims IS NULL THEN
+    RAISE EXCEPTION 'verified JWT subject required' USING ERRCODE = '28000';
+  END IF;
+  BEGIN
+    v_actor := v_claims::uuid;
+  EXCEPTION WHEN invalid_text_representation THEN
+    RAISE EXCEPTION 'verified JWT subject invalid' USING ERRCODE = '28000';
+  END;
+
+  INSERT INTO rate_limit_lab.identity_buckets AS existing
+    (endpoint_key, actor_id, window_started_at, request_count)
+  VALUES ('maintenance_admin', v_actor, v_now, 1)
+  ON CONFLICT (endpoint_key, actor_id) DO UPDATE
+    SET window_started_at = CASE
+          WHEN existing.window_started_at + interval '60 seconds' <= pg_catalog.clock_timestamp()
+          THEN pg_catalog.clock_timestamp()
+          ELSE existing.window_started_at
+        END,
+        request_count = CASE
+          WHEN existing.window_started_at + interval '60 seconds' <= pg_catalog.clock_timestamp()
+          THEN 1
+          WHEN existing.request_count >= 4 THEN 4
+          ELSE existing.request_count + 1
+        END
+  RETURNING existing.window_started_at, existing.request_count
+       INTO v_started, v_count;
+
+  allowed := v_count <= 3;
+  remaining := pg_catalog.greatest(0, 3 - v_count);
+  retry_after_seconds := CASE WHEN allowed THEN 0 ELSE
+    pg_catalog.greatest(1, pg_catalog.ceil(pg_catalog.date_part(
+      'epoch', v_started + interval '60 seconds' - pg_catalog.clock_timestamp()
+    ))::integer) END;
+  RETURN NEXT;
+END;
+$identity$;
+
+REVOKE ALL ON rate_limit_lab.identity_buckets FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION rate_limit_lab.consume_authenticated_admin() FROM PUBLIC, anon, authenticated;
+GRANT USAGE ON SCHEMA rate_limit_lab TO authenticated;
+GRANT EXECUTE ON FUNCTION rate_limit_lab.consume_authenticated_admin() TO authenticated;
