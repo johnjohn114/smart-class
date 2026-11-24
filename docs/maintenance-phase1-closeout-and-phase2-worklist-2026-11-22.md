@@ -1465,3 +1465,67 @@ The test reproduces the observed broad grants, applies only the candidate SQL in
 The first test attempt exposed a quoting error in the test-only `auth.uid()` fixture (dollar-quote delimiter was malformed). ). The fresh PR CI run #414 (run ID `45407105455`) completed successfully: all 4 jobs passed, including the App Releases anonymous ACL regression test. The earlier failed run is retained as test-harness debugging evidence; the corrected run is the validation result.
 
 No production SQL/ACL change, data mutation, deployment, merge, or paid service was used.
+
+## 2026-11-24 expanded live catalog inventory and baseline reconciliation plan
+
+### Read-only live catalog inventory
+
+The Supabase table inventory and catalog aggregate confirm the following non-system schema object counts:
+
+| Schema | Tables | Views | Functions | Sequences |
+|---|---:|---:|---:|---:|
+| auth | 27 | 0 | 4 | 1 |
+| extensions | 0 | 2 | 55 | 0 |
+| graphql | 0 | 0 | 0 | 0 |
+| graphql_public | 0 | 0 | 1 | 0 |
+| public | 44 | 1 | 38 | 2 |
+| realtime | 3 | 0 | 19 | 1 |
+| storage | 10 | 0 | 24 | 0 |
+| vault | 1 | 1 | 5 | 0 |
+| **Total** | **85** | **4** | **146** | **4** |
+
+Additional observed catalog facts:
+
+- All 44 current `public` tables have RLS enabled; none currently has FORCE ROW LEVEL SECURITY.
+- The `public` schema has 98 RLS policies and 7 non-internal triggers.
+- Twelve enum types and five installed extensions are present.
+- The `private` schema is absent.
+- Supabase project migration history remains empty and `supabase_migrations.schema_migrations` is absent.
+- `auth.schema_migrations` does exist as an Auth-internal table. It is not the project-level Supabase migration ledger and must not be treated as one.
+
+This inventory is a catalog summary, not a complete schema dump. It does not include all function bodies, view definitions, grants, default ACLs, policies' full expressions, trigger definitions, or every constraint definition.
+
+### Repository migration file classification
+
+1. `202610310001_app_releases.sql`: structurally closest to the live `public.app_releases` table and its observed policies; execution history is still unproven.
+2. `20261031_app_releases.sql`: incompatible with the live table (references absent `is_latest` in an index and has materially different columns/defaults/policies); do not apply.
+3. `202611160001_growth_function_authorization_hardening.sql`: replaces multiple live Growth RPC definitions and changes function default ACLs; requires a full per-function live-definition and ACL diff before any use.
+4. `202611170001_default_privileges_and_trigger_hardening.sql`: changes defaults and replaces trigger functions; its global and schema-specific effects require separate ACL/trigger reconciliation.
+5. `20261117121103_maintenance_system_initial.sql`: creates the six Maintenance tables and five RPCs using the earlier SECURITY INVOKER/direct-RLS model; production has no `private` schema, so this exact schema has not been installed there.
+6. `20261121140000_maintenance_rpc_least_privilege_upgrade.sql`: depends on the earlier Maintenance schema and creates `maintenance_rpc_executor`; it is superseded by the current PR #34 single-pass design using built-in `pg_database_owner`. Do not apply this legacy upgrade.
+7. `26.11.3_calendar_fields.sql`: adds four calendar columns, two checks and one partial index to `public.announcements`; compare those exact objects to the live catalog before deciding whether it was manually applied.
+
+Several historical migration files contain comments directing a one-time manual execution in Supabase SQL Editor. This is another reason the empty project migration ledger cannot be used as evidence that none of these SQL changes were applied.
+
+### Baseline reconciliation conclusions
+
+- There is no safe basis to create a new project migration ledger or replay all seven files in order.
+- The current Maintenance single-pass draft is a new deployment candidate, not a verified production baseline.
+- The old Maintenance initial + upgrade pair must not be combined with the new single-pass SQL.
+- App Releases, Growth authorization, default ACL/trigger hardening, and calendar fields each need object-level comparisons against live definitions and ACLs.
+- Managed schemas (`auth`, `storage`, `realtime`, `extensions`, `vault`) must not be blindly reconstructed or replayed as application migrations.
+
+### Next-stage export and diff requirements
+
+A trustworthy baseline package must be generated from a schema-only source using an approved local Supabase CLI/pg_dump path, with credentials kept local and never pasted into chat. It must capture application-owned schema objects and relevant managed dependencies without exporting production row data or secrets. The package must include definitions and metadata for tables, columns, constraints, indexes, sequences, views, functions, triggers, RLS policies, grants, default privileges, types, and extensions.
+
+The current assistant execution environment still has no verified `supabase` CLI, `pg_dump`, or Docker path. Therefore no full dump is claimed. Catalog queries above are partial evidence only. Do not synthesize a fake dump from catalog summaries.
+
+After a reviewed schema-only artifact is available:
+1. Generate an object inventory and compare it against repository migrations.
+2. Mark each object as live-match, live-drift, absent, or ambiguous.
+3. Separate verified historical changes from the proposed Maintenance single-pass change.
+4. Build and replay a clean baseline only in disposable local CI.
+5. Obtain separate explicit approval before any production migration, deployment, PR merge, or ACL change.
+
+No production DDL/DML, data export, migration-history repair, deployment, PR merge, feature-flag change, dashboard setting change, or paid service was used for this inventory.
