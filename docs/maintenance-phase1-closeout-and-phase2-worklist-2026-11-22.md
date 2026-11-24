@@ -213,3 +213,43 @@ The user agreed to review the Dashboard setting. This review was read-only; the 
 - Recommended hardening: disable “Automatically expose new tables” to prevent accidental Data API grants when future tables are created in exposed schemas, then explicitly grant only the required roles for each new public table.
 - This is a preventive project-wide workflow change, not a prerequisite for the current Maintenance draft because its tables are created in the unexposed `private` schema with explicit ACL/RLS design.
 - Do not change the Dashboard toggle without separate explicit confirmation. No settings, grants, schemas, tables, or production data were changed during this review.
+
+## 2026-11-24 CI rerun and backend contract review
+
+This is a development-branch documentation update based on the current PR head. It does not authorize production changes.
+
+### Latest CI evidence
+
+- [x] GitHub Actions run #393 / run ID 45159850371 completed successfully: 4/4 jobs passed.
+- [x] GoTrue-issued JWT + PostgREST integration for the single-pass draft passed, including the hosted-style non-superuser database-owner path, rollback after injected failure, and Deno Edge handler integration through disposable Auth/REST services.
+- [x] Isolated PostgreSQL RPC/RLS tests passed, including growth-function authorization regressions, default-privilege/trigger regressions, sequential integration and PostgREST JWT/RLS/concurrency checks.
+- [x] Legacy GoTrue/PostgREST compatibility path passed.
+- [x] Deno type checks, request validation, feature gate, Playwright compatibility and SQL static guardrails passed.
+
+These are disposable CI services. The Deno.serve harness is not a deployment test of Supabase's hosted Edge Runtime or gateway.
+
+### Backend operation contract review
+
+The current implementation remains aligned to API v0.7 and the single-pass SQL draft:
+
+1. Edge handler checks origin, HTTP method, request shape and body size.
+2. Admin endpoints validate the supplied bearer token with Supabase Auth; the original user JWT is forwarded to PostgREST.
+3. Each endpoint calls only its matching RPC with one `p_request jsonb` argument.
+4. Database RPC re-checks the JWT subject and `public.is_admin()`; client-supplied actor/role fields are not accepted.
+5. Create/update/action operations keep event changes, scope links, audit snapshots and idempotency result in one database transaction.
+6. Optimistic `expected_version` checks and transaction-scoped advisory locking protect concurrent lifecycle changes and overlap checks.
+7. Public status returns a restricted response shape; private notes and audit details are only returned by the admin listing path.
+
+### Documentation precedence clarification
+
+The historical Edge Functions development spec contains earlier design text referring to `maintenance_rpc_executor` and older SECURITY INVOKER assumptions. Those passages are historical only. The current single-pass SQL draft and API v0.7 govern the present branch: admin RPCs are SECURITY DEFINER owned by built-in `pg_database_owner`; public status is SECURITY INVOKER. Do not revive the historical executor role design.
+
+### Remaining release blockers
+
+- [ ] Production migration/schema baseline reconciliation remains unresolved. Production migration listing is empty and the environment has no verified complete baseline; do not repair or rewrite migration history by guesswork.
+- [ ] No hosted free non-production Supabase branch is available; do not create paid resources.
+- [ ] Actual deployed Edge Function environment and hosted CORS cannot be verified because Maintenance functions are not deployed.
+- [ ] Supabase hosted Edge Runtime smoke tests remain a post-approval pre-release task.
+- [ ] Keep PR #34 Draft/unmerged, Maintenance feature flag false, and production unchanged pending separate explicit approval.
+
+No production SQL, migration repair, deployment, feature-flag change, PR merge, dashboard setting change or paid service was used for this review.
