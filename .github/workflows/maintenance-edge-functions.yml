@@ -339,6 +339,51 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-postgres-isolated.test.sql
 
+      - name: Test isolated PostgreSQL rate-limit concurrency prototype
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+          RATE_LIMIT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rate_limit_lab_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE rate_limit_lab_test"
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/rate-limit-prototype-setup.sql
+          docker run --rm --network host \
+            -v "$PWD:/work" -w /work postgres:17 \
+            pgbench -n -c 40 -j 10 -t 1 \
+              -f supabase/tests/sql/rate-limit-prototype-concurrency.sql \
+              "$RATE_LIMIT_DATABASE_URL"
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          DECLARE
+            total_calls integer;
+            allowed_calls integer;
+            denied_calls integer;
+            bucket_count integer;
+            bucket_value integer;
+          BEGIN
+            SELECT count(*), count(*) FILTER (WHERE allowed),
+                   count(*) FILTER (WHERE NOT allowed)
+              INTO total_calls, allowed_calls, denied_calls
+              FROM rate_limit_lab.decisions;
+            SELECT count(*), max(request_count)
+              INTO bucket_count, bucket_value
+              FROM rate_limit_lab.buckets
+             WHERE bucket_key = 'ci:v1:admin:test-user';
+            IF total_calls <> 40 OR allowed_calls <> 5 OR denied_calls <> 35
+               OR bucket_count <> 1 OR bucket_value <> 6 THEN
+              RAISE EXCEPTION 'rate limit concurrency assertion failed: total %, allowed %, denied %, buckets %, count %',
+                total_calls, allowed_calls, denied_calls, bucket_count, bucket_value;
+            END IF;
+            BEGIN
+              PERFORM * FROM rate_limit_lab.consume('bad-policy', 0, 60);
+              RAISE EXCEPTION 'invalid policy unexpectedly accepted';
+            EXCEPTION WHEN SQLSTATE '22023' THEN
+              NULL;
+            END;
+          END
+          $test$;
+          SQL
+
       - name: Run App Releases anonymous ACL hardening regression test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
