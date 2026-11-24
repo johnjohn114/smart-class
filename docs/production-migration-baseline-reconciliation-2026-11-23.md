@@ -101,7 +101,100 @@
 | P2 | Maintenance 六表契約驗證 | SQL／RPC／Edge／前端契約及 JWT/RLS/PostgREST 隔離測試通過 |
 | P2 | Maintenance release readiness | Data API schema exposure、排程併發、rollback 與操作手冊完成 |
 
-## 7. 本次操作紀錄與限制
+## 7. 2026-11-24 正式資料庫即時唯讀複查與 Repo 對照
+
+> 本節是 2026-11-24 重新執行的 Supabase catalog SELECT 與 GitHub 檔案核對結果，更新並補充前述 2026-11-23 快照。沒有讀取使用者資料列，也沒有執行 DDL/DML。
+
+### 7.1 正式資料庫即時結構計數
+
+| 項目 | 2026-11-24 查詢結果 |
+|---|---:|
+| public base tables | 44 |
+| base-table columns | 412 |
+| public views | 1 |
+| view columns | 8 |
+| public constraints | 150 |
+| public indexes | 109 |
+| public RLS policies | 98 |
+| public functions | 38 |
+| SECURITY DEFINER functions | 36 |
+
+注意：`information_schema.columns` 若不區分 relation 類型，會得到 420 欄（412 個 base-table columns + 8 個 view columns）。本文件分開記錄，避免把 View 欄位算成資料表欄位。
+
+### 7.2 Schema 與 Migration history
+
+- 非系統 schema 查詢結果：`auth`、`extensions`、`graphql`、`graphql_public`、`public`、`realtime`、`storage`、`vault`。
+- 未找到 `private` schema；未找到 public Maintenance tables 或 Maintenance RPC。
+- `schema_migrations` 名稱只在 `auth` 與 `realtime` schema 找到；這些是各自服務的內部紀錄，不是專案 Supabase CLI migration history。
+- 此專案的 Supabase migration listing 仍為 0 筆；未找到 `supabase_migrations` schema。
+- 因此目前不能從正式 DB 建立可信的「哪些 repo migrations 已執行」清單。結構相符只能列為吻合候選，不能當成執行證明。
+
+### 7.3 App Releases 與 Calendar 的即時欄位核對
+
+**App Releases：**
+- 正式 `public.app_releases` 有 9 欄：`id`、`version_code`、`version_name`、`release_notes`、`apk_url`、`published`、`created_at`、`published_at`、`created_by`。
+- 正式表沒有 `is_latest`；沒有 `public.is_app_release_admin()`。
+- 正式表目前五項 policies：Admins can delete/insert/read all/update app releases，以及 Public can read published app releases。
+- Constraints 包含 primary key、`version_code > 0`、`version_code` unique、`created_by` foreign key to `auth.users(id)`。
+- 目前正式形狀與 `202610310001_app_releases.sql` 的方向相符；與 `20261031_app_releases.sql` 中的 `is_latest`／管理函式設計不相符。仍不能據此判斷哪一檔歷史上曾執行。
+
+**Calendar：**
+- 正式 `announcements` 存在 `event_date`、`event_end_date`、`event_date_source`、`event_date_confirmed`。
+- 存在 `announcements_event_date_range_check`、`announcements_event_date_source_check`。
+- 存在 partial index `announcements_calendar_event_date_idx`，條件為 published 且 event_date_confirmed。
+- 以上結構與 `26.11.3_calendar_fields.sql` 相符；仍只屬結構吻合證據。
+
+### 7.4 Growth 權限與 PR #35 候選 Migration 對照
+
+正式 DB 即時查詢仍顯示下列 SECURITY DEFINER 函式由 `postgres` 擁有，且 `anon` 目前具有 EXECUTE：
+
+- `admin_delete_growth_reward(uuid)`
+- `admin_upsert_growth_reward(...)`
+- `award_growth_points(...)`
+- `check_activity_badges(uuid)`
+- `check_growth_achievements(uuid)`
+- `complete_growth_task(text)`
+- `refresh_growth_level(uuid)`
+
+其中 `award_growth_points` 的 authenticated EXECUTE 為 false；其餘上述函式的 authenticated EXECUTE 為 true。正式 DB 未找到 `_refresh_growth_level_internal(uuid)`，也未找到 PR #35 新增的 `activity_public_leaderboard`。
+
+PR #35 的兩個候選檔案：
+- `20261122120000_growth_rpc_and_public_leaderboard_hardening.sql`
+- `20261122130000_activity_member_stats_security_invoker.sql`
+
+目前是 PR 分支的候選內容，不是已證明存在於正式 DB 的 migration 狀態。Stage A／Stage B 仍未套用。
+
+### 7.5 Default Privileges 即時核對
+
+正式 catalog 顯示：
+- `postgres` 在 `public` 的函式、資料表及序列 default ACL 仍包含 anon、authenticated、service_role 的廣泛權限。
+- `supabase_admin` 在 `public` 也有函式、資料表及序列 default ACL 記錄；其函式預設授權仍包含 anon、authenticated、service_role。
+- `postgres` 與 `supabase_admin` 都可在 `public` 建立物件。
+- `supabase_admin` 是 Supabase 平台管理角色；本專案候選 Migration 不應未經獨立平台影響審查就修改其 default ACL。
+
+此處只記錄 catalog 現況，不表示應直接執行某一份 default-privilege Migration。
+
+### 7.6 Maintenance 舊草案與現行架構邊界
+
+重新讀取使用者上傳的《啟動第一步檢查.txt》後，確認該文件描述較早四表草案：
+- `maintenance_state`
+- `maintenance_events`
+- `maintenance_scopes`
+- `maintenance_audit_logs`
+
+該上傳檔是第一輪 SQL 審查摘要，並不是目前六表架構的 Migration，也不應被當成六表架構的 SQL 來源。現行 repo 六表目標仍以 `20261117121103_maintenance_system_initial.sql` 及架構決策文件為準；正式 DB 目前沒有 `private` schema 或 Maintenance objects。
+
+### 7.7 本輪結論
+
+1. 正式 DB 的結構計數已重新查詢；412 是 base-table 欄位數，另有 8 個 view 欄位。
+2. App Releases A 與 Calendar Migration 的結構吻合，但歷史執行來源未知。
+3. App Releases B 與正式 schema 不相符，不可直接當成正式環境下一個 migration。
+4. Growth 權限與 PR #35 Stage A 目標仍有差異；PR #35 Stage A／B 未發布。
+5. Maintenance 六表目標尚未部署；上傳四表草案只作為歷史審查材料。
+6. Migration history 仍無權威來源；不能手動造 history，也不能把 auth/realtime 內部 migration table 當成專案紀錄。
+7. 所有正式 Migration 維持 BLOCKED，直到取得完整 schema snapshot、完成隔離資料庫重建及逐檔證據審查。
+
+## 8. 本次操作紀錄與限制
 
 - 本次 GitHub 操作只新增本盤點文件於獨立文件分支並建立 Draft PR。
 - 沒有修改既有 migration SQL、前端程式或 Edge Functions。
