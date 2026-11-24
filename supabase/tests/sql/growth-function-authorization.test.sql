@@ -24,7 +24,7 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
 CREATE TABLE public.download_files (
   id uuid PRIMARY KEY,
   published boolean NOT NULL,
-  download_count integer NOT NULL DEFAULT 0,
+  download_count bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE public.profiles (
@@ -102,6 +102,81 @@ CREATE TABLE public.competition_results (
   user_id uuid NOT NULL,
   place integer
 );
+ALTER TABLE public.competition_results ADD COLUMN competition_id uuid;
+
+-- Minimal RLS fixtures reproduce the live anonymous-read policy predicates
+-- that call is_admin(). These exercise real SELECT policy evaluation as anon,
+-- rather than only checking the helper's EXECUTE ACL.
+CREATE TABLE public.competitions (
+  id uuid PRIMARY KEY,
+  published boolean NOT NULL,
+  published_at timestamptz
+);
+CREATE TABLE public.forms (
+  id uuid PRIMARY KEY,
+  published boolean NOT NULL
+);
+CREATE TABLE public.form_questions (
+  id uuid PRIMARY KEY,
+  form_id uuid NOT NULL
+);
+CREATE TABLE public.products (
+  id uuid PRIMARY KEY,
+  active boolean NOT NULL
+);
+
+ALTER TABLE public.competitions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.form_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.competition_results ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY competition_public_read ON public.competitions
+  FOR SELECT TO PUBLIC
+  USING (public.is_admin() OR (published = true AND (published_at IS NULL OR published_at <= now())));
+CREATE POLICY forms_public_read ON public.forms
+  FOR SELECT TO PUBLIC
+  USING (published = true OR public.is_admin());
+CREATE POLICY form_questions_public_read ON public.form_questions
+  FOR SELECT TO PUBLIC
+  USING (EXISTS (
+    SELECT 1 FROM public.forms f
+    WHERE f.id = form_questions.form_id AND (f.published = true OR public.is_admin())
+  ));
+CREATE POLICY product_public_read ON public.products
+  FOR SELECT TO PUBLIC
+  USING (public.is_admin() OR active = true);
+CREATE POLICY competition_result_public_read ON public.competition_results
+  FOR SELECT TO PUBLIC
+  USING (
+    public.is_admin()
+    OR user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.competitions c
+      WHERE c.id = competition_results.competition_id
+        AND c.published = true
+        AND (c.published_at IS NULL OR c.published_at <= now())
+    )
+  );
+
+GRANT SELECT ON public.competitions, public.forms, public.form_questions,
+  public.products, public.competition_results TO anon;
+
+INSERT INTO public.competitions(id,published,published_at) VALUES
+  ('00000000-0000-4000-8000-000000000070',true,NULL),
+  ('00000000-0000-4000-8000-000000000071',true,now()+interval '1 day');
+INSERT INTO public.forms(id,published) VALUES
+  ('00000000-0000-4000-8000-000000000072',true),
+  ('00000000-0000-4000-8000-000000000073',false);
+INSERT INTO public.form_questions(id,form_id) VALUES
+  ('00000000-0000-4000-8000-000000000074','00000000-0000-4000-8000-000000000072'),
+  ('00000000-0000-4000-8000-000000000075','00000000-0000-4000-8000-000000000073');
+INSERT INTO public.products(id,active) VALUES
+  ('00000000-0000-4000-8000-000000000076',true),
+  ('00000000-0000-4000-8000-000000000077',false);
+INSERT INTO public.competition_results(user_id,place,competition_id) VALUES
+  ('00000000-0000-4000-8000-000000000002',1,'00000000-0000-4000-8000-000000000070'),
+  ('00000000-0000-4000-8000-000000000003',2,'00000000-0000-4000-8000-000000000071');
 CREATE TABLE public.notifications (
   user_id uuid NOT NULL,
   title text NOT NULL,
@@ -334,6 +409,25 @@ DO $anon_is_admin_result$
 BEGIN
   IF public.is_admin() IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'FAIL: is_admin() did not return false for anon';
+  END IF;
+
+  -- These counts must be evaluated through the actual RLS policies as anon.
+  -- The query must succeed (no missing-function EXECUTE error) and expose
+  -- only published/active rows, never draft or future-published rows.
+  IF (SELECT count(*) FROM public.competitions) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon competition RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM public.forms) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon forms RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM public.form_questions) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon form_questions RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM public.products) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon products RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM public.competition_results) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon competition_results RLS read returned the wrong rows';
   END IF;
 END
 $anon_is_admin_result$;
