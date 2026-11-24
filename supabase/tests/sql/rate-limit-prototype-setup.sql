@@ -109,6 +109,7 @@ CREATE TABLE rate_limit_lab.identity_buckets (
   endpoint_key text NOT NULL,
   actor_id uuid NOT NULL,
   window_started_at timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
   request_count integer NOT NULL CHECK (request_count >= 1),
   PRIMARY KEY (endpoint_key, actor_id)
 );
@@ -143,14 +144,15 @@ BEGIN
   END;
 
   INSERT INTO rate_limit_lab.identity_buckets AS existing
-    (endpoint_key, actor_id, window_started_at, request_count)
-  VALUES ('maintenance_admin', v_actor, v_now, 1)
+    (endpoint_key, actor_id, window_started_at, last_seen_at, request_count)
+  VALUES ('maintenance_admin', v_actor, v_now, v_now, 1)
   ON CONFLICT (endpoint_key, actor_id) DO UPDATE
     SET window_started_at = CASE
           WHEN existing.window_started_at + interval '60 seconds' <= pg_catalog.clock_timestamp()
           THEN pg_catalog.clock_timestamp()
           ELSE existing.window_started_at
         END,
+        last_seen_at = pg_catalog.clock_timestamp(),
         request_count = CASE
           WHEN existing.window_started_at + interval '60 seconds' <= pg_catalog.clock_timestamp()
           THEN 1
@@ -174,3 +176,38 @@ REVOKE ALL ON rate_limit_lab.identity_buckets FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION rate_limit_lab.consume_authenticated_admin() FROM PUBLIC, anon, authenticated;
 GRANT USAGE ON SCHEMA rate_limit_lab TO authenticated;
 GRANT EXECUTE ON FUNCTION rate_limit_lab.consume_authenticated_admin() TO authenticated;
+
+
+-- Bounded, owner-only cleanup for the disposable lab. The function does not
+-- accept a caller-controlled batch size or retention period.
+CREATE FUNCTION rate_limit_lab.cleanup_stale_identity_buckets()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $cleanup$
+DECLARE
+  v_deleted integer;
+BEGIN
+  WITH stale AS (
+    SELECT endpoint_key, actor_id
+      FROM rate_limit_lab.identity_buckets
+     WHERE last_seen_at < pg_catalog.clock_timestamp() - interval '24 hours'
+       AND window_started_at + interval '60 seconds' < pg_catalog.clock_timestamp()
+     ORDER BY last_seen_at
+     LIMIT 500
+     FOR UPDATE SKIP LOCKED
+  ),
+  removed AS (
+    DELETE FROM rate_limit_lab.identity_buckets AS b
+     USING stale
+     WHERE b.endpoint_key = stale.endpoint_key
+       AND b.actor_id = stale.actor_id
+    RETURNING 1
+  )
+  SELECT pg_catalog.count(*)::integer INTO v_deleted FROM removed;
+  RETURN v_deleted;
+END;
+$cleanup$;
+
+REVOKE ALL ON FUNCTION rate_limit_lab.cleanup_stale_identity_buckets() FROM PUBLIC, anon, authenticated;
