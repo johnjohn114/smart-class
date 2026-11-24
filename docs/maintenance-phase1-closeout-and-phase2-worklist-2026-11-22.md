@@ -1608,3 +1608,23 @@ The existing `public.is_admin()` definition is SECURITY DEFINER with an empty se
 - This is source and catalog compatibility review, not a live application smoke test. Do not apply the migration to production until the full schema baseline and hosted Supabase runtime validation are complete.
 
 No production SQL, data mutation, deployment, merge, feature-flag change, or paid service was used.
+
+## 2026-11-24 integrated isolated CI validation (Growth + default ACL + Maintenance)
+
+The current PR head `1a1e3b852779446b2e391ac3e58a3aaa102b0354` completed GitHub Actions run `45409464308` with all four jobs successful:
+
+- Deno type checks, Edge Function validation tests, feature gate checks, browser compatibility tests, and SQL static guardrails.
+- GoTrue-issued JWT + PostgREST integration against the legacy migration track.
+- GoTrue-issued JWT + PostgREST integration against the Maintenance single-pass draft, including injected late-failure rollback, non-superuser database-owner application, executor ownership/privilege cleanup, Edge runtime, JWT/RPC/RLS and concurrency.
+- Isolated PostgreSQL RPC/RLS tests, including App Releases anonymous ACL hardening, Growth authorization, default privileges/trigger side effects, the sequential Growth + default-privilege migration test, activity-member-stats view security, and PostgREST JWT/RLS/concurrency.
+
+The sequential Growth/default-privilege SQL test applies both actual hardening migrations to one coherent disposable PostgreSQL fixture. The Maintenance single-pass draft is validated in its own isolated PostgreSQL/GoTrue tracks because it has a distinct database-owner and JWT/RLS harness. Thus the CI workflow validates the interacting release components and sequential Growth/default migration pair, but does not yet apply all three migration tracks in one shared database fixture. Do not overstate this as a single-database three-migration replay.
+
+### Result and boundaries
+
+- CI run `45409464308`: all 4 jobs passed.
+- PR #34 remains Draft and unmerged.
+- All database execution occurred in disposable GitHub Actions PostgreSQL services; no production Supabase SQL was executed.
+- No production data was exported or changed; no deployment or feature-flag change occurred; no paid service was used.
+
+This is a strong isolated validation result, not a substitute for full production schema export/reconciliation or hosted Supabase production approval.
