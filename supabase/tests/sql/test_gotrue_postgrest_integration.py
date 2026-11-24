@@ -99,7 +99,7 @@ def main():
         )
         assert_true(limiter_status == 200 and isinstance(limiter_body, list)
                     and len(limiter_body) == 1,
-                    "verified admin JWT can call the identity-derived limiter RPC")
+                    f"verified admin JWT can call the identity-derived limiter RPC (HTTP {limiter_status}; body={limiter_body!r})")
         admin_decisions.append(limiter_body[0]["allowed"])
     assert_true(admin_decisions == [True, True, True, False],
                 "admin quota is isolated and denies the fourth request")
