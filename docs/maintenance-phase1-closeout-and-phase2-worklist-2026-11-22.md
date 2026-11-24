@@ -1628,3 +1628,48 @@ The sequential Growth/default-privilege SQL test applies both actual hardening m
 - No production data was exported or changed; no deployment or feature-flag change occurred; no paid service was used.
 
 This is a strong isolated validation result, not a substitute for full production schema export/reconciliation or hosted Supabase production approval.
+
+## 2026-11-24 final Maintenance compatibility gate review
+
+### Latest CI for current PR head
+
+Current PR #34 head `8db388d50849e8dd4ec19ab3991bd90fd660536e` completed GitHub Actions run `45410008351` successfully: all four jobs passed.
+
+- Isolated PostgreSQL RPC/RLS and regression tests.
+- Deno type checks, Maintenance validation, feature gate, Playwright browser compatibility and SQL static guardrails.
+- GoTrue-issued JWT + PostgREST integration for the single-pass draft.
+- GoTrue-issued JWT + PostgREST integration for the legacy migration path.
+
+The run validates disposable test services. It is not a production Supabase smoke test, not a production schema dump, and not a single shared database replay of all Growth, default-privilege, and Maintenance migration tracks.
+
+### Maintenance SQL / Edge contract review
+
+The current single-pass SQL draft and five Edge Function entrypoints were rechecked:
+
+- Six private tables are present and use FORCE RLS.
+- Five public RPC names align with the five Edge Function entrypoints; all calls use the single `p_request jsonb` argument.
+- Admin RPCs use `SECURITY DEFINER` with empty `search_path`, are owned by `pg_database_owner`, and re-check `auth.uid()` plus `public.is_admin()`.
+- Public status RPC is `SECURITY INVOKER`; optional user JWT validation is performed by the Edge Function, and an invalid optional token does not create an admin session.
+- Audit log has row mutation and TRUNCATE protection.
+- Disposable tests cover RLS, private-note isolation, audit/idempotency atomicity, rollback, lifecycle transitions, scope/global schedule overlap, concurrency and JWT/RPC access.
+
+### Remaining release blockers found
+
+1. **No final timestamped single-pass migration exists.** The tested SQL is still `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql`, explicitly marked development-only. The two older timestamped Maintenance migrations remain in `supabase/migrations/`. The current workflow still validates both the legacy migration path and the single-pass draft path. A future migration-directory change must be coordinated with all workflow, SQL harness, script, and documentation references; do not add a third migration after the old initial migration and assume it removes the intermediate privilege window.
+2. **Data API exposure is not verifiable from the current repository/catalog evidence.** The SQL comment instructs that `private` must remain excluded from Data API Exposed schemas, but that setting must be confirmed in Supabase Dashboard before deployment.
+3. **Rate limiting is not implemented.** The Edge Functions validate request shape, JWT and payload size, but the shared handler has no rate-limit/throttle implementation and does not emit a business `429 RATE_LIMITED` response. The API spec's 429 entry must be treated as a future requirement, not a delivered capability. Choose and test a free-compatible limit strategy before production launch, or revise the API contract and acceptance criteria explicitly.
+4. **Production baseline is still incomplete.** Production migration listing remains empty and no full schema-only export/rebuild has been performed. Catalog summaries do not establish every object definition, grant, policy, trigger, default ACL or historical migration provenance.
+5. **Hosted production smoke test is outstanding.** Disposable GoTrue/PostgREST/Deno integration passed, but no Maintenance Edge Function has been deployed and no hosted runtime test has been run.
+6. **Feature gate remains off.** Do not enable `MAINTENANCE_FEATURE_ENABLED` until the previous gates are closed.
+
+### Legacy uploaded SQL review note
+
+The uploaded `啟動第一步檢查.txt` describes an earlier four-table, `service_role`-oriented design. It is not the current v0.7 six-table private-schema + user-JWT / `pg_database_owner` single-pass design, and it is not SQL source. Retain it as historical review context only; do not use its table model or grants as the implementation source of truth.
+
+### Current decision
+
+- PR #34 remains Draft and unmerged.
+- Latest current-head CI is 4/4 successful.
+- The SQL draft is validated in disposable environments but is not a deployable migration.
+- No production SQL, data export, migration-history repair, Edge Function deployment, feature-flag change, PR merge, or paid service was used.
+- Continue with production schema-only baseline capture/reconciliation and the rate-limit design decision. Keep production release blocked until both are resolved.
