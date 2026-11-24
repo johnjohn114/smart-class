@@ -237,6 +237,14 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-supabase-deployer-role.test.sql
 
+      - name: Install isolated JWT-subject rate-limit lab
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/rate-limit-prototype-setup.sql
+
       - name: Start PostgREST against GoTrue database
         run: |
           docker run --detach --network host --name maintenance-gotrue-postgrest \
