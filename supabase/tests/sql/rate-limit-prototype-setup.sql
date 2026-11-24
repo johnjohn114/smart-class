@@ -54,13 +54,13 @@ BEGIN
           WHEN current_bucket.window_started_at
                + pg_catalog.make_interval(secs => p_window_seconds) <= pg_catalog.clock_timestamp()
           THEN 1
-          ELSE pg_catalog.least(current_bucket.request_count + 1, p_limit + 1)
+          ELSE CASE WHEN current_bucket.request_count + 1 > p_limit + 1\n               THEN p_limit + 1 ELSE current_bucket.request_count + 1 END
         END
   RETURNING current_bucket.window_started_at, current_bucket.request_count
        INTO v_started_at, v_count;
 
   allowed := v_count <= p_limit;
-  remaining := pg_catalog.greatest(p_limit - v_count, 0);
+  remaining := CASE WHEN p_limit - v_count > 0 THEN p_limit - v_count ELSE 0 END;
   retry_after_seconds := CASE
     WHEN allowed THEN 0
     ELSE pg_catalog.greatest(
