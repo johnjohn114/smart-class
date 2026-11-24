@@ -132,6 +132,52 @@ END
 $retention$;
 
 
+-- Provide minimal auth/profile helpers when this test runs in its own
+-- fresh rate_limit_lab_test database. In the GoTrue fixture these already exist.
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid PRIMARY KEY,
+  role text NOT NULL
+);
+DO $helpers$
+BEGIN
+  IF pg_catalog.to_regprocedure('auth.uid()') IS NULL THEN
+    EXECUTE $sql$
+      CREATE FUNCTION auth.uid()
+      RETURNS uuid
+      LANGUAGE sql
+      STABLE
+      AS $body$
+        SELECT NULLIF(COALESCE(
+          NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'sub',
+          NULLIF(current_setting('request.jwt.claim.sub', true), '')
+        ), '')::uuid
+      $body$
+    $sql$;
+  END IF;
+  IF pg_catalog.to_regprocedure('public.is_admin()') IS NULL THEN
+    EXECUTE $sql$
+      CREATE FUNCTION public.is_admin()
+      RETURNS boolean
+      LANGUAGE sql
+      STABLE
+      SECURITY DEFINER
+      SET search_path = ''
+      AS $body$
+        SELECT EXISTS (
+          SELECT 1 FROM public.profiles AS p
+           WHERE p.id = auth.uid() AND p.role = 'admin'
+        )
+      $body$
+    $sql$;
+  END IF;
+END
+$helpers$;
+
+INSERT INTO public.profiles (id, role)
+VALUES ('00000000-0000-4000-8000-000000000001'::uuid, 'admin')
+ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;
+
 -- The actor bucket and admin check must use the same JWT subject source even
 -- if both legacy and JSON claim settings are present but disagree.
 SELECT pg_catalog.set_config(
