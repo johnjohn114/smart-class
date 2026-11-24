@@ -161,9 +161,9 @@ BEGIN
        INTO v_started, v_count;
 
   allowed := v_count <= 3;
-  remaining := pg_catalog.greatest(0, 3 - v_count);
+  remaining := GREATEST(0, 3 - v_count);
   retry_after_seconds := CASE WHEN allowed THEN 0 ELSE
-    pg_catalog.greatest(1, pg_catalog.ceil(pg_catalog.date_part(
+    GREATEST(1, pg_catalog.ceil(pg_catalog.date_part(
       'epoch', v_started + interval '60 seconds' - pg_catalog.clock_timestamp()
     ))::integer) END;
   RETURN NEXT;
