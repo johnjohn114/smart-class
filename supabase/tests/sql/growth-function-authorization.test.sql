@@ -1,7 +1,5 @@
 -- Disposable regression test for growth-function authorization hardening.
 -- Run in a fresh PostgreSQL 17 database as postgres:
--- Disposable regression test for growth-function authorization hardening.
--- Run in a fresh PostgreSQL 17 database as postgres:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f this-file.sql
 
 -- Keep the test runner and migration execution context aligned with the
@@ -22,6 +20,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='supabase_admin') THEN CREATE ROLE supabase_admin NOLOGIN; END IF;
 END
 $roles$;
 
@@ -817,7 +816,37 @@ WHERE n.nspname = 'public'
   AND p.prosecdef
   AND p.prokind = 'f';
 
+-- Snapshot the supabase_admin public-schema function defaults in this disposable
+-- database. Stage A is scoped to postgres and must not mutate the platform role.
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+CREATE TEMP TABLE ci_supabase_admin_defaults_before_stage_a AS
+SELECT defaclacl
+FROM pg_default_acl
+WHERE defaclrole = 'supabase_admin'::regrole
+  AND defaclnamespace = 'public'::regnamespace
+  AND defaclobjtype = 'f';
+
 \ir ../../migrations/20261122120000_growth_rpc_and_public_leaderboard_hardening.sql
+
+DO $supabase_admin_defaults_unchanged$
+DECLARE before_acl aclitem[]; after_acl aclitem[];
+BEGIN
+  SELECT defaclacl INTO before_acl
+  FROM pg_temp.ci_supabase_admin_defaults_before_stage_a;
+
+  SELECT defaclacl INTO after_acl
+  FROM pg_default_acl
+  WHERE defaclrole = 'supabase_admin'::regrole
+    AND defaclnamespace = 'public'::regnamespace
+    AND defaclobjtype = 'f';
+
+  IF after_acl IS DISTINCT FROM before_acl THEN
+    RAISE EXCEPTION
+      'FAIL: Stage A changed supabase_admin public function defaults; platform role is outside application migration scope';
+  END IF;
+END
+$supabase_admin_defaults_unchanged$;
 
 -- Stage A must be applied by the expected application migration owner.
 -- Replaced routines retain the expected owner; newly created private helper
