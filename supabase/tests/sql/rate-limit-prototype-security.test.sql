@@ -3,12 +3,14 @@
 DO $acl$
 BEGIN
   IF pg_catalog.has_schema_privilege('anon', 'rate_limit_lab', 'USAGE')
-     OR pg_catalog.has_schema_privilege('authenticated', 'rate_limit_lab', 'USAGE')
+     OR NOT pg_catalog.has_schema_privilege('authenticated', 'rate_limit_lab', 'USAGE')
      OR pg_catalog.has_function_privilege('anon', 'rate_limit_lab.consume(text,integer,integer)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('authenticated', 'rate_limit_lab.consume(text,integer,integer)', 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('authenticated', 'rate_limit_lab.consume_authenticated_admin()', 'EXECUTE')
      OR pg_catalog.has_table_privilege('anon', 'rate_limit_lab.buckets', 'SELECT')
-     OR pg_catalog.has_table_privilege('authenticated', 'rate_limit_lab.buckets', 'SELECT') THEN
-    RAISE EXCEPTION 'API roles unexpectedly have rate-limit lab access';
+     OR pg_catalog.has_table_privilege('authenticated', 'rate_limit_lab.buckets', 'SELECT')
+     OR pg_catalog.has_table_privilege('authenticated', 'rate_limit_lab.identity_buckets', 'SELECT') THEN
+    RAISE EXCEPTION 'rate-limit lab ACL boundary is incorrect';
   END IF;
 END
 $acl$;
