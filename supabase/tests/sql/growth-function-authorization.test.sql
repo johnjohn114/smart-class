@@ -1,6 +1,21 @@
 -- Disposable regression test for growth-function authorization hardening.
 -- Run in a fresh PostgreSQL 17 database as postgres:
+-- Disposable regression test for growth-function authorization hardening.
+-- Run in a fresh PostgreSQL 17 database as postgres:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f this-file.sql
+
+-- Keep the test runner and migration execution context aligned with the
+-- production application-migration role. This validates the disposable test
+-- harness; it does not prove which role a hosted production migration used.
+DO $migration_execution_identity$
+BEGIN
+  IF session_user <> 'postgres' OR current_user <> 'postgres' THEN
+    RAISE EXCEPTION
+      'FAIL: this migration regression suite must run with session_user/current_user postgres (session_user=%, current_user=%)',
+      session_user, current_user;
+  END IF;
+END
+$migration_execution_identity$;
 
 DO $roles$
 BEGIN
@@ -803,6 +818,59 @@ WHERE n.nspname = 'public'
   AND p.prokind = 'f';
 
 \ir ../../migrations/20261122120000_growth_rpc_and_public_leaderboard_hardening.sql
+
+-- Stage A must be applied by the expected application migration owner.
+-- Replaced routines retain the expected owner; newly created private helper
+-- and public projection view must also be owned by postgres.
+DO $migration_object_owners$
+DECLARE
+  expected_owner name := 'postgres';
+  actual_owner name;
+  r record;
+BEGIN
+  IF current_user <> expected_owner THEN
+    RAISE EXCEPTION 'FAIL: Stage A ran as %, expected %', current_user, expected_owner;
+  END IF;
+
+  FOR r IN
+    SELECT routine_oid
+    FROM (VALUES
+      ('public.award_growth_points(uuid,integer,text,text,text,text,uuid)'::regprocedure),
+      ('public.admin_delete_growth_reward(uuid)'::regprocedure),
+      ('public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)'::regprocedure),
+      ('public.check_growth_achievements(uuid)'::regprocedure),
+      ('public.refresh_growth_level(uuid)'::regprocedure),
+      ('public.check_activity_badges(uuid)'::regprocedure),
+      ('public._refresh_growth_level_internal(uuid)'::regprocedure)
+    ) AS expected(routine_oid)
+  LOOP
+    SELECT pg_get_userbyid(p.proowner)::name
+      INTO actual_owner
+    FROM pg_proc p
+    WHERE p.oid = r.routine_oid;
+
+    IF actual_owner IS DISTINCT FROM expected_owner THEN
+      RAISE EXCEPTION
+        'FAIL: function % is owned by %, expected %',
+        r.routine_oid, actual_owner, expected_owner;
+    END IF;
+  END LOOP;
+
+  SELECT pg_get_userbyid(c.relowner)::name
+    INTO actual_owner
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relname = 'activity_public_leaderboard'
+    AND c.relkind = 'v';
+
+  IF actual_owner IS DISTINCT FROM expected_owner THEN
+    RAISE EXCEPTION
+      'FAIL: public.activity_public_leaderboard is owned by %, expected %',
+      actual_owner, expected_owner;
+  END IF;
+END
+$migration_object_owners$;
 
 DO $forward_acl$
 BEGIN
