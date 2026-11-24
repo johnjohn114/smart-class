@@ -130,3 +130,37 @@ BEGIN
   END IF;
 END
 $retention$;
+
+
+-- The actor bucket and admin check must use the same JWT subject source even
+-- if both legacy and JSON claim settings are present but disagree.
+SELECT pg_catalog.set_config(
+  'request.jwt.claims',
+  '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  false
+);
+SELECT pg_catalog.set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-4000-8000-000000000002',
+  false
+);
+SET ROLE authenticated;
+SELECT * FROM rate_limit_lab.consume_authenticated_admin();
+RESET ROLE;
+DO $identity_consistency$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM rate_limit_lab.identity_buckets
+     WHERE endpoint_key = 'maintenance_admin'
+       AND actor_id = '00000000-0000-4000-8000-000000000001'::uuid
+  ) OR EXISTS (
+    SELECT 1 FROM rate_limit_lab.identity_buckets
+     WHERE endpoint_key = 'maintenance_admin'
+       AND actor_id = '00000000-0000-4000-8000-000000000002'::uuid
+  ) THEN
+    RAISE EXCEPTION 'limiter actor does not match the identity used for admin authorization';
+  END IF;
+END
+$identity_consistency$;
+SELECT pg_catalog.set_config('request.jwt.claims', '', false);
+SELECT pg_catalog.set_config('request.jwt.claim.sub', '', false);
