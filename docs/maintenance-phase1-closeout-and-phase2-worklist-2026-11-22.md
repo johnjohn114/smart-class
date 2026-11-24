@@ -340,3 +340,30 @@ The current admin frontend writes `version_code`, `version_name`, `release_notes
 - Create a development-only follow-up to review and tighten the unnecessary `anon` table privileges, with isolated regression tests before any production approval.
 
 This comparison used GitHub source reads, frontend source reads, and read-only production catalog queries only. No production SQL, data changes, deployment, PR merge, or paid service was used.
+
+## 2026-11-24 App Releases anon ACL hardening candidate
+
+### Live privilege confirmation
+
+A second read-only production catalog check confirmed the effective `anon` privileges on `public.app_releases` are currently SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER. No anon column-level grants or role memberships were found. This supports a table-level least-privilege revoke without changing the published-release SELECT path.
+
+### Candidate SQL
+
+Added `supabase/candidate_sql/app_releases_anon_acl_hardening.sql`:
+
+- Revoke INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER from `anon`.
+- Preserve SELECT for the public release center.
+- Do not change authenticated or service_role grants.
+- Candidate only; not applied to production.
+
+### Disposable regression test
+
+Added `supabase/tests/sql/app-releases-anon-acl.test.sql` and wired it into the existing isolated PostgreSQL job in `.github/workflows/maintenance-edge-functions.yml`.
+
+The test reproduces the observed broad grants, applies only the candidate SQL in a disposable database, verifies anon retains SELECT but loses all six unnecessary privileges, checks only published rows are visible, and confirms authenticated table grants remain unchanged.
+
+### CI correction note
+
+The first test attempt exposed a quoting error in the test-only `auth.uid()` fixture (dollar-quote delimiter was malformed). This was a test harness issue, not a production SQL issue. The fixture has been corrected to use a named dollar-quote delimiter (`$body$`); a fresh PR CI run is required to validate the corrected version. Do not report this regression test as passing until that run completes successfully.
+
+No production SQL/ACL change, data mutation, deployment, merge, or paid service was used.
