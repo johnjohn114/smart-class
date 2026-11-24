@@ -12,13 +12,12 @@ CREATE TABLE public.member_no_counter(id boolean PRIMARY KEY DEFAULT true, next_
 INSERT INTO public.member_no_counter(id,next_no) VALUES(true,100);
 CREATE TABLE public.visitor_accounts(id uuid PRIMARY KEY);
 
-CREATE TABLE public.competitions(
-  id uuid PRIMARY KEY,
-  registration_deadline timestamptz,
-  registration_capacity integer,
-  registration_approval boolean NOT NULL DEFAULT false,
-  published boolean NOT NULL DEFAULT false
-);
+-- The growth authorization fixture already created public.competitions.
+-- Extend that same table instead of recreating it in the sequential test.
+ALTER TABLE public.competitions
+  ADD COLUMN IF NOT EXISTS registration_deadline timestamptz,
+  ADD COLUMN IF NOT EXISTS registration_capacity integer,
+  ADD COLUMN IF NOT EXISTS registration_approval boolean NOT NULL DEFAULT false;
 ALTER TABLE public.competition_registrations
   ADD COLUMN IF NOT EXISTS id uuid DEFAULT gen_random_uuid(),
   ADD COLUMN IF NOT EXISTS competition_id uuid;
