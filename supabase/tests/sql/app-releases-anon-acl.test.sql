@@ -1,4 +1,4 @@
-\\set ON_ERROR_STOP on
+\set ON_ERROR_STOP on
 
 -- Disposable PostgreSQL regression test for App Releases anon ACL hardening.
 -- Run in a fresh CI database as postgres:
@@ -15,6 +15,9 @@ $roles$;
 CREATE SCHEMA auth;
 CREATE TABLE auth.users(id uuid PRIMARY KEY);
 CREATE TABLE public.profiles(id uuid PRIMARY KEY, role text NOT NULL);
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $ SELECT NULL::uuid $;
+GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
+
 
 CREATE TABLE public.app_releases (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -52,10 +55,7 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 ON TABLE public.app_releases TO anon, authenticated;
 GRANT USAGE ON SCHEMA auth TO anon, authenticated;
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
-GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
-
-\\ir ../../candidate_sql/app_releases_anon_acl_hardening.sql
+\ir ../../candidate_sql/app_releases_anon_acl_hardening.sql
 
 DO $acl$
 BEGIN
@@ -102,4 +102,4 @@ END
 $visibility$;
 RESET ROLE;
 
-\\echo 'PASS: anon retains published-release SELECT only; authenticated admin table grants remain unchanged'
+\echo 'PASS: anon retains published-release SELECT only; authenticated admin table grants remain unchanged'
