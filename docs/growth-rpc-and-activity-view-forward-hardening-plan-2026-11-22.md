@@ -60,6 +60,14 @@ The current `app.js` already reads the five-column public projection first. It f
 - The activity view workflow test now applies the new Stage B migration after creating the Stage A public projection, then runs member/admin RLS and public-output assertions.
 - CI remains synthetic PostgreSQL only; passing CI does not constitute a production hosted Supabase smoke test.
 
+## Migration execution identity and platform-role boundary
+
+- Application migrations in this rollout are expected to execute as `postgres`. The disposable SQL regression suite now fails unless both `session_user` and `current_user` are `postgres`, and it verifies the owner of the Stage A functions and `activity_public_leaderboard` is `postgres`.
+- This is a CI/test-harness assertion. It does **not** prove which role was used for a past or future hosted production migration; record and verify the actual production execution identity through the approved deployment workflow before applying Stage A.
+- `supabase_admin` is a Supabase platform-management role and is intentionally outside this application migration's permission changes. Stage A changes default function privileges only for `postgres`; it must not attempt to alter `supabase_admin` defaults or platform schemas.
+- The regression suite creates a disposable `supabase_admin` role fixture, snapshots its `public` function default ACL, and asserts that Stage A leaves that ACL unchanged. This verifies migration scope in CI; it does not change or certify hosted platform-role settings.
+- New application functions must be created by migrations executed as `postgres`. If a future deployment path uses another role, stop and review that role's default privileges and ownership explicitly rather than broadening this migration to modify platform roles.
+
 ## Rollout gates
 
 1. Reconcile every relevant environment's schema and migration history. Production's missing migration tracking table does not prove whether another environment applied historical SQL.
