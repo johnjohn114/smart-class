@@ -1529,3 +1529,44 @@ After a reviewed schema-only artifact is available:
 5. Obtain separate explicit approval before any production migration, deployment, PR merge, or ACL change.
 
 No production DDL/DML, data export, migration-history repair, deployment, PR merge, feature-flag change, dashboard setting change, or paid service was used for this inventory.
+
+## 2026-11-24 targeted live-vs-migration object comparison
+
+### Calendar migration
+
+Read-only production catalog comparison confirms all objects defined by `26.11.3_calendar_fields.sql` currently exist on `public.announcements`:
+
+- Columns: `event_date`, `event_end_date`, `event_date_source`, `event_date_confirmed`.
+- Checks: `announcements_event_date_source_check` and `announcements_event_date_range_check`, with definitions matching the migration's intended constraints.
+- Partial index: `announcements_calendar_event_date_idx`, on `event_date` where `published = true AND event_date_confirmed = true`.
+
+This is a live structural match. Since the project migration ledger is absent, it does not prove that this exact file was executed; the SQL may have been applied manually or the same objects created through another path. Treat this migration's effects as present when planning a baseline; do not replay it blindly.
+
+### Growth authorization migration
+
+The live catalog currently has 36 public SECURITY DEFINER functions, including five trigger-returning functions, and 31 non-trigger routines. Among the 31 non-trigger routines, 30 currently grant effective EXECUTE to `anon` and 30 to `authenticated`. The only non-trigger SECURITY DEFINER routine not executable by anon is `public.is_admin()`; this helper remains intentionally callable by anon for RLS policy evaluation.
+
+The eight function signatures specifically inspected from `202611160001_growth_function_authorization_hardening.sql` show:
+- Seven functions exist in production: `admin_delete_growth_reward`, `admin_upsert_growth_reward`, `refresh_growth_level`, `complete_growth_task`, `award_growth_points`, `check_growth_achievements`, and `check_activity_badges`.
+- `public._refresh_growth_level_internal(uuid)` is absent in production; the candidate migration creates it.
+- The live Growth authorization hardening has not been applied: broad anon EXECUTE remains on the live privileged routines. The candidate migration's intended fail-closed ACL matrix is not the current production ACL state.
+- The candidate test suite explicitly treats `service_role` as a trusted server-side role for future non-trigger functions; trigger functions are denied direct EXECUTE for API roles. Do not describe the design as revoking every non-trigger function from `service_role`.
+
+### Default privileges
+
+A read-only inspection of `pg_default_acl` confirms that postgres-owned defaults in `public` currently grant:
+- Tables: `anon`, `authenticated`, and `service_role` broad table privileges.
+- Sequences: `anon`, `authenticated`, and `service_role` sequence privileges.
+- Functions: `anon`, `authenticated`, and `service_role` EXECUTE.
+
+The same explicit defaults also exist in `storage`. The proposed default-privilege migration is scoped to `public` for schema-specific revokes, while its global PUBLIC function revoke affects future postgres-owned functions across schemas. Existing explicit storage grants are not removed by that global PUBLIC change. This migration's live effect is not present in the observed `public` defaults; it remains a candidate requiring full review.
+
+### Reconciliation status
+
+| Migration | Live evidence | Current disposition |
+|---|---|---|
+| `26.11.3_calendar_fields.sql` | All four columns, both checks, and partial index exist | Live structural match; execution provenance unknown; do not replay |
+| `202611160001_growth_function_authorization_hardening.sql` | Target functions mostly exist, internal helper absent, anon EXECUTE still broad | Candidate ACL hardening not applied; requires object/definition/ACL review |
+| `202611170001_default_privileges_and_trigger_hardening.sql` | Public postgres defaults still grant API roles broad table/sequence/function privileges | Candidate default hardening not applied; preserve managed-schema boundaries |
+
+No production SQL, migration-history repair, data export, deployment, PR merge, feature-flag change, or paid service was used for this comparison.
