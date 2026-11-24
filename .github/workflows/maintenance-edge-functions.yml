@@ -383,6 +383,8 @@ jobs:
           END
           $test$;
           SQL
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/rate-limit-prototype-security.test.sql
 
       - name: Run App Releases anonymous ACL hardening regression test
         env:
