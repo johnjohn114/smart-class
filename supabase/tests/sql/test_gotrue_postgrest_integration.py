@@ -125,8 +125,10 @@ def main():
     assert_true(spoof_status in (400, 404),
                 "caller cannot supply or override the limiter actor UUID")
 
-    table_status, _ = http_request(POSTGREST, "/identity_buckets", admin, None,
+    table_status, _ = http_request(
+        POSTGREST, "/identity_buckets", admin, None,
         {"Accept-Profile": "rate_limit_lab"}
+    )
     assert_true(table_status in (401, 403, 404),
                 "authenticated clients cannot read the limiter storage table")
 
