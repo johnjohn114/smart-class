@@ -174,6 +174,9 @@ BEGIN
 END
 $helpers$;
 
+GRANT USAGE ON SCHEMA auth TO authenticated;
+GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
+
 INSERT INTO public.profiles (id, role)
 VALUES ('00000000-0000-4000-8000-000000000001'::uuid, 'admin')
 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;
