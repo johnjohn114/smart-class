@@ -939,6 +939,40 @@ BEGIN
 END
 $forward_complete_acl_matrix$;
 
+-- Explicit service_role policy for the complete post-Stage-A catalog.
+-- The migration intentionally preserves service_role as a trusted backend
+-- principal for non-trigger SECURITY DEFINER routines. Trigger entry points
+-- and the private growth-level helper remain non-callable directly.
+DO $forward_service_role_acl_matrix$
+DECLARE
+  r record;
+  expected_service_role boolean;
+BEGIN
+  FOR r IN
+    SELECT p.oid,
+           p.oid::regprocedure::text AS signature,
+           p.prorettype = 'trigger'::regtype AS is_trigger,
+           p.proname
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.prokind = 'f'
+  LOOP
+    expected_service_role :=
+      NOT r.is_trigger
+      AND r.proname <> '_refresh_growth_level_internal';
+
+    IF has_function_privilege('service_role', r.oid, 'EXECUTE')
+       IS DISTINCT FROM expected_service_role THEN
+      RAISE EXCEPTION
+        'FAIL: service_role EXECUTE mismatch for %, expected %',
+        r.signature, expected_service_role;
+    END IF;
+  END LOOP;
+END
+$forward_service_role_acl_matrix$;
+
 -- SECURITY DEFINER growth routines must not inherit a caller-controlled search_path.
 DO $search_path_hardening$
 DECLARE award_config text[]; achievement_config text[];
