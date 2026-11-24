@@ -96,6 +96,15 @@ def main():
     assert_true(status != 200,
                 "anonymous caller cannot execute the authenticated limiter RPC")
 
+    # A signed-in ordinary member must be rejected before a bucket is
+    # created or consumed. PostgreSQL insufficient_privilege maps to HTTP 403.
+    member_status, member_body = http_request(
+        POSTGREST, "/rpc/consume_authenticated_admin", member, {},
+        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
+    )
+    assert_true(member_status == 403,
+                f"authenticated non-admin is rejected before limiter consumption (HTTP {member_status}; body={member_body!r})")
+
     admin_decisions = []
     for _ in range(4):
         limiter_status, limiter_body = http_request(
@@ -108,14 +117,6 @@ def main():
         admin_decisions.append(limiter_body[0]["allowed"])
     assert_true(admin_decisions == [True, True, True, False],
                 "admin quota is isolated and denies the fourth request")
-
-    member_status, member_body = http_request(
-        POSTGREST, "/rpc/consume_authenticated_admin", member, {},
-        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
-    )
-    assert_true(member_status == 200 and isinstance(member_body, list)
-                and len(member_body) == 1 and member_body[0]["allowed"] is True,
-                "a different verified member JWT receives an independent quota")
 
     spoof_status, _ = http_request(
         POSTGREST, "/rpc/consume_authenticated_admin", admin,
