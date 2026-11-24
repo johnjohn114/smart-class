@@ -49,7 +49,7 @@ BEGIN
     SET window_started_at = CASE
           WHEN current_bucket.window_started_at
                + pg_catalog.make_interval(secs => p_window_seconds) <= v_now
-          THEN pg_catalog.clock_timestamp()
+          THEN v_now
           ELSE current_bucket.window_started_at
         END,
         request_count = CASE
@@ -155,12 +155,12 @@ BEGIN
   ON CONFLICT (endpoint_key, actor_id) DO UPDATE
     SET window_started_at = CASE
           WHEN existing.window_started_at + interval '60 seconds' <= v_now
-          THEN pg_catalog.clock_timestamp()
+          THEN v_now
           ELSE existing.window_started_at
         END,
         last_seen_at = v_now,
         request_count = CASE
-          WHEN existing.window_started_at + interval '60 seconds' <= pg_catalog.clock_timestamp()
+          WHEN existing.window_started_at + interval '60 seconds' <= v_now
           THEN 1
           WHEN existing.request_count >= 4 THEN 4
           ELSE existing.request_count + 1
