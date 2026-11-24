@@ -143,6 +143,13 @@ BEGIN
     RAISE EXCEPTION 'verified JWT subject invalid' USING ERRCODE = '28000';
   END;
 
+  -- Authentication alone is insufficient: this endpoint is admin-only.
+  -- The helper checks the authenticated subject against the server-side
+  -- profile role; no client-supplied role or actor ID is accepted.
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'admin role required' USING ERRCODE = '42501';
+  END IF;
+
   INSERT INTO rate_limit_lab.identity_buckets AS existing
     (endpoint_key, actor_id, window_started_at, last_seen_at, request_count)
   VALUES ('maintenance_admin', v_actor, v_now, v_now, 1)
