@@ -40,19 +40,21 @@ BEGIN
     RAISE EXCEPTION 'invalid rate-limit arguments' USING ERRCODE = '22023';
   END IF;
 
+  -- Use one timestamp for both window and counter decisions. This avoids
+  -- split decisions if the clock crosses the boundary between expressions.
   INSERT INTO rate_limit_lab.buckets AS current_bucket
     (bucket_key, window_started_at, request_count)
   VALUES (p_bucket_key, v_now, 1)
   ON CONFLICT (bucket_key) DO UPDATE
     SET window_started_at = CASE
           WHEN current_bucket.window_started_at
-               + pg_catalog.make_interval(secs => p_window_seconds) <= pg_catalog.clock_timestamp()
+               + pg_catalog.make_interval(secs => p_window_seconds) <= v_now
           THEN pg_catalog.clock_timestamp()
           ELSE current_bucket.window_started_at
         END,
         request_count = CASE
           WHEN current_bucket.window_started_at
-               + pg_catalog.make_interval(secs => p_window_seconds) <= pg_catalog.clock_timestamp()
+               + pg_catalog.make_interval(secs => p_window_seconds) <= v_now
           THEN 1
           WHEN current_bucket.request_count >= p_limit + 1
           THEN p_limit + 1
@@ -125,23 +127,18 @@ DECLARE
   v_now timestamptz := pg_catalog.clock_timestamp();
   v_started timestamptz;
   v_count integer;
-  v_claims text;
 BEGIN
-  v_claims := nullif(pg_catalog.current_setting('request.jwt.claim.sub', true), '');
-  IF v_claims IS NULL THEN
-    v_claims := nullif(
-      (nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'),
-      ''
-    );
-  END IF;
-  IF v_claims IS NULL THEN
-    RAISE EXCEPTION 'verified JWT subject required' USING ERRCODE = '28000';
-  END IF;
+  -- Use the same Supabase auth.uid() identity source as public.is_admin().
+  -- Reading legacy and JSON claim settings separately could otherwise make
+  -- the quota actor differ from the identity checked for admin authorization.
   BEGIN
-    v_actor := v_claims::uuid;
+    v_actor := auth.uid();
   EXCEPTION WHEN invalid_text_representation THEN
     RAISE EXCEPTION 'verified JWT subject invalid' USING ERRCODE = '28000';
   END;
+  IF v_actor IS NULL THEN
+    RAISE EXCEPTION 'verified JWT subject required' USING ERRCODE = '28000';
+  END IF;
 
   -- Authentication alone is insufficient: this endpoint is admin-only.
   -- The helper checks the authenticated subject against the server-side
@@ -150,16 +147,18 @@ BEGIN
     RAISE EXCEPTION 'admin role required' USING ERRCODE = '42501';
   END IF;
 
+  -- Keep the window reset, count reset, and last-seen update on one clock
+  -- sample so they cannot disagree at the exact window boundary.
   INSERT INTO rate_limit_lab.identity_buckets AS existing
     (endpoint_key, actor_id, window_started_at, last_seen_at, request_count)
   VALUES ('maintenance_admin', v_actor, v_now, v_now, 1)
   ON CONFLICT (endpoint_key, actor_id) DO UPDATE
     SET window_started_at = CASE
-          WHEN existing.window_started_at + interval '60 seconds' <= pg_catalog.clock_timestamp()
+          WHEN existing.window_started_at + interval '60 seconds' <= v_now
           THEN pg_catalog.clock_timestamp()
           ELSE existing.window_started_at
         END,
-        last_seen_at = pg_catalog.clock_timestamp(),
+        last_seen_at = v_now,
         request_count = CASE
           WHEN existing.window_started_at + interval '60 seconds' <= pg_catalog.clock_timestamp()
           THEN 1
