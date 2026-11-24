@@ -84,6 +84,44 @@ def main():
         os.environ["TEST_MEMBER_ID"],
     )
 
+    # Disposable identity-aware limiter lab. The RPC has no actor/policy
+    # arguments: PostgREST derives the subject from each verified GoTrue JWT.
+    status, anon_limiter = http_request(
+        POSTGREST, "/rpc/consume_authenticated_admin", None, {}
+    )
+    assert_true(status != 200,
+                "anonymous caller cannot execute the authenticated limiter RPC")
+
+    admin_decisions = []
+    for _ in range(4):
+        limiter_status, limiter_body = http_request(
+            POSTGREST, "/rpc/consume_authenticated_admin", admin, {}
+        )
+        assert_true(limiter_status == 200 and isinstance(limiter_body, list)
+                    and len(limiter_body) == 1,
+                    "verified admin JWT can call the identity-derived limiter RPC")
+        admin_decisions.append(limiter_body[0]["allowed"])
+    assert_true(admin_decisions == [True, True, True, False],
+                "admin quota is isolated and denies the fourth request")
+
+    member_status, member_body = http_request(
+        POSTGREST, "/rpc/consume_authenticated_admin", member, {}
+    )
+    assert_true(member_status == 200 and isinstance(member_body, list)
+                and len(member_body) == 1 and member_body[0]["allowed"] is True,
+                "a different verified member JWT receives an independent quota")
+
+    spoof_status, _ = http_request(
+        POSTGREST, "/rpc/consume_authenticated_admin", admin,
+        {"p_actor_id": os.environ["TEST_MEMBER_ID"]}
+    )
+    assert_true(spoof_status in (400, 404),
+                "caller cannot supply or override the limiter actor UUID")
+
+    table_status, _ = http_request(POSTGREST, "/identity_buckets", admin)
+    assert_true(table_status in (401, 403, 404),
+                "authenticated clients cannot read the limiter storage table")
+
     status, body = rpc("maintenance_status_public", {}, None)
     assert_true(status == 200 and body.get("ok") is True,
                 "request without a bearer token maps to anon and public status RPC succeeds")
