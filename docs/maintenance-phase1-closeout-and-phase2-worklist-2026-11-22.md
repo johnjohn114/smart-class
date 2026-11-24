@@ -1693,3 +1693,51 @@ The expanded table inventory gives column and foreign-key coverage, and generate
 A full schema-only dump still requires a supported local `supabase db dump --schema-only` / `pg_dump --schema-only` path using a local credential flow, or a reviewed catalog extraction process that captures every required object definition. Credentials must remain local and must never be pasted into chat, committed to GitHub, or printed in CI logs. Avoid exporting table data, auth users, vault contents, or secrets.
 
 No production DDL/DML, data export, migration-history repair, Edge Function deployment, feature-flag change, PR merge, or paid service was used for this metadata capture.
+
+
+## 2026-11-25 local schema-only export runbook
+
+### Purpose and safety boundary
+
+Prepare a reproducible, free local workflow to capture the production application's database definitions for comparison. This is a schema-only capture, not a migration, restore, or deployment operation.
+
+- Keep database credentials on the user's own computer. Never paste passwords, connection strings, access tokens, or API keys into chat, commit them, or place them in command-line arguments or CI logs.
+- Save the dump outside the Git repository first. Review it locally before deciding whether any sanitized excerpt belongs in GitHub.
+- Do not include table data, Auth user records, Vault contents, storage object contents, or secrets.
+- Do not run `supabase db push`, `supabase db reset`, `supabase migration repair`, or any SQL against production as part of this capture.
+- Do not add a migration-history row or treat the dump as proof of migration provenance.
+
+### Preferred CLI route
+
+Use an up-to-date Supabase CLI on the user's own computer. The current CLI supports `supabase db dump --remote`; the default dump is schema-oriented and excludes Supabase-managed schemas such as Auth, Storage, and extension-created schemas. It does not include data or custom roles unless the corresponding opt-in flags are supplied.
+
+1. Install/update the Supabase CLI and Docker Desktop (the CLI dump uses a containerized pg_dump).
+2. Authenticate locally and link the intended project only after checking that the project reference is the expected production project.
+3. Create a local folder outside the repository, for example `$HOME/supabase-private-review/`.
+4. Run:
+
+```sh
+supabase db dump --remote -f "$HOME/supabase-private-review/production-schema.sql"
+```
+
+5. Confirm the CLI's printed `Target:` identifies the intended project before treating the output as valid.
+6. Keep the SQL file local and private. Do not commit it or upload it to chat until it has been reviewed for sensitive definitions.
+
+Do not add `--data-only` or `--role-only`. The command is an export; it does not apply SQL to the remote database.
+
+### If Docker is unavailable
+
+Do not attempt to install or run Docker inside GitHub Actions for this task. A local PostgreSQL client route can be evaluated separately, but it must explicitly enumerate the application-owned schemas and preserve the object definitions needed for review. Do not use a partial `public`-only dump as proof of a complete baseline. Before using direct `pg_dump`, confirm the installed client version, TLS connection settings, schema list, and permissions locally; keep the connection string out of shell history and process arguments.
+
+### Local validation checklist
+
+- Confirm the file exists and is non-empty.
+- Confirm it contains DDL definitions, not table data statements such as `COPY ... FROM stdin` or bulk `INSERT INTO` rows.
+- Confirm the expected application schemas and objects are represented.
+- Record the CLI version, dump date/time, project reference (not credentials), and command used in a separate local note.
+- Compare tables, columns, constraints, indexes, functions, triggers, RLS policies, grants, and default privileges against the repository's migrations and candidate Maintenance SQL.
+- Treat missing objects or permission-denied omissions as unresolved; do not infer they do not exist.
+
+### Release gate
+
+A schema dump is evidence for reconciliation only. It does not authorize migration execution. Production remains unchanged; PR #34 remains Draft; Maintenance remains disabled and undeployed.
