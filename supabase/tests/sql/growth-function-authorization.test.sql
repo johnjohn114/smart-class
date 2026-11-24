@@ -2,11 +2,25 @@
 -- Run in a fresh PostgreSQL 17 database as postgres:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f this-file.sql
 
+-- Keep the test runner and migration execution context aligned with the
+-- production application-migration role. This validates the disposable test
+-- harness; it does not prove which role a hosted production migration used.
+DO $migration_execution_identity$
+BEGIN
+  IF session_user <> 'postgres' OR current_user <> 'postgres' THEN
+    RAISE EXCEPTION
+      'FAIL: this migration regression suite must run with session_user/current_user postgres (session_user=%, current_user=%)',
+      session_user, current_user;
+  END IF;
+END
+$migration_execution_identity$;
+
 DO $roles$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='supabase_admin') THEN CREATE ROLE supabase_admin NOLOGIN; END IF;
 END
 $roles$;
 
@@ -674,3 +688,662 @@ END
 $complete_acl_matrix$;
 
 \echo 'PASS: growth function authorization regression tests'
+
+
+-- Forward-migration regression: simulate the vulnerable production grants and
+-- old unguarded function body after the legacy migration, then prove the new
+-- forward-only migration repairs them. This is a disposable PostgreSQL test.
+GRANT EXECUTE ON FUNCTION
+  public.award_growth_points(uuid,integer,text,text,text,text,uuid)
+  TO anon, authenticated;
+CREATE OR REPLACE FUNCTION public.check_growth_achievements(p_user_id uuid DEFAULT auth.uid())
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $legacy_unguarded$
+BEGIN
+  IF p_user_id IS NULL THEN RETURN 0; END IF;
+  RETURN 0;
+END;
+$legacy_unguarded$;
+GRANT EXECUTE ON FUNCTION public.check_growth_achievements(uuid) TO anon;
+
+-- Reintroduce unsafe default ACLs to model the production drift independently
+-- of the earlier historical hardening migration.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
+-- Recreate the two additional live-production drifts after the legacy
+-- hardening migration, so Stage A must independently repair them.
+CREATE OR REPLACE FUNCTION public.admin_delete_growth_reward(p_reward_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_admin_delete$
+DECLARE caller_role text;
+BEGIN
+  SELECT role INTO caller_role FROM public.profiles WHERE id=auth.uid();
+  IF caller_role <> 'admin' THEN RAISE EXCEPTION '只有管理員可以刪除獎勵'; END IF;
+  RETURN jsonb_build_object('success',true);
+END;
+$legacy_admin_delete$;
+GRANT EXECUTE ON FUNCTION public.admin_delete_growth_reward(uuid) TO anon;
+
+-- Simulate production's drifted grants across the complete SECURITY DEFINER
+-- catalog, not only the three individually reproduced function bodies.
+DO $production_acl_drift$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS signature,
+           p.prorettype='trigger'::regtype AS is_trigger
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.prosecdef AND p.prokind='f'
+  LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO PUBLIC, anon, authenticated',r.signature);
+    IF r.is_trigger THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role',r.signature);
+    END IF;
+  END LOOP;
+END
+$production_acl_drift$;
+
+-- Recreate the live badge routine's NULL-sensitive ownership check.
+CREATE OR REPLACE FUNCTION public.check_activity_badges(p_user_id uuid DEFAULT auth.uid())
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_badges$
+DECLARE v_user uuid:=coalesce(p_user_id,auth.uid());
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION '請先登入'; END IF;
+  IF p_user_id IS NOT NULL AND p_user_id<>auth.uid()
+     AND NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role='admin') THEN
+    RAISE EXCEPTION '沒有權限';
+  END IF;
+  RETURN jsonb_build_object('success',true);
+END;
+$legacy_badges$;
+GRANT EXECUTE ON FUNCTION public.check_activity_badges(uuid) TO anon;
+
+-- Recreate the vulnerable reward upsert role check as seen in production.
+CREATE OR REPLACE FUNCTION public.admin_upsert_growth_reward(
+ p_reward_id uuid,p_code text,p_title text,p_description text,p_icon text,p_category text,
+ p_point_cost integer,p_min_level text,p_required_achievement_id uuid,p_user_limit integer,
+ p_total_limit integer,p_coupon_title text,p_coupon_description text,p_coupon_discount text,
+ p_coupon_expires_days integer,p_available_from timestamptz,p_available_until timestamptz,
+ p_sort_order integer,p_enabled boolean
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_admin_upsert$
+DECLARE caller_role text;
+BEGIN
+ SELECT role INTO caller_role FROM public.profiles WHERE id=auth.uid();
+ IF caller_role <> 'admin' THEN RAISE EXCEPTION '只有管理員可以管理獎勵'; END IF;
+ RETURN jsonb_build_object('success',true,'action','legacy-bypass');
+END;
+$legacy_admin_upsert$;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean) TO anon;
+
+CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $legacy_refresh_level$
+DECLARE lvl public.growth_levels%rowtype;
+BEGIN
+  SELECT * INTO lvl FROM public.growth_levels
+  WHERE min_points <= coalesce((SELECT growth_points FROM public.profiles WHERE id=p_user_id),0)
+  ORDER BY min_points DESC,sort_order DESC LIMIT 1;
+  IF lvl.code IS NULL THEN lvl.code:='newbie'; END IF;
+  UPDATE public.profiles SET growth_level=lvl.code WHERE id=p_user_id;
+  RETURN lvl.code;
+END;
+$legacy_refresh_level$;
+GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO anon;
+
+-- Capture direct service_role grants before Stage A. The migration removes
+-- service_role from existing trigger entry points, but deliberately preserves
+-- the prior direct grants on non-trigger routines.
+CREATE TEMP TABLE ci_service_role_acl_before_stage_a AS
+SELECT p.oid AS function_oid,
+       EXISTS (
+         SELECT 1
+         FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+         WHERE acl.grantee = 'service_role'::regrole
+           AND acl.privilege_type = 'EXECUTE'
+       ) AS direct_execute
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND p.prosecdef
+  AND p.prokind = 'f';
+
+-- Snapshot the supabase_admin public-schema function defaults in this disposable
+-- database. Stage A is scoped to postgres and must not mutate the platform role.
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+CREATE TEMP TABLE ci_supabase_admin_defaults_before_stage_a AS
+SELECT defaclacl
+FROM pg_default_acl
+WHERE defaclrole = 'supabase_admin'::regrole
+  AND defaclnamespace = 'public'::regnamespace
+  AND defaclobjtype = 'f';
+
+\ir ../../migrations/20261122120000_growth_rpc_and_public_leaderboard_hardening.sql
+
+DO $supabase_admin_defaults_unchanged$
+DECLARE before_acl aclitem[]; after_acl aclitem[];
+BEGIN
+  SELECT defaclacl INTO before_acl
+  FROM pg_temp.ci_supabase_admin_defaults_before_stage_a;
+
+  SELECT defaclacl INTO after_acl
+  FROM pg_default_acl
+  WHERE defaclrole = 'supabase_admin'::regrole
+    AND defaclnamespace = 'public'::regnamespace
+    AND defaclobjtype = 'f';
+
+  IF after_acl IS DISTINCT FROM before_acl THEN
+    RAISE EXCEPTION
+      'FAIL: Stage A changed supabase_admin public function defaults; platform role is outside application migration scope';
+  END IF;
+END
+$supabase_admin_defaults_unchanged$;
+
+-- Stage A must be applied by the expected application migration owner.
+-- Replaced routines retain the expected owner; newly created private helper
+-- and public projection view must also be owned by postgres.
+DO $migration_object_owners$
+DECLARE
+  expected_owner name := 'postgres';
+  actual_owner name;
+  r record;
+BEGIN
+  IF current_user <> expected_owner THEN
+    RAISE EXCEPTION 'FAIL: Stage A ran as %, expected %', current_user, expected_owner;
+  END IF;
+
+  FOR r IN
+    SELECT routine_oid
+    FROM (VALUES
+      ('public.award_growth_points(uuid,integer,text,text,text,text,uuid)'::regprocedure),
+      ('public.admin_delete_growth_reward(uuid)'::regprocedure),
+      ('public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)'::regprocedure),
+      ('public.check_growth_achievements(uuid)'::regprocedure),
+      ('public.refresh_growth_level(uuid)'::regprocedure),
+      ('public.check_activity_badges(uuid)'::regprocedure),
+      ('public._refresh_growth_level_internal(uuid)'::regprocedure)
+    ) AS expected(routine_oid)
+  LOOP
+    SELECT pg_get_userbyid(p.proowner)::name
+      INTO actual_owner
+    FROM pg_proc p
+    WHERE p.oid = r.routine_oid;
+
+    IF actual_owner IS DISTINCT FROM expected_owner THEN
+      RAISE EXCEPTION
+        'FAIL: function % is owned by %, expected %',
+        r.routine_oid, actual_owner, expected_owner;
+    END IF;
+  END LOOP;
+
+  SELECT pg_get_userbyid(c.relowner)::name
+    INTO actual_owner
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relname = 'activity_public_leaderboard'
+    AND c.relkind = 'v';
+
+  IF actual_owner IS DISTINCT FROM expected_owner THEN
+    RAISE EXCEPTION
+      'FAIL: public.activity_public_leaderboard is owned by %, expected %',
+      actual_owner, expected_owner;
+  END IF;
+END
+$migration_object_owners$;
+
+DO $forward_acl$
+BEGIN
+  IF has_function_privilege('anon','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: forward migration left direct award helper EXECUTE';
+  END IF;
+  IF has_function_privilege('anon','public.check_growth_achievements(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: forward migration left anonymous achievement EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.check_growth_achievements(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: forward migration removed authenticated achievement RPC';
+  END IF;
+  IF position('auth.uid()' in (
+    SELECT prosrc FROM pg_proc
+    WHERE oid='public.check_growth_achievements(uuid)'::regprocedure
+  ))=0 THEN
+    RAISE EXCEPTION 'FAIL: forward migration did not restore the caller ownership guard';
+  END IF;
+  IF (SELECT count(*) FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='activity_public_leaderboard')<>5 THEN
+    RAISE EXCEPTION 'FAIL: public leaderboard projection must expose exactly five columns';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema='public' AND table_name='activity_public_leaderboard'
+               AND column_name IN ('user_id','checkin_points','completion_points')) THEN
+    RAISE EXCEPTION 'FAIL: public leaderboard projection exposes internal columns';
+  END IF;
+  IF NOT has_table_privilege('anon','public.activity_public_leaderboard','SELECT') THEN
+    RAISE EXCEPTION 'FAIL: anonymous public leaderboard SELECT missing';
+  END IF;
+  IF has_function_privilege('anon','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous admin reward delete EXECUTE';
+  END IF;
+  IF has_function_privilege('anon','public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous admin reward upsert EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.admin_upsert_growth_reward(uuid, text, text, text, text, text, integer, text, uuid, integer, integer, text, text, text, integer, timestamptz, timestamptz, integer, boolean)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated admin reward upsert RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated admin reward delete RPC';
+  END IF;
+  IF has_function_privilege('anon','public.refresh_growth_level(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous growth level refresh EXECUTE';
+  END IF;
+  IF has_function_privilege('anon','public.check_activity_badges(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left anonymous activity badge EXECUTE';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.check_activity_badges(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated activity badge RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A removed authenticated growth level RPC';
+  END IF;
+  IF has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public._refresh_growth_level_internal(uuid)','EXECUTE')
+     OR has_function_privilege('service_role','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: private growth level helper remains directly executable';
+  END IF;
+END
+$forward_acl$;
+
+-- After simulating production-wide grant drift, Stage A restores the full allowlist.
+DO $forward_complete_acl_matrix$
+DECLARE
+  r record;
+  resolved regprocedure;
+  expected_authenticated boolean;
+  expected_anon boolean;
+  expected_trigger boolean;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('admin_activity_analytics()', true, false, false),
+      ('admin_adjust_growth_points(uuid,integer,text)', true, false, false),
+      ('admin_apply_competition_rewards(uuid)', true, false, false),
+      ('admin_cancel_order(uuid)', true, false, false),
+      ('admin_complete_order(uuid)', true, false, false),
+      ('admin_delete_growth_reward(uuid)', true, false, false),
+      ('admin_delete_video(uuid)', true, false, false),
+      ('admin_grant_competition_reward(uuid,text,text,text,integer,uuid)', true, false, false),
+      ('admin_mark_competition_attendance(uuid,text,text)', true, false, false),
+      ('admin_mark_competition_member_attendance(uuid,uuid,text,text)', true, false, false),
+      ('admin_mark_order_paid(uuid)', true, false, false),
+      ('admin_promote_competition_waitlist(uuid)', true, false, false),
+      ('admin_reset_growth_member(uuid,text)', true, false, false),
+      ('admin_settle_competition(uuid)', true, false, false),
+      ('admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamp with time zone,timestamp with time zone,integer,boolean)', true, false, false),
+      ('admin_upsert_video(jsonb)', true, false, false),
+      ('assign_member_no_and_nickname()', false, false, true),
+      ('award_growth_points(uuid,integer,text,text,text,text,uuid)', false, false, false),
+      ('check_activity_badges(uuid)', true, false, false),
+      ('check_competition_registration_rules()', false, false, true),
+      ('check_growth_achievements(uuid)', true, false, false),
+      ('checkin_competition(uuid,text)', true, false, false),
+      ('close_my_support_ticket(uuid)', true, false, false),
+      ('complete_growth_task(text)', true, false, false),
+      ('create_cash_order(uuid,integer,text)', true, false, false),
+      ('ensure_visitor_profile()', false, false, true),
+      ('growth_registration_reward()', false, false, true),
+      ('growth_result_reward()', false, false, true),
+      ('increment_download_count(uuid)', true, false, false),
+      ('is_admin()', true, true, false),
+      ('is_admin_user()', true, false, false),
+      ('join_competition_waitlist(uuid,text)', true, false, false),
+      ('record_growth_activity()', true, false, false),
+      ('redeem_growth_reward(uuid)', true, false, false),
+      ('refresh_growth_level(uuid)', true, false, false),
+      ('use_growth_coupon(uuid)', true, false, false),
+      ('_refresh_growth_level_internal(uuid)', false, false, false)
+    ) AS v(signature, allow_authenticated, allow_anon, is_trigger)
+  LOOP
+    resolved := to_regprocedure('public.' || r.signature);
+    IF resolved IS NULL THEN
+      RAISE EXCEPTION 'FAIL: catalog fixture missing SECURITY DEFINER signature %', r.signature;
+    END IF;
+
+    expected_authenticated := r.allow_authenticated;
+    expected_anon := r.allow_anon;
+    expected_trigger := r.is_trigger;
+
+    IF has_function_privilege('authenticated', resolved, 'EXECUTE')
+       IS DISTINCT FROM expected_authenticated THEN
+      RAISE EXCEPTION 'FAIL: authenticated EXECUTE mismatch for %, expected %',
+        r.signature, expected_authenticated;
+    END IF;
+
+    IF has_function_privilege('anon', resolved, 'EXECUTE')
+       IS DISTINCT FROM expected_anon THEN
+      RAISE EXCEPTION 'FAIL: anon EXECUTE mismatch for %, expected %',
+        r.signature, expected_anon;
+    END IF;
+
+    IF expected_trigger AND has_function_privilege('service_role', resolved, 'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: service_role can directly execute trigger function %', r.signature;
+    END IF;
+  END LOOP;
+
+  IF (
+    SELECT count(*)
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.prokind = 'f'
+      AND p.oid::regprocedure::text <> 'ci_security_definer_trigger()'
+  ) <> 38 THEN
+    RAISE EXCEPTION 'FAIL: expected 38 catalog entries (36 live routines, internal helper, and future-function fixture)';
+  END IF;
+END
+$forward_complete_acl_matrix$;
+
+-- Explicit service_role policy for the complete post-Stage-A catalog.
+-- The migration intentionally preserves service_role as a trusted backend
+-- principal for non-trigger SECURITY DEFINER routines. Trigger entry points
+-- and the private growth-level helper remain non-callable directly.
+DO $forward_service_role_acl_matrix$
+DECLARE
+  r record;
+  prior_direct_execute boolean;
+  expected_service_role boolean;
+  actual_direct_execute boolean;
+BEGIN
+  FOR r IN
+    SELECT p.oid,
+           p.oid::regprocedure::text AS signature,
+           p.prorettype = 'trigger'::regtype AS is_trigger
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.prokind = 'f'
+  LOOP
+    SELECT s.direct_execute INTO prior_direct_execute
+    FROM pg_temp.ci_service_role_acl_before_stage_a s
+    WHERE s.function_oid = r.oid;
+
+    -- Stage A preserves existing non-trigger direct grants, revokes all
+    -- direct grants from existing trigger functions, and creates the private
+    -- helper without a service_role grant.
+    expected_service_role :=
+      NOT r.is_trigger AND COALESCE(prior_direct_execute, false);
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+      WHERE acl.grantee = 'service_role'::regrole
+        AND acl.privilege_type = 'EXECUTE'
+    )
+    INTO actual_direct_execute
+    FROM pg_proc p
+    WHERE p.oid = r.oid;
+
+    IF actual_direct_execute IS DISTINCT FROM expected_service_role THEN
+      RAISE EXCEPTION
+        'FAIL: service_role direct EXECUTE mismatch for %, expected %',
+        r.signature, expected_service_role;
+    END IF;
+  END LOOP;
+END
+$forward_service_role_acl_matrix$;
+
+-- SECURITY DEFINER growth routines must not inherit a caller-controlled search_path.
+DO $search_path_hardening$
+DECLARE award_config text[]; achievement_config text[];
+BEGIN
+  SELECT proconfig INTO award_config FROM pg_proc
+  WHERE oid='public.award_growth_points(uuid,integer,text,text,text,text,uuid)'::regprocedure;
+  SELECT proconfig INTO achievement_config FROM pg_proc
+  WHERE oid='public.check_growth_achievements(uuid)'::regprocedure;
+  IF NOT coalesce(award_config @> ARRAY['search_path=""'],false) THEN
+    RAISE EXCEPTION 'FAIL: award_growth_points must use an empty search_path';
+  END IF;
+  IF NOT coalesce(achievement_config @> ARRAY['search_path=""'],false) THEN
+    RAISE EXCEPTION 'FAIL: check_growth_achievements must use an empty search_path';
+  END IF;
+END
+$search_path_hardening$;
+
+-- Stage A must also repair unsafe defaults for future SECURITY DEFINER functions.
+CREATE FUNCTION public.ci_forward_future_definer()
+RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 1';
+DO $forward_defaults$
+BEGIN
+  IF has_function_privilege('anon','public.ci_forward_future_definer()','EXECUTE')
+     OR has_function_privilege('authenticated','public.ci_forward_future_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A left unsafe default EXECUTE grants on future functions';
+  END IF;
+  IF NOT has_function_privilege('service_role','public.ci_forward_future_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A unexpectedly removed trusted service_role default EXECUTE';
+  END IF;
+END
+$forward_defaults$;
+
+-- A member still processes only their own achievements after the forward fix.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_cross_account$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='沒有權限檢查此會員成就' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: forward migration allowed cross-account achievement processing'; END IF;
+END
+$forward_cross_account$;
+RESET ROLE;
+
+-- Stage A must restore the member/admin wrapper for growth level refresh.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_level_cross_account$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='沒有權限更新此會員等級' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed cross-account level refresh'; END IF;
+END
+$forward_level_cross_account$;
+RESET ROLE;
+
+-- Anonymous callers cannot process badges for a supplied member UUID.
+SET ROLE anon;
+DO $forward_badge_anon$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000002');
+  EXCEPTION
+    WHEN insufficient_privilege THEN denied:=true;
+    WHEN OTHERS THEN
+      IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed anonymous cross-account badge processing'; END IF;
+END
+$forward_badge_anon$;
+RESET ROLE;
+
+-- Authenticated members may check their own badges, not another member's.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_badge_member$
+DECLARE denied boolean := false; result jsonb;
+BEGIN
+  result := public.check_activity_badges(auth.uid());
+  IF result->>'success' IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'FAIL: Stage A member could not check own badges';
+  END IF;
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed cross-account badge processing'; END IF;
+END
+$forward_badge_member$;
+RESET ROLE;
+
+-- Missing identity must fail closed for the admin delete RPC.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE authenticated;
+DO $forward_admin_null_identity$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000010');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='只有管理員可以刪除獎勵' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A admin delete accepted NULL auth.uid()'; END IF;
+END
+$forward_admin_null_identity$;
+RESET ROLE;
+
+-- Missing identity must also fail closed for the admin reward upsert RPC.
+SET ROLE authenticated;
+DO $forward_admin_upsert_null_identity$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_upsert_growth_reward(
+      NULL,'stage-a-null-test','Stage A Null Test',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+      NULL,NULL,NULL,NULL,NULL,NULL,1,true
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='只有管理員可以管理獎勵' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A admin upsert accepted NULL auth.uid()'; END IF;
+END
+$forward_admin_upsert_null_identity$;
+RESET ROLE;
+
+-- Seed the reward as the database owner; the authenticated admin then
+-- exercises only the RPC, not direct table INSERT privileges.
+INSERT INTO public.growth_rewards(id,code,title,reward_type,point_cost,enabled)
+VALUES('00000000-0000-4000-8000-000000000099','stage-a-delete-test','Stage A delete test','coupon',5,true);
+
+-- After Stage A, an authenticated administrator can still delete a reward.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
+SET ROLE authenticated;
+DO $forward_admin_positive$
+DECLARE result jsonb;
+BEGIN
+  result := public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000099');
+  IF result->>'action' <> 'deleted' THEN
+    RAISE EXCEPTION 'FAIL: Stage A admin reward delete no longer works';
+  END IF;
+END
+$forward_admin_positive$;
+RESET ROLE;
+
+-- The authenticated admin can still create a reward after Stage A.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
+SET ROLE authenticated;
+DO $forward_admin_upsert_positive$
+DECLARE result jsonb;
+BEGIN
+  result := public.admin_upsert_growth_reward(
+    NULL,'stage-a-upsert-test','Stage A Upsert Test',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,2,true
+  );
+  IF result->>'action' <> 'created' THEN
+    RAISE EXCEPTION 'FAIL: Stage A admin reward upsert no longer works';
+  END IF;
+END
+$forward_admin_upsert_positive$;
+RESET ROLE;
+
+-- A normal authenticated member still cannot use the admin reward upsert.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_admin_upsert_member_denied$
+DECLARE denied boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.admin_upsert_growth_reward(
+      NULL,'stage-a-member-test','Stage A Member Test',NULL,'star','test',5,NULL,NULL,NULL,NULL,
+      NULL,NULL,NULL,NULL,NULL,NULL,3,true
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='只有管理員可以管理獎勵' THEN denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: Stage A allowed a normal member to upsert rewards'; END IF;
+END
+$forward_admin_upsert_member_denied$;
+RESET ROLE;
+
+-- The member can still refresh their own level after Stage A.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+DO $forward_level_self$
+DECLARE level_code text;
+BEGIN
+  level_code := public.refresh_growth_level(auth.uid());
+  IF level_code <> 'sprout' THEN
+    RAISE EXCEPTION 'FAIL: Stage A member could not refresh own growth level';
+  END IF;
+END
+$forward_level_self$;
+RESET ROLE;
+
+-- Internal SECURITY DEFINER trigger paths continue to award points even though
+-- browser roles cannot call the helper directly.
+CREATE TABLE public.ci_forward_award_trigger_source(
+  id integer PRIMARY KEY,
+  user_id uuid NOT NULL
+);
+CREATE FUNCTION public.ci_forward_award_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $trigger$
+BEGIN
+  PERFORM public.award_growth_points(
+    NEW.user_id, 3, 'CI trusted trigger award', 'test',
+    NEW.id::text, 'ci-forward-trigger:'||NEW.id::text, NULL
+  );
+  RETURN NEW;
+END;
+$trigger$;
+CREATE TRIGGER ci_forward_award_trigger
+AFTER INSERT ON public.ci_forward_award_trigger_source
+FOR EACH ROW EXECUTE FUNCTION public.ci_forward_award_trigger();
+GRANT INSERT ON public.ci_forward_award_trigger_source TO authenticated;
+
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+INSERT INTO public.ci_forward_award_trigger_source(id,user_id)
+VALUES(1,'00000000-0000-4000-8000-000000000002');
+RESET ROLE;
+DO $trigger_still_works$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.growth_point_transactions
+    WHERE source_key='ci-forward-trigger:1' AND amount=3
+  ) THEN RAISE EXCEPTION 'FAIL: trusted trigger could not call revoked award helper'; END IF;
+END
+$trigger_still_works$;
+
+\echo 'PASS: growth forward-migration authorization regression tests'

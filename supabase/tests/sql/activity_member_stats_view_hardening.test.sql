@@ -6,6 +6,7 @@ BEGIN
  SELECT reloptions INTO opts FROM pg_class WHERE oid='public.activity_member_stats'::regclass;
  IF NOT coalesce(opts @> ARRAY['security_invoker=true'],false) THEN RAISE EXCEPTION 'security_invoker=true required'; END IF;
  IF has_table_privilege('anon','public.activity_member_stats','SELECT') THEN RAISE EXCEPTION 'anon must not SELECT the view'; END IF;
+ IF has_table_privilege('anon','public.competition_attendance','SELECT') THEN RAISE EXCEPTION 'anon must not SELECT the underlying attendance table'; END IF;
  IF NOT has_table_privilege('authenticated','public.activity_member_stats','SELECT') THEN RAISE EXCEPTION 'authenticated SELECT missing'; END IF;
  IF NOT has_table_privilege('service_role','public.activity_member_stats','SELECT') THEN RAISE EXCEPTION 'service_role SELECT missing'; END IF;
  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.profiles'::regclass)

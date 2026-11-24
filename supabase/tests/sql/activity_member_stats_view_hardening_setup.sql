@@ -41,6 +41,8 @@ CREATE POLICY attendance_self_or_admin_select ON public.competition_attendance F
 USING (user_id=auth.uid() OR public.is_admin());
 GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
 GRANT SELECT ON public.profiles,public.competition_attendance TO authenticated,service_role;
+-- Match the live unnecessary anonymous source-table grants identified in PR #26.
+GRANT ALL PRIVILEGES ON TABLE public.competition_attendance TO anon;
 CREATE VIEW public.activity_member_stats AS
 SELECT a.user_id,max(coalesce(p.nickname,a.user_id::text)) AS nickname,
 count(*) FILTER (WHERE a.status=ANY(ARRAY['checked_in'::text,'late'::text]))::integer AS attended_count,
