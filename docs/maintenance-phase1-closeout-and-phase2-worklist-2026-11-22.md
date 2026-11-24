@@ -1673,3 +1673,23 @@ The uploaded `啟動第一步檢查.txt` describes an earlier four-table, `servi
 - The SQL draft is validated in disposable environments but is not a deployable migration.
 - No production SQL, data export, migration-history repair, Edge Function deployment, feature-flag change, PR merge, or paid service was used.
 - Continue with production schema-only baseline capture/reconciliation and the rate-limit design decision. Keep production release blocked until both are resolved.
+
+## 2026-11-24 additional read-only Supabase metadata capture
+
+Supabase read-only project tools were used to supplement the SQL catalog summary:
+
+- 85 tables across application and managed schemas: `auth` 27, `public` 44, `storage` 10, `realtime` 3, `vault` 1.
+- 806 table columns and 162 foreign-key relationships in the verbose table inventory.
+- Generated 63,093 characters of current TypeScript database types for the exposed public API schema. This is useful for application table/view/RPC type compatibility, but it is not a complete SQL schema dump and does not contain full policy expressions, trigger bodies, default ACLs, grants, all constraints/index DDL, or managed schema definitions.
+- The Supabase extension catalog lists 78 available extensions; this is an availability catalog, not the installed-extension count. The installed extension list from `pg_extension` remains the source for what is actually installed.
+- Current production Edge Function inventory contains six active functions; none of the five Maintenance function slugs are deployed. This matches the release boundary: Maintenance has not been deployed.
+
+### What this does and does not establish
+
+The expanded table inventory gives column and foreign-key coverage, and generated public TypeScript types provide an additional application-facing cross-check. Neither output is a schema-only backup or a replayable baseline. Do not infer that the production schema has been fully exported, and do not use generated TypeScript types as a replacement for SQL DDL.
+
+### Next safe baseline step
+
+A full schema-only dump still requires a supported local `supabase db dump --schema-only` / `pg_dump --schema-only` path using a local credential flow, or a reviewed catalog extraction process that captures every required object definition. Credentials must remain local and must never be pasted into chat, committed to GitHub, or printed in CI logs. Avoid exporting table data, auth users, vault contents, or secrets.
+
+No production DDL/DML, data export, migration-history repair, Edge Function deployment, feature-flag change, PR merge, or paid service was used for this metadata capture.
