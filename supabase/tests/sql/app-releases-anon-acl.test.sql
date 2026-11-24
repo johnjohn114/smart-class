@@ -15,7 +15,7 @@ $roles$;
 CREATE SCHEMA auth;
 CREATE TABLE auth.users(id uuid PRIMARY KEY);
 CREATE TABLE public.profiles(id uuid PRIMARY KEY, role text NOT NULL);
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $ SELECT NULL::uuid $;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $body$ SELECT NULL::uuid $body$;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
 
 
