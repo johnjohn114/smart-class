@@ -301,3 +301,42 @@ The current tool environment does not provide a verified complete `pg_dump`/Supa
 4. Produce a reviewed baseline plan and isolated replay proof before any separately approved production operation.
 
 No production DDL/DML, migration-history repair, data export, deployment, PR merge, feature-flag change, dashboard setting change, or paid service was used in this audit.
+
+## 2026-11-24 App Releases migration content comparison
+
+### Files compared
+
+- `supabase/migrations/202610310001_app_releases.sql`
+- `supabase/migrations/20261031_app_releases.sql`
+
+These are not duplicate copies. They describe materially different schemas and authorization designs.
+
+### First file: matches the observed production table shape
+
+The first file defines `version_code` as UNIQUE, `published` default false, nullable `published_at`, and nullable `created_by` referencing `auth.users`. Its policies use direct `profiles.role = 'admin'` checks and it does not define `is_app_release_admin()`.
+
+A read-only production catalog inspection found the same nine columns, matching defaults/nullability, a unique `version_code` index, and the five policy names/operations from this file. This is evidence of schema/content alignment, not proof of which SQL file was executed or when.
+
+### Second file: incompatible with the observed production table
+
+The second file adds `is_latest` to its index definition, but its own `CREATE TABLE IF NOT EXISTS` does not add that column to an already-existing table. The observed production table has no `is_latest` column. Therefore, applying this file against the observed production table would fail at the `app_releases_published_idx` creation step.
+
+It also differs in defaults/nullability, omits `created_by`, omits a UNIQUE constraint on `version_code`, adds an HTTPS check, and defines a SECURITY DEFINER helper `is_app_release_admin()`. The helper is absent in the observed production catalog. These differences are not safe to reconcile by simply running both files.
+
+### Additional live ACL finding
+
+The read-only catalog query showed `anon` currently has table-level INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER grants on `public.app_releases`, in addition to SELECT. Current RLS policies do not define anon write policies, which currently blocks ordinary anon writes through RLS, but the broad table grants are unnecessary and should be reviewed as a separate least-privilege hardening item. Do not change production ACLs as part of this documentation-only task.
+
+### Frontend compatibility
+
+The current admin frontend writes `version_code`, `version_name`, `release_notes`, `apk_url`, `published`, `published_at`, and `created_by`; it validates HTTPS URLs client-side. The public release center reads `id`, `version_code`, `version_name`, `release_notes`, `apk_url`, `published`, `published_at`, and `created_at`. Neither current frontend file references `is_latest` or `is_app_release_admin()`.
+
+### Decision
+
+- Do not apply either App Releases SQL file to production during baseline reconciliation.
+- Preserve both files for now; no rename/delete/reorder was made.
+- Treat `202610310001_app_releases.sql` as the closer structural match to the observed live schema, but do not claim it is proven execution history.
+- Keep the second file flagged as incompatible with the current live schema unless a separately reviewed migration is designed from verified requirements.
+- Create a development-only follow-up to review and tighten the unnecessary `anon` table privileges, with isolated regression tests before any production approval.
+
+This comparison used GitHub source reads, frontend source reads, and read-only production catalog queries only. No production SQL, data changes, deployment, PR merge, or paid service was used.
