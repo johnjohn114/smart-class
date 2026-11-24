@@ -1570,3 +1570,41 @@ The same explicit defaults also exist in `storage`. The proposed default-privile
 | `202611170001_default_privileges_and_trigger_hardening.sql` | Public postgres defaults still grant API roles broad table/sequence/function privileges | Candidate default hardening not applied; preserve managed-schema boundaries |
 
 No production SQL, migration-history repair, data export, deployment, PR merge, feature-flag change, or paid service was used for this comparison.
+
+## 2026-11-24 Growth RPC frontend compatibility and authorization review
+
+### Frontend RPC compatibility
+
+A repository-wide scan of the current browser JavaScript found 19 distinct direct RPC endpoints. All Growth-related/member endpoints and admin Growth/competition-reward endpoints are present in the candidate migration's authenticated allowlist:
+
+- Member: `record_growth_activity()`, `complete_growth_task(text)`, `check_growth_achievements(uuid)`, `refresh_growth_level(uuid)`, `redeem_growth_reward(uuid)`, `use_growth_coupon(uuid)`.
+- Admin Growth: `admin_adjust_growth_points(uuid,integer,text)`, `admin_reset_growth_member(uuid,text)`, `admin_activity_analytics()`.
+- Competition reward administration: `admin_grant_competition_reward(uuid,text,text,text,integer,uuid)`.
+
+The remaining browser RPCs in the scan are also represented in the same allowlist: `admin_delete_video`, `admin_mark_competition_member_attendance`, `admin_promote_competition_waitlist`, `admin_settle_competition`, `admin_upsert_video`, `checkin_competition`, `close_my_support_ticket`, `increment_download_count`, and `join_competition_waitlist`.
+
+The member Growth UI calls `record_growth_activity()` first, then loops through active task records and calls `complete_growth_task(code)`, then calls achievement and level refresh with the current member ID. The candidate versions retain these call signatures and enforce that a member can only inspect/update their own Growth state; admins may target another member where required. The reward redemption and coupon-use functions remain self-scoped.
+
+### Live authorization defects confirmed
+
+The production function definitions and current broad anon EXECUTE grants expose several concrete issues that the candidate addresses:
+
+1. `award_growth_points(uuid,integer,text,text,text,text,uuid)` currently has no caller authorization check. Because anon and authenticated currently have EXECUTE, it is directly callable as an arbitrary-member points mutation. Candidate removes direct API-role EXECUTE while retaining owner-internal calls from trusted SECURITY DEFINER routines.
+2. `check_growth_achievements(uuid)` currently accepts an arbitrary target user ID without verifying it matches `auth.uid()`; candidate adds self-or-admin authorization.
+3. `refresh_growth_level(uuid)` currently updates an arbitrary target member's level without checking caller identity; candidate adds self-or-admin authorization and routes through a private internal helper.
+4. `check_activity_badges(uuid)` currently has a NULL-comparison authorization gap: when `auth.uid()` is NULL but a non-NULL target ID is supplied, the comparison can evaluate NULL rather than TRUE. Candidate explicitly rejects a NULL caller before allowing self-or-admin target access.
+5. `admin_delete_growth_reward(uuid)` and `admin_upsert_growth_reward(...)` currently compare a possibly NULL role with `<>`; SQL three-valued logic means a NULL role does not enter the IF branch. Candidate changes this to an explicit NULL-safe admin check.
+
+### is_admin() handling
+
+The existing `public.is_admin()` definition is SECURITY DEFINER with an empty search_path and fully-qualified `public.profiles` reference. The candidate allowlist explicitly preserves EXECUTE for `anon` and `authenticated` on this helper, because public RLS policies rely on it. It returns false when `auth.uid()` is NULL. This helper is not removed from the public RLS evaluation path.
+
+### Compatibility and remaining scope
+
+- No direct browser Growth RPC signature found in the current source is missing from the candidate authenticated allowlist.
+- The candidate does not change the frontend RPC argument names or response shapes for the reviewed calls.
+- Admin-only allowlisted functions inspected in production contain explicit admin checks; the ACL allowlist alone is not being treated as a substitute for those checks.
+- The SQL regression suite exercises member self-only behavior, admin cross-member operations, JWT-less denial, internal points award denial, and the exhaustive SECURITY DEFINER EXECUTE matrix.
+- This is source and catalog compatibility review, not a live application smoke test. Do not apply the migration to production until the full schema baseline and hosted Supabase runtime validation are complete.
+
+No production SQL, data mutation, deployment, merge, feature-flag change, or paid service was used.
