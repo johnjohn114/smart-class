@@ -54,22 +54,28 @@ BEGIN
           WHEN current_bucket.window_started_at
                + pg_catalog.make_interval(secs => p_window_seconds) <= pg_catalog.clock_timestamp()
           THEN 1
-          ELSE CASE WHEN current_bucket.request_count + 1 > p_limit + 1\n               THEN p_limit + 1 ELSE current_bucket.request_count + 1 END
+          WHEN current_bucket.request_count >= p_limit + 1
+          THEN p_limit + 1
+          ELSE current_bucket.request_count + 1
         END
   RETURNING current_bucket.window_started_at, current_bucket.request_count
        INTO v_started_at, v_count;
 
   allowed := v_count <= p_limit;
-  remaining := CASE WHEN p_limit - v_count > 0 THEN p_limit - v_count ELSE 0 END;
+  remaining := CASE
+    WHEN p_limit - v_count > 0 THEN p_limit - v_count
+    ELSE 0
+  END;
   retry_after_seconds := CASE
     WHEN allowed THEN 0
-    ELSE pg_catalog.greatest(
-      1,
-      pg_catalog.ceil(pg_catalog.extract(
-        epoch FROM (v_started_at + pg_catalog.make_interval(secs => p_window_seconds)
-                    - pg_catalog.clock_timestamp())
-      ))::integer
-    )
+    WHEN pg_catalog.date_part(
+      'epoch', v_started_at + pg_catalog.make_interval(secs => p_window_seconds)
+        - pg_catalog.clock_timestamp()
+    ) < 1 THEN 1
+    ELSE pg_catalog.ceil(pg_catalog.date_part(
+      'epoch', v_started_at + pg_catalog.make_interval(secs => p_window_seconds)
+        - pg_catalog.clock_timestamp()
+    ))::integer
   END;
   RETURN NEXT;
 END;
