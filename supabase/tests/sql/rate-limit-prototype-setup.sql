@@ -8,6 +8,13 @@ CREATE TABLE rate_limit_lab.buckets (
   request_count integer NOT NULL CHECK (request_count >= 1)
 );
 
+CREATE TABLE rate_limit_lab.decisions (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  allowed boolean NOT NULL,
+  remaining integer NOT NULL,
+  retry_after_seconds integer NOT NULL
+);
+
 CREATE FUNCTION rate_limit_lab.consume(
   p_bucket_key text,
   p_limit integer,
@@ -39,18 +46,17 @@ BEGIN
   ON CONFLICT (bucket_key) DO UPDATE
     SET window_started_at = CASE
           WHEN current_bucket.window_started_at
-               + pg_catalog.make_interval(secs => p_window_seconds) <= EXCLUDED.window_started_at
-          THEN EXCLUDED.window_started_at
+               + pg_catalog.make_interval(secs => p_window_seconds) <= pg_catalog.clock_timestamp()
+          THEN pg_catalog.clock_timestamp()
           ELSE current_bucket.window_started_at
         END,
         request_count = CASE
           WHEN current_bucket.window_started_at
-               + pg_catalog.make_interval(secs => p_window_seconds) <= EXCLUDED.window_started_at
+               + pg_catalog.make_interval(secs => p_window_seconds) <= pg_catalog.clock_timestamp()
           THEN 1
           ELSE pg_catalog.least(current_bucket.request_count + 1, p_limit + 1)
         END
-  RETURNING rate_limit_lab.buckets.window_started_at,
-            rate_limit_lab.buckets.request_count
+  RETURNING current_bucket.window_started_at, current_bucket.request_count
        INTO v_started_at, v_count;
 
   allowed := v_count <= p_limit;
