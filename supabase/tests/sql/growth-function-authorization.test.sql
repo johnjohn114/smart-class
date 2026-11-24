@@ -785,6 +785,23 @@ END;
 $legacy_refresh_level$;
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO anon;
 
+-- Capture direct service_role grants before Stage A. The migration removes
+-- service_role from existing trigger entry points, but deliberately preserves
+-- the prior direct grants on non-trigger routines.
+CREATE TEMP TABLE ci_service_role_acl_before_stage_a AS
+SELECT p.oid AS function_oid,
+       EXISTS (
+         SELECT 1
+         FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+         WHERE acl.grantee = 'service_role'::regrole
+           AND acl.privilege_type = 'EXECUTE'
+       ) AS direct_execute
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND p.prosecdef
+  AND p.prokind = 'f';
+
 \ir ../../migrations/20261122120000_growth_rpc_and_public_leaderboard_hardening.sql
 
 DO $forward_acl$
@@ -946,27 +963,43 @@ $forward_complete_acl_matrix$;
 DO $forward_service_role_acl_matrix$
 DECLARE
   r record;
+  prior_direct_execute boolean;
   expected_service_role boolean;
+  actual_direct_execute boolean;
 BEGIN
   FOR r IN
     SELECT p.oid,
            p.oid::regprocedure::text AS signature,
-           p.prorettype = 'trigger'::regtype AS is_trigger,
-           p.proname
+           p.prorettype = 'trigger'::regtype AS is_trigger
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.prosecdef
       AND p.prokind = 'f'
   LOOP
-    expected_service_role :=
-      NOT r.is_trigger
-      AND r.proname <> '_refresh_growth_level_internal';
+    SELECT s.direct_execute INTO prior_direct_execute
+    FROM pg_temp.ci_service_role_acl_before_stage_a s
+    WHERE s.function_oid = r.oid;
 
-    IF has_function_privilege('service_role', r.oid, 'EXECUTE')
-       IS DISTINCT FROM expected_service_role THEN
+    -- Stage A preserves existing non-trigger direct grants, revokes all
+    -- direct grants from existing trigger functions, and creates the private
+    -- helper without a service_role grant.
+    expected_service_role :=
+      NOT r.is_trigger AND COALESCE(prior_direct_execute, false);
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+      WHERE acl.grantee = 'service_role'::regrole
+        AND acl.privilege_type = 'EXECUTE'
+    )
+    INTO actual_direct_execute
+    FROM pg_proc p
+    WHERE p.oid = r.oid;
+
+    IF actual_direct_execute IS DISTINCT FROM expected_service_role THEN
       RAISE EXCEPTION
-        'FAIL: service_role EXECUTE mismatch for %, expected %',
+        'FAIL: service_role direct EXECUTE mismatch for %, expected %',
         r.signature, expected_service_role;
     END IF;
   END LOOP;
@@ -998,6 +1031,9 @@ BEGIN
   IF has_function_privilege('anon','public.ci_forward_future_definer()','EXECUTE')
      OR has_function_privilege('authenticated','public.ci_forward_future_definer()','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: Stage A left unsafe default EXECUTE grants on future functions';
+  END IF;
+  IF NOT has_function_privilege('service_role','public.ci_forward_future_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Stage A unexpectedly removed trusted service_role default EXECUTE';
   END IF;
 END
 $forward_defaults$;
