@@ -14,8 +14,11 @@ POSTGREST = os.environ["POSTGREST_URL"].rstrip("/")
 GOTRUE = os.environ["GOTRUE_URL"].rstrip("/")
 
 
-def http_request(base: str, path: str, token: str | None = None, payload=None):
+def http_request(base: str, path: str, token: str | None = None, payload=None,
+                 extra_headers: dict | None = None):
     headers = {"Accept": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
     data = None
     method = "GET"
     if token:
@@ -87,7 +90,8 @@ def main():
     # Disposable identity-aware limiter lab. The RPC has no actor/policy
     # arguments: PostgREST derives the subject from each verified GoTrue JWT.
     status, anon_limiter = http_request(
-        POSTGREST, "/rpc/consume_authenticated_admin", None, {}
+        POSTGREST, "/rpc/consume_authenticated_admin", None, {},
+        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
     )
     assert_true(status != 200,
                 "anonymous caller cannot execute the authenticated limiter RPC")
@@ -95,7 +99,8 @@ def main():
     admin_decisions = []
     for _ in range(4):
         limiter_status, limiter_body = http_request(
-            POSTGREST, "/rpc/consume_authenticated_admin", admin, {}
+            POSTGREST, "/rpc/consume_authenticated_admin", admin, {},
+            {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
         )
         assert_true(limiter_status == 200 and isinstance(limiter_body, list)
                     and len(limiter_body) == 1,
@@ -105,7 +110,8 @@ def main():
                 "admin quota is isolated and denies the fourth request")
 
     member_status, member_body = http_request(
-        POSTGREST, "/rpc/consume_authenticated_admin", member, {}
+        POSTGREST, "/rpc/consume_authenticated_admin", member, {},
+        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
     )
     assert_true(member_status == 200 and isinstance(member_body, list)
                 and len(member_body) == 1 and member_body[0]["allowed"] is True,
@@ -113,12 +119,14 @@ def main():
 
     spoof_status, _ = http_request(
         POSTGREST, "/rpc/consume_authenticated_admin", admin,
-        {"p_actor_id": os.environ["TEST_MEMBER_ID"]}
+        {"p_actor_id": os.environ["TEST_MEMBER_ID"]},
+        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
     )
     assert_true(spoof_status in (400, 404),
                 "caller cannot supply or override the limiter actor UUID")
 
-    table_status, _ = http_request(POSTGREST, "/identity_buckets", admin)
+    table_status, _ = http_request(POSTGREST, "/identity_buckets", admin, None,
+        {"Accept-Profile": "rate_limit_lab"}
     assert_true(table_status in (401, 403, 404),
                 "authenticated clients cannot read the limiter storage table")
 
