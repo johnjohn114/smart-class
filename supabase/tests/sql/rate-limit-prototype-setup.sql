@@ -85,3 +85,19 @@ COMMENT ON SCHEMA rate_limit_lab IS
   'Disposable CI prototype only; not exposed through the Supabase Data API.';
 COMMENT ON FUNCTION rate_limit_lab.consume(text, integer, integer) IS
   'Atomic fixed-window limiter prototype using one PostgreSQL UPSERT per bucket.';
+
+-- CI roles model Supabase API roles in a disposable database only.
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END
+$roles$;
+
+REVOKE ALL ON SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL TABLES IN SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
