@@ -253,3 +253,51 @@ The historical Edge Functions development spec contains earlier design text refe
 - [ ] Keep PR #34 Draft/unmerged, Maintenance feature flag false, and production unchanged pending separate explicit approval.
 
 No production SQL, migration repair, deployment, feature-flag change, PR merge, dashboard setting change or paid service was used for this review.
+
+## 2026-11-24 production migration baseline read-only audit
+
+### Production facts confirmed by Supabase read-only tools
+
+- PostgreSQL version: 17.11.
+- Non-system schemas currently present: `auth`, `extensions`, `graphql`, `graphql_public`, `public`, `realtime`, `storage`, `vault`.
+- `public` currently contains 44 tables; all non-system schemas together contain 85 tables.
+- The `private` schema does not currently exist.
+- Supabase migration listing returns an empty array.
+- The `supabase_migrations` schema does not exist, and therefore `supabase_migrations.schema_migrations` does not exist.
+- No schema or migration-history object was created or changed by this audit.
+
+### Repository migration inventory
+
+The current development branch contains seven files under `supabase/migrations/`:
+
+1. `202610310001_app_releases.sql`
+2. `20261031_app_releases.sql`
+3. `202611160001_growth_function_authorization_hardening.sql`
+4. `202611170001_default_privileges_and_trigger_hardening.sql`
+5. `20261117121103_maintenance_system_initial.sql`
+6. `20261121140000_maintenance_rpc_least_privilege_upgrade.sql`
+7. `26.11.3_calendar_fields.sql`
+
+The two app-releases files appear to be competing/overlapping migration entries and require a content-level reconciliation. The directory also mixes timestamp conventions. Do not reorder, rename, delete, or apply any of these files until their actual production effects are established.
+
+### Maintenance migration track conflict
+
+- The historical initial Maintenance migration describes SECURITY INVOKER/RLS and preconditions based on the earlier design.
+- The historical least-privilege upgrade explicitly creates and uses `maintenance_rpc_executor`.
+- The current PR #34 single-pass track instead uses the built-in `pg_database_owner` model and supersedes the earlier executor-role approach.
+- Production currently has no `private` schema, so the current Maintenance schema has not been installed there. This does not establish whether any unrelated SQL files were previously run manually.
+
+### Baseline decision
+
+The production database is populated but has no readable Supabase migration ledger. Repository files alone cannot establish which SQL changes were manually applied or whether every file matches the live schema. A full, schema-only, reviewed export and object-by-object reconciliation are required before declaring a baseline.
+
+The current tool environment does not provide a verified complete `pg_dump`/Supabase CLI export path. Do not simulate a dump from partial catalog queries. Do not create `supabase_migrations`, insert fabricated history rows, use `migration repair`, run `db push`, or apply any historical Maintenance migration as a shortcut.
+
+### Next safe actions
+
+1. Obtain a complete schema-only export through an approved read-only export path (or a local CLI/pg_dump environment with the required tools), without exporting production data or secrets.
+2. Compare the export against all seven repository migration files and the current single-pass Maintenance draft.
+3. Resolve duplicate/overlapping app-releases migration content and timestamp conventions in a separate development-only change.
+4. Produce a reviewed baseline plan and isolated replay proof before any separately approved production operation.
+
+No production DDL/DML, migration-history repair, data export, deployment, PR merge, feature-flag change, dashboard setting change, or paid service was used in this audit.
