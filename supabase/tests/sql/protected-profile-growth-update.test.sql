@@ -154,6 +154,64 @@ GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO authenticated,ano
 CREATE OR REPLACE FUNCTION public.checkin_competition(p_competition_id uuid,p_code text)
 RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'public'
 AS $stub$ SELECT jsonb_build_object('success',false) $stub$;
+-- Extra isolated fixtures for trusted administrator reward/reset/settlement paths.
+ALTER TABLE public.competitions ADD COLUMN completion_points integer NOT NULL DEFAULT 20;
+ALTER TABLE public.competitions ADD COLUMN settled_at timestamptz;
+ALTER TABLE public.competition_attendance ADD COLUMN completion_points_awarded integer NOT NULL DEFAULT 0;
+ALTER TABLE public.competition_attendance ADD COLUMN note text;
+CREATE TABLE public.competition_reward_rules (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), competition_id uuid NOT NULL,
+ reward_type text NOT NULL, reward_value integer, badge_id uuid,
+ title text NOT NULL, enabled boolean NOT NULL DEFAULT true
+);
+CREATE TABLE public.competition_reward_grants (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), competition_id uuid NOT NULL,
+ reward_rule_id uuid NOT NULL, user_id uuid NOT NULL, granted_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(competition_id,reward_rule_id,user_id)
+);
+CREATE TABLE public.user_activity_badges (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL,
+ badge_id uuid NOT NULL, unlocked_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(user_id,badge_id)
+);
+CREATE OR REPLACE FUNCTION public.check_activity_badges(p_user_id uuid)
+RETURNS void LANGUAGE sql AS $ SELECT NULL::void $;
+
+CREATE TABLE public.growth_reset_history (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, reset_by uuid,
+ reset_no integer NOT NULL, reason text NOT NULL DEFAULT '管理員手動重置',
+ before_points integer NOT NULL DEFAULT 0, after_points integer NOT NULL DEFAULT 0,
+ before_level text NOT NULL DEFAULT 'newbie', after_level text NOT NULL DEFAULT 'newbie',
+ before_active_days integer NOT NULL DEFAULT 0, before_login_streak integer NOT NULL DEFAULT 0,
+ before_completed_tasks integer NOT NULL DEFAULT 0, before_achievements integer NOT NULL DEFAULT 0,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(user_id,reset_no)
+);
+CREATE TABLE public.growth_achievement_unlock_history (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL,
+ achievement_id uuid NOT NULL, unlocked_at timestamptz NOT NULL,
+ archived_at timestamptz NOT NULL DEFAULT now(), reset_history_id uuid,
+ snapshot_title text, snapshot_reward_points integer NOT NULL DEFAULT 0
+);
+CREATE TABLE public.growth_user_achievements (
+ user_id uuid NOT NULL, achievement_id uuid NOT NULL, unlocked_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(user_id,achievement_id)
+);
+CREATE TABLE public.growth_achievements (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), title text NOT NULL, reward_points integer NOT NULL DEFAULT 0
+);
+CREATE TABLE public.growth_user_tasks (
+ user_id uuid NOT NULL, task_id uuid NOT NULL, progress integer NOT NULL DEFAULT 0,
+ completed_at timestamptz, cycle_key text NOT NULL DEFAULT 'once',
+ PRIMARY KEY(user_id,task_id,cycle_key)
+);
+CREATE TABLE public.growth_activity_days (
+ user_id uuid NOT NULL, activity_date date NOT NULL, source text NOT NULL DEFAULT 'visit',
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(user_id,activity_date)
+);
+INSERT INTO public.profiles(id,role,member_no,growth_points,growth_level)
+VALUES('00000000-0000-4000-8000-000000000002','admin',200,0,'newbie');
+
 \ir ../../migrations/202611250001_protect_profile_fields_growth_system_updates.sql
 
 GRANT EXECUTE ON FUNCTION public.checkin_competition(uuid,text) TO authenticated;
@@ -200,6 +258,85 @@ BEGIN
  END IF;
 END
 $checkin_success$;
+
+-- Admin reward application: one grant, one points transaction, no duplicate ledger row.
+INSERT INTO public.competition_reward_rules(id,competition_id,reward_type,reward_value,title)
+VALUES('00000000-0000-4000-8000-000000000030','00000000-0000-4000-8000-000000000020','points',4,'測試獎勵');
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SET ROLE authenticated;
+SELECT public.admin_apply_competition_rewards('00000000-0000-4000-8000-000000000020');
+RESET ROLE;
+DO $admin_reward_success$
+BEGIN
+ IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 12 THEN
+   RAISE EXCEPTION 'FAIL: admin reward did not add exactly four points';
+ END IF;
+ IF (SELECT count(*) FROM public.competition_reward_grants WHERE competition_id='00000000-0000-4000-8000-000000000020') <> 1 THEN
+   RAISE EXCEPTION 'FAIL: admin reward grant missing or duplicated';
+ END IF;
+ IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_type='activity_reward') <> 1 THEN
+   RAISE EXCEPTION 'FAIL: admin reward transaction missing or duplicated';
+ END IF;
+END
+$admin_reward_success$;
+
+-- Admin reset: record history and a single negative points transaction.
+SET ROLE authenticated;
+SELECT public.admin_reset_growth_member('00000000-0000-4000-8000-000000000001','CI reset');
+RESET ROLE;
+DO $admin_reset_success$
+BEGIN
+ IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 0 THEN
+   RAISE EXCEPTION 'FAIL: admin reset did not set points to zero';
+ END IF;
+ IF (SELECT growth_level FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 'newbie' THEN
+   RAISE EXCEPTION 'FAIL: admin reset did not restore newbie level';
+ END IF;
+ IF (SELECT count(*) FROM public.growth_reset_history WHERE user_id='00000000-0000-4000-8000-000000000001') <> 1 THEN
+   RAISE EXCEPTION 'FAIL: admin reset history missing';
+ END IF;
+ IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_type='admin_reset' AND amount=-12) <> 1 THEN
+   RAISE EXCEPTION 'FAIL: admin reset points transaction missing or duplicated';
+ END IF;
+END
+$admin_reset_success$;
+
+-- Admin settlement: award completion points once, then report already settled.
+INSERT INTO public.competitions(id,name,published,completion_points)
+VALUES('00000000-0000-4000-8000-000000000021','CI 結算活動',true,7);
+INSERT INTO public.competition_registrations(id,competition_id,user_id,status)
+VALUES('00000000-0000-4000-8000-000000000022','00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000001','approved');
+INSERT INTO public.competition_attendance(competition_id,registration_id,user_id,status,points_awarded)
+VALUES('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000022','00000000-0000-4000-8000-000000000001','checked_in',0);
+SET ROLE authenticated;
+SELECT public.admin_settle_competition('00000000-0000-4000-8000-000000000021');
+SELECT public.admin_settle_competition('00000000-0000-4000-8000-000000000021');
+RESET ROLE;
+DO $admin_settlement_success$
+BEGIN
+ IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 7 THEN
+   RAISE EXCEPTION 'FAIL: settlement did not award exactly seven points';
+ END IF;
+ IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_type='activity_completion') <> 1 THEN
+   RAISE EXCEPTION 'FAIL: settlement completion transaction missing or duplicated';
+ END IF;
+ IF (SELECT count(*) FROM public.competition_attendance WHERE competition_id='00000000-0000-4000-8000-000000000021' AND completion_points_awarded=7) <> 1 THEN
+   RAISE EXCEPTION 'FAIL: settlement attendance marker missing';
+ END IF;
+END
+$admin_settlement_success$;
+
+-- A normal authenticated member cannot assume the non-login executor role.
+SET ROLE authenticated;
+DO $executor_role_denied$
+DECLARE denied boolean := false;
+BEGIN
+ BEGIN EXECUTE 'SET ROLE growth_points_executor';
+ EXCEPTION WHEN insufficient_privilege THEN denied := true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'FAIL: member can assume growth_points_executor'; END IF;
+END
+$executor_role_denied$;
+RESET ROLE;
 
 -- Ordinary members still cannot edit protected columns.
 SET ROLE authenticated;
