@@ -153,10 +153,9 @@ GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO authenticated,ano
 
 CREATE OR REPLACE FUNCTION public.checkin_competition(p_competition_id uuid,p_code text)
 RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'public'
-AS $ SELECT jsonb_build_object('success',false) $;
+AS $stub$ SELECT jsonb_build_object('success',false) $stub$;
 \ir ../../migrations/202611250001_protect_profile_fields_growth_system_updates.sql
 
-GRANT EXECUTE ON FUNCTION public.checkin_competition(uuid,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.checkin_competition(uuid,text) TO authenticated;
 
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
