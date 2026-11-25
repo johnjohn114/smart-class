@@ -104,7 +104,7 @@ CREATE TABLE public.competition_results (
 );
 ALTER TABLE public.competition_results ADD COLUMN competition_id uuid;
 
--- Isolated schema fixtures reproduce live anonymous-read policy predicates
+-- Isolated schema fixtures reproduce the live anonymous-read policy predicates
 -- without leaking table names into the sequential migration test's public
 -- schema. Policies call the same public.is_admin() helper used in production.
 CREATE SCHEMA ci_anon_rls;
@@ -130,7 +130,6 @@ CREATE TABLE ci_anon_rls.competition_results (
   user_id uuid NOT NULL,
   competition_id uuid
 );
-
 ALTER TABLE ci_anon_rls.competitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ci_anon_rls.forms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ci_anon_rls.form_questions ENABLE ROW LEVEL SECURITY;
@@ -164,7 +163,6 @@ CREATE POLICY competition_result_public_read ON ci_anon_rls.competition_results
         AND (c.published_at IS NULL OR c.published_at <= now())
     )
   );
-
 GRANT SELECT ON ci_anon_rls.competitions, ci_anon_rls.forms,
   ci_anon_rls.form_questions, ci_anon_rls.products,
   ci_anon_rls.competition_results TO anon;
@@ -184,7 +182,236 @@ INSERT INTO ci_anon_rls.products(id,active) VALUES
 INSERT INTO ci_anon_rls.competition_results(user_id,competition_id) VALUES
   ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000070'),
   ('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000071');
+INSERT INTO public.competition_results(user_id,place,competition_id) VALUES
+  ('00000000-0000-4000-8000-000000000002',1,'00000000-0000-4000-8000-000000000070'),
+  ('00000000-0000-4000-8000-000000000003',2,'00000000-0000-4000-8000-000000000071');
 
+CREATE TABLE public.notifications (
+  user_id uuid NOT NULL,
+  title text NOT NULL,
+  content text NOT NULL,
+  type text NOT NULL
+);
+CREATE TABLE public.growth_point_transactions (
+  user_id uuid NOT NULL,
+  amount integer NOT NULL,
+  reason text,
+  source_type text,
+  source_id text,
+  source_key text,
+  admin_user_id uuid
+);
+CREATE TABLE public.growth_rewards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code text NOT NULL,
+  title text NOT NULL,
+  description text,
+  icon text,
+  category text,
+  reward_type text NOT NULL,
+  point_cost integer NOT NULL,
+  min_level text,
+  required_achievement_id uuid,
+  user_limit integer,
+  total_limit integer,
+  coupon_title text,
+  coupon_description text,
+  coupon_discount text,
+  coupon_expires_days integer,
+  available_from timestamptz,
+  available_until timestamptz,
+  sort_order integer,
+  enabled boolean NOT NULL DEFAULT true,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE public.growth_reward_redemptions (
+  reward_id uuid NOT NULL
+);
+CREATE TABLE public.competition_attendance (
+  user_id uuid NOT NULL,
+  status text NOT NULL,
+  points_awarded integer NOT NULL DEFAULT 0,
+  completion_points_awarded integer NOT NULL DEFAULT 0
+);
+CREATE TABLE public.activity_badges (
+  id uuid PRIMARY KEY,
+  active boolean NOT NULL,
+  requirement_type text NOT NULL,
+  requirement_value integer NOT NULL
+);
+CREATE TABLE public.user_activity_badges (
+  user_id uuid NOT NULL,
+  badge_id uuid NOT NULL,
+  UNIQUE(user_id,badge_id)
+);
+
+GRANT SELECT ON public.profiles TO authenticated;
+
+INSERT INTO public.growth_levels(code,name,min_points,sort_order)
+VALUES ('newbie','新手',0,0),('sprout','萌芽',10,1);
+INSERT INTO public.profiles(id,role,growth_points,growth_level) VALUES
+ ('00000000-0000-4000-8000-000000000001','admin',0,'newbie'),
+ ('00000000-0000-4000-8000-000000000002','visitor',10,'newbie'),
+ ('00000000-0000-4000-8000-000000000003','visitor',0,'newbie');
+INSERT INTO public.growth_achievements(id,active,achievement_type,requirement_count,reward_points,title)
+VALUES ('00000000-0000-4000-8000-000000000010',true,'points',1,5,'CI points achievement');
+INSERT INTO public.activity_badges(id,active,requirement_type,requirement_value)
+VALUES ('00000000-0000-4000-8000-000000000020',true,'first_activity',1);
+INSERT INTO public.competition_attendance(user_id,status,points_awarded,completion_points_awarded)
+VALUES ('00000000-0000-4000-8000-000000000002','checked_in',2,0);
+
+-- Simulate the live project's public download counter and explicit grants.
+CREATE FUNCTION public.increment_download_count(p_file_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+AS $body$
+  UPDATE public.download_files
+  SET download_count=coalesce(download_count,0)+1, updated_at=now()
+  WHERE id=p_file_id AND published=true
+$body$;
+GRANT EXECUTE ON FUNCTION public.increment_download_count(uuid) TO anon, authenticated;
+
+-- Simulate the live project's explicit grants on the pre-existing function.
+-- CREATE OR REPLACE preserves function ACLs, so the migration must revoke
+-- authenticated's direct EXECUTE grant as well as anon/PUBLIC.
+CREATE FUNCTION public.award_growth_points(
+  p_user_id uuid,
+  p_amount integer,
+  p_reason text,
+  p_source_type text DEFAULT 'manual',
+  p_source_id text DEFAULT NULL,
+  p_source_key text DEFAULT NULL,
+  p_admin_user_id uuid DEFAULT NULL
+)
+RETURNS integer
+LANGUAGE sql
+AS $body$ SELECT 0 $body$;
+GRANT EXECUTE ON FUNCTION public.award_growth_points(uuid,integer,text,text,text,text,uuid)
+  TO anon, authenticated, service_role;
+
+-- Trigger functions need no API-role EXECUTE grant once the trigger exists.
+CREATE TABLE public.ci_trigger_source(id integer PRIMARY KEY);
+CREATE TABLE public.ci_trigger_log(id integer NOT NULL);
+CREATE FUNCTION public.ci_security_definer_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $trigger$
+BEGIN
+  INSERT INTO public.ci_trigger_log(id) VALUES(NEW.id);
+  RETURN NEW;
+END;
+$trigger$;
+GRANT EXECUTE ON FUNCTION public.ci_security_definer_trigger() TO anon, authenticated, service_role;
+CREATE TRIGGER ci_security_definer_trigger
+AFTER INSERT ON public.ci_trigger_source
+FOR EACH ROW EXECUTE FUNCTION public.ci_security_definer_trigger();
+
+
+-- Complete catalog fixture: create any production SECURITY DEFINER signatures
+-- not otherwise needed by the behavioral tests, so the ACL matrix covers all
+-- 36 live routines plus the private growth-level helper introduced by the
+-- candidate migration. These stubs are disposable and never touch production.
+DO $catalog_fixtures$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('admin_activity_analytics', '', false),
+      ('admin_adjust_growth_points', 'uuid,integer,text', false),
+      ('admin_apply_competition_rewards', 'uuid', false),
+      ('admin_cancel_order', 'uuid', false),
+      ('admin_complete_order', 'uuid', false),
+      ('admin_delete_video', 'uuid', false),
+      ('admin_grant_competition_reward', 'uuid,text,text,text,integer,uuid', false),
+      ('admin_mark_competition_attendance', 'uuid,text,text', false),
+      ('admin_mark_competition_member_attendance', 'uuid,uuid,text,text', false),
+      ('admin_mark_order_paid', 'uuid', false),
+      ('admin_promote_competition_waitlist', 'uuid', false),
+      ('admin_reset_growth_member', 'uuid,text', false),
+      ('admin_settle_competition', 'uuid', false),
+      ('admin_upsert_video', 'jsonb', false),
+      ('assign_member_no_and_nickname', '', true),
+      ('check_competition_registration_rules', '', true),
+      ('checkin_competition', 'uuid,text', false),
+      ('close_my_support_ticket', 'uuid', false),
+      ('create_cash_order', 'uuid,integer,text', false),
+      ('ensure_visitor_profile', '', true),
+      ('growth_registration_reward', '', true),
+      ('growth_result_reward', '', true),
+      ('is_admin_user', '', false),
+      ('join_competition_waitlist', 'uuid,text', false),
+      ('record_growth_activity', '', false),
+      ('redeem_growth_reward', 'uuid', false),
+      ('use_growth_coupon', 'uuid', false)
+    ) AS v(name, argtypes, is_trigger)
+  LOOP
+    IF to_regprocedure(format('public.%I(%s)', r.name, r.argtypes)) IS NULL THEN
+      IF r.is_trigger THEN
+        EXECUTE format(
+          'CREATE FUNCTION public.%I(%s) RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS %L',
+          r.name, r.argtypes, 'BEGIN RETURN NEW; END;'
+        );
+      ELSE
+        EXECUTE format(
+          'CREATE FUNCTION public.%I(%s) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS %L',
+          r.name, r.argtypes, 'BEGIN RETURN; END;'
+        );
+      END IF;
+    END IF;
+  END LOOP;
+END
+$catalog_fixtures$;
+
+-- Simulate the live project's unsafe defaults before applying the fix:
+-- PUBLIC gets PostgreSQL's normal function EXECUTE default, and the public
+-- schema additionally grants anon/authenticated EXECUTE for postgres-owned
+-- functions. The migration must remove both sources for future functions.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
+\ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
+
+-- A SECURITY DEFINER function created after the migration must not become a
+-- callable API endpoint through either PUBLIC or schema-specific defaults.
+CREATE FUNCTION public.ci_future_security_definer()
+RETURNS integer
+LANGUAGE sql
+SECURITY DEFINER
+AS $future$
+  SELECT 1
+$future$;
+
+DO $future_function_defaults$
+BEGIN
+  IF has_function_privilege('anon','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: future SECURITY DEFINER function is executable by anon';
+  END IF;
+  IF has_function_privilege('authenticated','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: future SECURITY DEFINER function is executable by authenticated';
+  END IF;
+  -- service_role is intentionally retained as a trusted server-side role;
+  -- it is not shipped to the browser and is outside the public-client allowlist.
+  IF NOT has_function_privilege('service_role','public.ci_future_security_definer()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: trusted service_role default was unexpectedly removed';
+  END IF;
+END
+$future_function_defaults$;
+
+-- is_admin() is the one safe SECURITY DEFINER helper exposed to anon because
+-- several PUBLIC RLS policies call it; it must return false without a JWT.
+DO $anon_is_admin$
+BEGIN
+  IF NOT has_function_privilege('anon','public.is_admin()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: anon cannot evaluate public RLS policies using is_admin()';
+  END IF;
+END
+$anon_is_admin$;
 SELECT set_config('request.jwt.claim.sub','',false);
 SET ROLE anon;
 DO $anon_is_admin_result$
@@ -193,7 +420,9 @@ BEGIN
     RAISE EXCEPTION 'FAIL: is_admin() did not return false for anon';
   END IF;
 
-  -- These counts are evaluated through real RLS policy execution as anon.
+  -- These counts must be evaluated through the actual RLS policies as anon.
+  -- The query must succeed (no missing-function EXECUTE error) and expose
+  -- only published/active rows, never draft or future-published rows.
   IF (SELECT count(*) FROM ci_anon_rls.competitions) <> 1 THEN
     RAISE EXCEPTION 'FAIL: anon competition RLS read returned the wrong rows';
   END IF;
