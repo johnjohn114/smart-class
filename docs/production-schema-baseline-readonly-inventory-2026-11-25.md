@@ -31,7 +31,7 @@ The production migration ledger remains unresolved:
 | `vault` | `supabase_admin` | 1 | 1 | 0 | Vault objects |
 | **Total** | | **85** | **4** | **4** | No foreign tables found |
 
-The 44 `public` tables contain 412 columns. Each currently has RLS enabled. The detailed column/PK/FK inventory was retrieved from the database tool; the full per-column schema is not reproduced here because this document is a summary, not a dump.
+The 44 `public` tables contain 412 columns. The one `public` view (`activity_member_stats`) exposes another 8 columns, so the 45 public relations expose 420 columns in total. Each of the 44 tables currently has RLS enabled. The detailed column/PK/FK inventory was retrieved from the database tool; the full per-column schema is not reproduced here because this document is a summary, not a dump.
 
 ### Public table inventory
 
@@ -42,7 +42,7 @@ The 44 `public` tables contain 412 columns. Each currently has RLS enabled. The 
 | Object | `public` count | Notes |
 |---|---:|---|
 | Tables | 44 | 412 columns |
-| Views | 1 | `activity_member_stats` |
+| Views | 1 | `activity_member_stats` (8 view columns) |
 | Sequences | 2 | `device_push_tokens_id_seq`, `member_no_seq` |
 | Indexes | 109 | 62 unique; 0 invalid |
 | Primary-key constraints | 44 | |
