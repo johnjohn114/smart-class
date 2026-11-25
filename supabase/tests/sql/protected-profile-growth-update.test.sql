@@ -214,6 +214,38 @@ VALUES('00000000-0000-4000-8000-000000000002','admin',200,0,'newbie');
 
 \ir ../../migrations/202611250001_protect_profile_fields_growth_system_updates.sql
 
+DO $executor_hardening$
+DECLARE
+  v_login boolean;
+  v_bypass boolean;
+  v_createrole boolean;
+  v_owned integer;
+  v_set_option boolean;
+BEGIN
+  SELECT rolcanlogin,rolbypassrls,rolcreaterole
+    INTO v_login,v_bypass,v_createrole
+  FROM pg_roles WHERE rolname='growth_points_executor';
+  IF v_login OR NOT v_bypass OR v_createrole THEN
+    RAISE EXCEPTION 'FAIL: growth executor role attributes are too broad';
+  END IF;
+  SELECT count(*) INTO v_owned
+  FROM pg_proc p
+  WHERE p.proowner=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor');
+  IF v_owned <> 2 THEN
+    RAISE EXCEPTION 'FAIL: executor must own exactly two growth functions; found %',v_owned;
+  END IF;
+  SELECT set_option INTO v_set_option
+  FROM pg_auth_members
+  WHERE roleid=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor')
+    AND member=(SELECT oid FROM pg_roles WHERE rolname='postgres')
+  ORDER BY grantor DESC LIMIT 1;
+  IF coalesce(v_set_option,true) THEN
+    RAISE EXCEPTION 'FAIL: postgres retained SET ROLE on growth executor';
+  END IF;
+END
+$executor_hardening$;
+
+
 GRANT EXECUTE ON FUNCTION public.checkin_competition(uuid,text) TO authenticated;
 
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
