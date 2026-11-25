@@ -184,8 +184,7 @@ begin
     perform public.check_activity_badges(v_att.user_id);
   end loop;
   return jsonb_build_object('success',true,'grants',v_granted,'points',v_points,'badges',v_badges);
-end $function$
-
+end $function$;
 
 CREATE OR REPLACE FUNCTION public.admin_mark_competition_member_attendance(p_competition_id uuid, p_user_id uuid, p_status text, p_note text DEFAULT NULL::text)
  RETURNS jsonb
@@ -229,8 +228,7 @@ begin
   end if;
   return jsonb_build_object('success',true,'attendance_id',v_att.id,'status',v_att.status,'points_awarded',v_att.points_awarded);
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.admin_reset_growth_member(p_user_id uuid, p_reason text DEFAULT '管理員手動重置'::text)
  RETURNS jsonb
@@ -342,8 +340,7 @@ begin
     'before_achievements',before_achievements
   );
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.admin_settle_competition(p_competition_id uuid)
  RETURNS jsonb
