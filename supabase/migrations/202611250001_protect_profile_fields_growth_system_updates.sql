@@ -31,6 +31,55 @@ ALTER FUNCTION public.award_growth_points(
 ) OWNER TO growth_points_executor;
 ALTER FUNCTION public.refresh_growth_level(uuid)
   OWNER TO growth_points_executor;
+
+-- Keep existing reward-notification behavior; suppress duplicate or noisy
+-- notifications for administrative/event reward sources that already have
+-- their own UI/history behavior.
+CREATE OR REPLACE FUNCTION public.award_growth_points(p_user_id uuid, p_amount integer, p_reason text, p_source_type text DEFAULT 'manual'::text, p_source_id text DEFAULT NULL::text, p_source_key text DEFAULT NULL::text, p_admin_user_id uuid DEFAULT NULL::uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  new_points integer;
+  old_points integer;
+  old_level text;
+  new_level text;
+  level_name text;
+begin
+  if p_user_id is null or p_amount=0 then raise exception '積分資料無效'; end if;
+  if p_source_key is not null and exists(select 1 from public.growth_point_transactions where source_key=p_source_key) then
+    return coalesce((select growth_points from public.profiles where id=p_user_id),0);
+  end if;
+  select growth_points,growth_level into old_points,old_level from public.profiles where id=p_user_id for update;
+  if old_points is null then raise exception '找不到會員'; end if;
+  new_points:=old_points+p_amount;
+  if new_points<0 then raise exception '積分不足，無法扣除'; end if;
+  update public.profiles set growth_points=new_points where id=p_user_id;
+  insert into public.growth_point_transactions(user_id,amount,reason,source_type,source_id,source_key,admin_user_id)
+  values(p_user_id,p_amount,p_reason,p_source_type,p_source_id,p_source_key,p_admin_user_id);
+  new_level:=public.refresh_growth_level(p_user_id);
+
+  if p_source_type not in ('reward','activity_reward','activity_checkin','activity_completion','admin_reset') then
+    insert into public.notifications(user_id,title,content,type)
+    values(
+      p_user_id,
+      case when p_amount>0 then '💎 獲得成長積分' else '💎 使用成長積分' end,
+      case when p_amount>0 then '你獲得 +'||p_amount||' 積分：'||coalesce(p_reason,'')
+           else '你使用 '||abs(p_amount)||' 積分：'||coalesce(p_reason,'') end,
+      '成長'
+    );
+  end if;
+
+  if coalesce(old_level,'newbie') is distinct from new_level then
+    select name into level_name from public.growth_levels where code=new_level;
+    insert into public.notifications(user_id,title,content,type)
+    values(p_user_id,'🎉 會員等級升級！','恭喜你從「'||coalesce((select name from public.growth_levels where code=old_level),'新手')||'」升級為「'||coalesce(level_name,new_level)||'」！','成長');
+  end if;
+  return new_points;
+end; $function$;
+
 REVOKE CREATE ON SCHEMA public FROM growth_points_executor;
 
 CREATE OR REPLACE FUNCTION public.protect_profile_fields()
