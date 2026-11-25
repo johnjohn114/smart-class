@@ -175,7 +175,7 @@ CREATE TABLE public.user_activity_badges (
  UNIQUE(user_id,badge_id)
 );
 CREATE OR REPLACE FUNCTION public.check_activity_badges(p_user_id uuid)
-RETURNS void LANGUAGE sql AS $ SELECT NULL::void $;
+RETURNS void LANGUAGE sql AS $fn$ SELECT NULL::void $fn$;
 
 CREATE TABLE public.growth_reset_history (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, reset_by uuid,
