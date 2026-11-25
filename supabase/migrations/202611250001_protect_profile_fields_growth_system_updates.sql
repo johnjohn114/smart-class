@@ -72,7 +72,8 @@ begin
     );
   end if;
 
-  if coalesce(old_level,'newbie') is distinct from new_level then
+  if coalesce(old_level,'newbie') is distinct from new_level
+     and p_source_type not in ('activity_reward','activity_checkin','activity_completion','admin_reset') then
     select name into level_name from public.growth_levels where code=new_level;
     insert into public.notifications(user_id,title,content,type)
     values(p_user_id,'🎉 會員等級升級！','恭喜你從「'||coalesce((select name from public.growth_levels where code=old_level),'新手')||'」升級為「'||coalesce(level_name,new_level)||'」！','成長');
@@ -218,7 +219,6 @@ begin
             'activity_reward', v_grant_id::text,
             'activity-reward:'||v_grant_id::text, v_admin
           );
-          begin insert into public.growth_point_transactions(user_id,amount,reason,source_type) values(v_att.user_id,v_rule.reward_value,'活動獎勵：'||v_rule.title,'activity_reward'); exception when others then null; end;
           v_points:=v_points+v_rule.reward_value;
         else
           insert into public.user_activity_badges(user_id,badge_id) values(v_att.user_id,v_rule.badge_id) on conflict do nothing;
