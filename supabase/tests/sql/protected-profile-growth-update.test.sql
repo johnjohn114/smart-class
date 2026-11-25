@@ -346,8 +346,9 @@ SELECT public.admin_settle_competition('00000000-0000-4000-8000-000000000021');
 RESET ROLE;
 DO $admin_settlement_success$
 BEGIN
- IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 7 THEN
-   RAISE EXCEPTION 'FAIL: settlement did not award exactly seven points';
+ -- Registration trigger adds five points; settlement adds seven more.
+ IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 12 THEN
+   RAISE EXCEPTION 'FAIL: registration plus settlement did not total twelve points';
  END IF;
  IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_type='activity_completion') <> 1 THEN
    RAISE EXCEPTION 'FAIL: settlement completion transaction missing or duplicated';
