@@ -370,6 +370,9 @@ END
 $executor_role_denied$;
 RESET ROLE;
 
+-- Restore the member JWT subject after admin-only test cases.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
+
 -- Ordinary members still cannot edit protected columns.
 SET ROLE authenticated;
 DO $member_protection$
