@@ -214,6 +214,32 @@ VALUES('00000000-0000-4000-8000-000000000002','admin',200,0,'newbie');
 
 \ir ../../migrations/202611250001_protect_profile_fields_growth_system_updates.sql
 
+-- Catalog ACL assertion is meaningful even when CI's postgres role is superuser.
+DO $postgres_definer_acl$
+DECLARE
+  v_award_oid oid := 'public.award_growth_points(uuid,integer,text,text,text,text,uuid)'::regprocedure;
+  v_refresh_oid oid := 'public.refresh_growth_level(uuid)'::regprocedure;
+  v_postgres_oid oid := (SELECT oid FROM pg_roles WHERE rolname='postgres');
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+    WHERE p.oid=v_award_oid AND a.grantee=v_postgres_oid
+      AND a.privilege_type='EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'FAIL: postgres-owned SECURITY DEFINER callers lack explicit EXECUTE on award_growth_points';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+    WHERE p.oid=v_refresh_oid AND a.grantee=v_postgres_oid
+      AND a.privilege_type='EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'FAIL: postgres-owned SECURITY DEFINER callers lack explicit EXECUTE on refresh_growth_level';
+  END IF;
+END
+$postgres_definer_acl$;
+
 DO $executor_hardening$
 DECLARE
   v_super boolean;
