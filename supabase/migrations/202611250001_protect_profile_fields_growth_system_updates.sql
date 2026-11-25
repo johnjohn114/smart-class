@@ -88,11 +88,10 @@ GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
 -- Route member check-in rewards through the restricted growth executor.
 -- Previously this SECURITY DEFINER function updated profiles directly as
 -- postgres, which the protected-field trigger correctly rejects for members.
+-- Preserve production check-in behavior while routing protected profile
+-- updates through the narrowly-owned growth RPC.
 CREATE OR REPLACE FUNCTION public.checkin_competition(p_competition_id uuid, p_code text)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE
   v_user uuid := auth.uid();
@@ -103,8 +102,7 @@ DECLARE
   v_status text := 'checked_in';
 BEGIN
   IF v_user IS NULL THEN RAISE EXCEPTION '請先登入會員帳號'; END IF;
-  SELECT * INTO v_comp FROM public.competitions
-  WHERE id=p_competition_id AND published=true;
+  SELECT * INTO v_comp FROM public.competitions WHERE id=p_competition_id AND published=true;
   IF NOT FOUND THEN RAISE EXCEPTION '找不到已公布的活動'; END IF;
   IF NOT coalesce(v_comp.checkin_enabled,false) THEN RAISE EXCEPTION '此活動尚未開放簽到'; END IF;
   IF coalesce(v_comp.checkin_code,'') <> coalesce(trim(p_code),'') THEN RAISE EXCEPTION '簽到碼錯誤'; END IF;
@@ -116,8 +114,7 @@ BEGIN
   ORDER BY created_at DESC LIMIT 1;
   IF NOT FOUND THEN RAISE EXCEPTION '請先完成活動報名'; END IF;
 
-  SELECT * INTO v_att FROM public.competition_attendance
-  WHERE competition_id=p_competition_id AND user_id=v_user;
+  SELECT * INTO v_att FROM public.competition_attendance WHERE competition_id=p_competition_id AND user_id=v_user;
   IF FOUND AND v_att.status IN ('checked_in','late') THEN
     RETURN jsonb_build_object('success',true,'already',true,'attendance_id',v_att.id,'status',v_att.status,'points_awarded',v_att.points_awarded);
   END IF;
@@ -143,8 +140,7 @@ BEGIN
 
   BEGIN
     PERFORM public.record_growth_activity();
-  EXCEPTION WHEN OTHERS THEN
-    NULL;
+  EXCEPTION WHEN OTHERS THEN NULL;
   END;
 
   RETURN jsonb_build_object('success',true,'already',false,'attendance_id',v_att.id,'status',v_att.status,'points_awarded',v_points);
