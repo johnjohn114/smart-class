@@ -115,7 +115,20 @@ BEGIN
 END;
 $function$;
 
-CREATE TABLE public.competition_registrations(id uuid PRIMARY KEY,user_id uuid NOT NULL,status text NOT NULL);
+CREATE TABLE public.competitions(
+ id uuid PRIMARY KEY, name text NOT NULL, published boolean NOT NULL DEFAULT false,
+ checkin_enabled boolean NOT NULL DEFAULT false, checkin_code text,
+ checkin_start_at timestamptz, checkin_end_at timestamptz, checkin_points integer DEFAULT 0
+);
+CREATE TABLE public.competition_registrations(
+ id uuid PRIMARY KEY, competition_id uuid NOT NULL, user_id uuid NOT NULL,
+ status text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE public.competition_attendance(
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), competition_id uuid NOT NULL,
+ registration_id uuid NOT NULL, user_id uuid NOT NULL, status text NOT NULL,
+ checked_in_at timestamptz, points_awarded integer DEFAULT 0, updated_at timestamptz DEFAULT now()
+);
 CREATE OR REPLACE FUNCTION public.growth_registration_reward()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
@@ -128,6 +141,7 @@ END;
 $function$;
 CREATE TRIGGER growth_registration_reward AFTER INSERT ON public.competition_registrations
 FOR EACH ROW EXECUTE FUNCTION public.growth_registration_reward();
+GRANT EXECUTE ON FUNCTION public.checkin_competition(uuid,text) TO authenticated;
 
 INSERT INTO public.profiles(id,role,member_no,growth_points,growth_level)
 VALUES('00000000-0000-4000-8000-000000000001','visitor',100,0,'newbie');
@@ -142,8 +156,8 @@ GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO authenticated,ano
 
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
 SET ROLE authenticated;
-INSERT INTO public.competition_registrations(id,user_id,status)
-VALUES('00000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000001','approved');
+INSERT INTO public.competition_registrations(id,competition_id,user_id,status)
+VALUES('00000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000020','00000000-0000-4000-8000-000000000001','approved');
 RESET ROLE;
 
 DO $registration_success$
