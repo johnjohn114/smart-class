@@ -356,9 +356,9 @@ begin
   insert into public.growth_achievement_unlock_history(
     user_id,achievement_id,unlocked_at,reset_history_id,snapshot_title,snapshot_reward_points
   )
-  select ua.user_id,ua.achievement_id,ua.unlocked_at,rid,a.title,a.reward_points
+  select ua.user_id,ua.achievement_id,ua.unlocked_at,rid,ach.title,ach.reward_points
   from public.growth_user_achievements ua
-  join public.growth_achievements a on a.id=ua.achievement_id
+  join public.growth_achievements ach on ach.id=ua.achievement_id
   where ua.user_id=p_user_id;
 
   delete from public.growth_user_achievements where user_id=p_user_id;
