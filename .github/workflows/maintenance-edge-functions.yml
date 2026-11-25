@@ -261,7 +261,7 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE admin_growth_reward_auth_test"
           TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/admin_growth_reward_auth_test
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/admin-growth-reward-null-auth-guard.setup.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/admin_growth_reward_null_auth_guard.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202611250002_admin_growth_reward_null_auth_guard.sql
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/admin-growth-reward-null-auth-guard.test.sql
 
       - name: Run protected profile growth update regression test
