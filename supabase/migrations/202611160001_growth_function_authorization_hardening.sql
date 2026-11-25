@@ -401,6 +401,12 @@ DECLARE
     'increment_download_count(uuid)',
     'is_admin_user()',
     'join_competition_waitlist(uuid,text)',
+    -- Maintenance admin RPCs must remain callable if this hardening migration
+    -- is replayed after the Maintenance feature has been installed.
+    'maintenance_admin_list(jsonb)',
+    'maintenance_event_action(jsonb)',
+    'maintenance_event_create(jsonb)',
+    'maintenance_event_update(jsonb)',
     'record_growth_activity()',
     'redeem_growth_reward(uuid)',
     'refresh_growth_level(uuid)',
