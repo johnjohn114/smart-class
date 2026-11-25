@@ -238,6 +238,9 @@ begin
   end loop;
   for v_att in select distinct user_id from public.competition_attendance where competition_id=p_competition_id and status in ('checked_in','late') loop
     perform public.check_activity_badges(v_att.user_id);
+    -- Preserve the previous behavior: keep each attendee's level synchronized,
+    -- including when the reward is a badge rather than points.
+    perform public.refresh_growth_level(v_att.user_id);
   end loop;
   return jsonb_build_object('success',true,'grants',v_granted,'points',v_points,'badges',v_badges);
 end $function$;
