@@ -152,3 +152,24 @@ The earlier migration-file fingerprint review remains only a structural comparis
 ## 10. Safety boundary
 
 This document was created from read-only catalog queries only. No production DDL/DML, migration operation, Edge Function deployment, Data API exposure change, feature-flag change, paid service or PR merge was performed. The Maintenance PR remains Draft.
+
+
+## 2.1 Exact public table-column comparison with the 2026-11-08 snapshot (2026-11-25)
+
+A read-only live catalog query was compared against the column declarations in `docs/schema-snapshots/20261108-public-tables-policies.sql`:
+
+| Check | 2026-11-08 snapshot | 2026-11-25 live |
+|---|---:|---:|
+| Public tables | 44 | 44 |
+| Public table columns | 411 | 412 |
+| Public view columns | 8 (separate view snapshot) | 8 |
+| Total public relation columns | 419 | 420 |
+
+The exact table-column difference found is:
+
+- Present in live production but absent from the 2026-11-08 table snapshot: `public.competition_waitlist.position`.
+- No extra table column was found in the snapshot that is absent from live production.
+
+**Correction to earlier shorthand:** the 420 figure is the total across public tables and the 8-column view, not the table-column count. The live inventory's 412 table columns plus 8 view columns also total 420. Therefore there is not an eight-column drift; the verified table snapshot drift is one column (`competition_waitlist.position`).
+
+This comparison is limited to public table column names and the separately counted public view columns. It does not prove equality of types, defaults, constraints, indexes, grants, policies, functions, ownership, managed schemas, or restore behavior. The snapshot remains reference material only and is not promoted to a baseline or modified by this comparison.
