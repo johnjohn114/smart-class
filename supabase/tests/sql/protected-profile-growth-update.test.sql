@@ -470,15 +470,20 @@ $anon_denied$;
 RESET ROLE;
 
 SET ROLE authenticated;
-DO $refresh_denied$
+DO $member_growth_rpc_denied$
 DECLARE denied boolean;
 BEGIN
+ denied:=false;
+ BEGIN PERFORM public.award_growth_points('00000000-0000-4000-8000-000000000001',100,'test');
+ EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points'; END IF;
+
  denied:=false;
  BEGIN PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000001');
  EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
  IF NOT denied THEN RAISE EXCEPTION 'FAIL: authenticated can execute refresh_growth_level'; END IF;
 END
-$refresh_denied$;
+$member_growth_rpc_denied$;
 RESET ROLE;
 
 SET ROLE authenticated;
