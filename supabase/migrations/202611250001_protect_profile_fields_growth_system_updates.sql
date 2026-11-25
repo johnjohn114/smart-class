@@ -15,6 +15,9 @@ END
 $role$;
 
 GRANT USAGE ON SCHEMA public TO growth_points_executor;
+-- PostgreSQL requires CREATE on the target schema while transferring ownership.
+GRANT CREATE ON SCHEMA public TO growth_points_executor;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO growth_points_executor;
 GRANT SELECT ON public.profiles, public.growth_levels,
                 public.growth_point_transactions
 TO growth_points_executor;
@@ -29,6 +32,7 @@ ALTER FUNCTION public.award_growth_points(
 ) OWNER TO growth_points_executor;
 ALTER FUNCTION public.refresh_growth_level(uuid)
   OWNER TO growth_points_executor;
+REVOKE CREATE ON SCHEMA public FROM growth_points_executor;
 
 CREATE OR REPLACE FUNCTION public.protect_profile_fields()
 RETURNS trigger
