@@ -329,11 +329,10 @@ $admin_settlement_success$;
 -- A normal authenticated member cannot assume the non-login executor role.
 SET ROLE authenticated;
 DO $executor_role_denied$
-DECLARE denied boolean := false;
 BEGIN
- BEGIN EXECUTE 'SET ROLE growth_points_executor';
- EXCEPTION WHEN insufficient_privilege THEN denied := true; END;
- IF NOT denied THEN RAISE EXCEPTION 'FAIL: member can assume growth_points_executor'; END IF;
+ IF pg_has_role(current_user,'growth_points_executor','MEMBER') THEN
+   RAISE EXCEPTION 'FAIL: authenticated is a member of growth_points_executor';
+ END IF;
 END
 $executor_role_denied$;
 RESET ROLE;
