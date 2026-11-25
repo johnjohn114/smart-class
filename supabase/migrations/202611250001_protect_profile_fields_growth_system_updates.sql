@@ -25,12 +25,19 @@ ON public.profiles TO growth_points_executor;
 GRANT INSERT ON public.growth_point_transactions, public.notifications
 TO growth_points_executor;
 
+-- PostgreSQL 16+ gives a non-superuser CREATEROLE creator ADMIN OPTION on
+-- the role it creates, but SET FALSE by default. Temporarily allow SET ROLE
+-- so the creator can transfer function ownership, then restore SET FALSE.
+GRANT growth_points_executor TO postgres WITH SET TRUE, INHERIT FALSE;
+
 -- These functions are the only functions owned by this restricted executor.
 ALTER FUNCTION public.award_growth_points(
   uuid, integer, text, text, text, text, uuid
 ) OWNER TO growth_points_executor;
 ALTER FUNCTION public.refresh_growth_level(uuid)
   OWNER TO growth_points_executor;
+
+GRANT growth_points_executor TO postgres WITH SET FALSE, INHERIT FALSE;
 
 -- Keep existing reward-notification behavior; suppress duplicate or noisy
 -- notifications for administrative/event reward sources that already have
