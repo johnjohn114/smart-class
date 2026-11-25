@@ -133,14 +133,17 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.award_growth_points(
   uuid, integer, text, text, text, text, uuid
 ) FROM PUBLIC, anon;
+-- Existing SECURITY DEFINER admin/check-in routines are owned by postgres.
+-- The managed Supabase postgres role is not a superuser, so grant it explicit
+-- EXECUTE after ownership moves to the restricted executor.
 GRANT EXECUTE ON FUNCTION public.award_growth_points(
   uuid, integer, text, text, text, text, uuid
-) TO service_role;
+) TO postgres, service_role;
 
 REVOKE EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
-  TO service_role;
+  TO postgres, service_role;
 
 -- Route member check-in rewards through the restricted growth executor.
 -- Previously this SECURITY DEFINER function updated profiles directly as
