@@ -44,6 +44,27 @@ The 44 `public` tables contain 412 columns. The one `public` view (`activity_mem
 | Tables | 44 | 412 columns |
 | Views | 1 | `activity_member_stats` (8 view columns) |
 | Sequences | 2 | `device_push_tokens_id_seq`, `member_no_seq` |
+
+### Sequence ownership, dependency and ACL detail (2026-11-25)
+
+A separate read-only catalogue query inspected every non-system sequence, its owner, sequence parameters, `OWNED BY` dependency, and ACL. Four sequences exist across the inventoried application/managed schemas:
+
+| Sequence | Owner | Parameters | Dependency |
+|---|---|---|---|
+| `public.device_push_tokens_id_seq` | `postgres` | bigint; start/min 1; increment 1; cache 1; no cycle | Identity dependency (`i`) on `public.device_push_tokens.id` |
+| `public.member_no_seq` | `postgres` | bigint; start/min 1; increment 1; cache 1; no cycle | No `OWNED BY` dependency found |
+| `auth.refresh_tokens_id_seq` | `supabase_auth_admin` | bigint; start/min 1; increment 1; cache 1; no cycle | Auto dependency (`a`) on `auth.refresh_tokens.id` |
+| `realtime.subscription_id_seq` | `supabase_realtime_admin` | bigint; start/min 1; increment 1; cache 1; no cycle | Identity dependency (`i`) on `realtime.subscription.id` |
+
+Additional observations:
+
+- The only column default found that directly calls `nextval(...)` is `auth.refresh_tokens.id` using `auth.refresh_tokens_id_seq`.
+- No stored function source directly mentions `member_no_seq`; this does not rule out dynamic SQL or external callers. Do not classify it as unused or drop it based on this observation.
+- Both public sequences currently have explicit grants to `anon`, `authenticated`, and `service_role` for SELECT, UPDATE and USAGE. This is recorded as existing state, not endorsed as a desired future policy.
+- The public snapshot's two-sequence count is consistent with the two public sequences; the full database inventory contains four sequences once managed `auth` and `realtime` sequences are included.
+- Schema-only capture does not preserve sequence current values as row data. A restorable data backup would need sequence-state handling separately; this task is only the schema baseline.
+
+No sequence, grant, owner, dependency, or value was modified during this inspection.
 | Indexes | 109 | 62 unique; 0 invalid |
 | Primary-key constraints | 44 | |
 | Foreign-key constraints | 51 | |
