@@ -97,3 +97,22 @@ If deployment ever begins and a check fails:
 ## Cost and scope
 
 Use the existing free CI workflow and disposable CI database only. No paid Supabase branch, paid test database, or new paid service is required for the current review. Production remains unchanged while this gate is on HOLD.
+
+
+## Additional read-only security findings (2026-11-25)
+
+These findings were confirmed against the live catalog after the original PR #38 gate was written. They are separate from the registration rollback root cause and remain unresolved; production was not modified.
+
+1. `public.admin_delete_growth_reward(uuid)` and `public.admin_upsert_growth_reward(...)` are SECURITY DEFINER functions. Their live bodies use `IF caller_role <> 'admin'`. When `auth.uid()` has no matching profile, `caller_role` is NULL and the IF condition is not TRUE. Both functions are executable by anon in the live ACL. Candidate migration `202611250002_admin_growth_reward_null_auth_guard.sql` adds explicit missing-identity/NULL-safe rejection and revokes anon/PUBLIC EXECUTE.
+2. `public.activity_member_stats` is a postgres-owned view with no `security_invoker=true` option and broad SELECT privileges including anon. A read-only test under the anon role returned aggregate view rows while direct reads of the underlying attendance/profile tables were denied. This confirms an anonymous aggregate-data exposure; review whether any public visibility is intended before choosing a least-privilege correction.
+3. Default privileges for both `postgres` and `supabase_admin` in schema `public` grant future tables broad DML privileges and future functions EXECUTE to anon/authenticated/service_role; future sequences also have broad privileges. This is a separate hardening task. RLS remains relevant for tables, so the default ACL finding is not by itself proof that all future data is readable or writable.
+4. The managed production `postgres` role is not a superuser, but it has CREATEROLE and BYPASSRLS. After ownership of the two growth functions is transferred to `growth_points_executor`, existing postgres-owned SECURITY DEFINER routines still need explicit EXECUTE on those functions. Candidate migration `202611250001_protect_profile_fields_growth_system_updates.sql` now grants EXECUTE to postgres and service_role, and its regression test checks the explicit ACL entry rather than relying only on `has_function_privilege` (which a superuser CI role could mask).
+
+## Combined candidate
+
+- Integration PR: https://github.com/johnjohn114/smart-class/pull/41
+- Candidate migration order:
+  1. `202611250001_protect_profile_fields_growth_system_updates.sql`
+  2. `202611250002_admin_growth_reward_null_auth_guard.sql`
+- PR #41 combines these changes and their isolated tests. Keep it Draft and unmerged until the current head's CI finishes and the separate view/default-privilege findings have their own reviewed remediation plan.
+- CI uses disposable GitHub Actions services; no paid database is required.
