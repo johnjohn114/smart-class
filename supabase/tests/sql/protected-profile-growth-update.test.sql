@@ -216,23 +216,38 @@ VALUES('00000000-0000-4000-8000-000000000002','admin',200,0,'newbie');
 
 DO $executor_hardening$
 DECLARE
+  v_super boolean;
   v_login boolean;
   v_bypass boolean;
   v_createrole boolean;
   v_owned integer;
   v_set_option boolean;
+  v_other_members integer;
 BEGIN
-  SELECT rolcanlogin,rolbypassrls,rolcreaterole
-    INTO v_login,v_bypass,v_createrole
+  SELECT rolsuper,rolcanlogin,rolbypassrls,rolcreaterole
+    INTO STRICT v_super,v_login,v_bypass,v_createrole
   FROM pg_roles WHERE rolname='growth_points_executor';
-  IF v_login OR NOT v_bypass OR v_createrole THEN
+  IF v_super OR v_login OR NOT v_bypass OR v_createrole THEN
     RAISE EXCEPTION 'FAIL: growth executor role attributes are too broad';
+  END IF;
+  IF has_schema_privilege('growth_points_executor','public','CREATE') THEN
+    RAISE EXCEPTION 'FAIL: growth executor retained CREATE on public schema';
   END IF;
   SELECT count(*) INTO v_owned
   FROM pg_proc p
   WHERE p.proowner=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor');
   IF v_owned <> 2 THEN
     RAISE EXCEPTION 'FAIL: executor must own exactly two growth functions; found %',v_owned;
+  END IF;
+  SELECT count(*) INTO v_other_members
+  FROM pg_auth_members
+  WHERE roleid=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor')
+    AND member<>(SELECT oid FROM pg_roles WHERE rolname='postgres');
+  IF v_other_members <> 0 OR EXISTS (
+    SELECT 1 FROM pg_auth_members
+    WHERE member=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor')
+  ) THEN
+    RAISE EXCEPTION 'FAIL: executor has unexpected role memberships';
   END IF;
   SELECT set_option INTO v_set_option
   FROM pg_auth_members
@@ -332,6 +347,27 @@ BEGIN
  END IF;
 END
 $admin_reset_success$;
+
+-- Badge-only rewards must still synchronize the member's growth level.
+UPDATE public.profiles SET growth_points=5,growth_level='newbie'
+WHERE id='00000000-0000-4000-8000-000000000001';
+INSERT INTO public.competition_reward_rules(id,competition_id,reward_type,badge_id,title)
+VALUES('00000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000020','badge','00000000-0000-4000-8000-000000000032','測試徽章');
+SET ROLE authenticated;
+SELECT public.admin_apply_competition_rewards('00000000-0000-4000-8000-000000000020');
+RESET ROLE;
+DO $badge_level_sync$
+BEGIN
+ IF (SELECT growth_level FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 'active' THEN
+   RAISE EXCEPTION 'FAIL: badge-only reward did not synchronize growth level';
+ END IF;
+ IF (SELECT count(*) FROM public.user_activity_badges WHERE user_id='00000000-0000-4000-8000-000000000001' AND badge_id='00000000-0000-4000-8000-000000000032') <> 1 THEN
+   RAISE EXCEPTION 'FAIL: badge reward was not granted';
+ END IF;
+END
+$badge_level_sync$;
+UPDATE public.profiles SET growth_points=0,growth_level='newbie'
+WHERE id='00000000-0000-4000-8000-000000000001';
 
 -- Admin settlement: award completion points once, then report already settled.
 INSERT INTO public.competitions(id,name,published,completion_points)
