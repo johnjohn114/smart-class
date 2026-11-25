@@ -444,7 +444,7 @@ jobs:
           psql postgresql://postgres:postgres@localhost:5432/growth_function_authorization_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-function-authorization.test.sql
-      - name: Test Maintenance then Growth deployment order (isolated CI database)
+      - name: Test Maintenance then Growth deployment order (isolated CI database, real SQL)
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
         run: |
