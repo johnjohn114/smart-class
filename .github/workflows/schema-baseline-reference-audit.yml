@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install pinned SQL parser
-        run: python -m pip install --disable-pip-version-check "pglast==7.0"
+        run: python -m pip install --disable-pip-version-check "pglast==7.25"
 
       - name: Check reference snapshot inventory counts
         run: python scripts/verify_schema_snapshot.py docs/schema-snapshots
