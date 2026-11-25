@@ -338,7 +338,6 @@ DO $catalog_fixtures$
 DECLARE
   r record;
 BEGIN
-  IF current_setting('maintenance.order_test', true) IS DISTINCT FROM '1' THEN
   FOR r IN
     SELECT * FROM (VALUES
       ('admin_activity_analytics', '', false),
@@ -374,7 +373,12 @@ BEGIN
       ('use_growth_coupon', 'uuid', false)
     ) AS v(name, argtypes, is_trigger)
   LOOP
-    IF to_regprocedure(format('public.%I(%s)', r.name, r.argtypes)) IS NULL THEN
+    IF (current_setting('maintenance.order_test', true) IS DISTINCT FROM '1'
+        OR r.name NOT IN (
+          'maintenance_admin_list','maintenance_event_action',
+          'maintenance_event_create','maintenance_event_update'
+        ))
+       AND to_regprocedure(format('public.%I(%s)', r.name, r.argtypes)) IS NULL THEN
       IF r.is_trigger THEN
         EXECUTE format(
           'CREATE FUNCTION public.%I(%s) RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS %L',
@@ -388,7 +392,6 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
-  END IF;
 END
 $catalog_fixtures$;
 
