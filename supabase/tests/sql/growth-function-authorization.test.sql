@@ -344,6 +344,10 @@ BEGIN
       ('growth_result_reward', '', true),
       ('is_admin_user', '', false),
       ('join_competition_waitlist', 'uuid,text', false),
+      ('maintenance_admin_list', 'jsonb', false),
+      ('maintenance_event_action', 'jsonb', false),
+      ('maintenance_event_create', 'jsonb', false),
+      ('maintenance_event_update', 'jsonb', false),
       ('record_growth_activity', '', false),
       ('redeem_growth_reward', 'uuid', false),
       ('use_growth_coupon', 'uuid', false)
@@ -455,6 +459,18 @@ BEGIN
   IF NOT has_function_privilege('authenticated','public.increment_download_count(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute increment_download_count'; END IF;
   IF NOT has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: reviewed admin RPC missing authenticated EXECUTE'; END IF;
   IF NOT has_function_privilege('authenticated','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: reviewed admin upsert RPC missing authenticated EXECUTE'; END IF;
+  IF has_function_privilege('anon','public.maintenance_admin_list(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.maintenance_event_create(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.maintenance_event_update(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.maintenance_event_action(jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: anon can execute a Maintenance admin RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.maintenance_admin_list(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.maintenance_event_create(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.maintenance_event_update(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.maintenance_event_action(jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Growth ACL hardening removed authenticated EXECUTE from a Maintenance admin RPC';
+  END IF;
   IF NOT has_function_privilege('authenticated','public.check_growth_achievements(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: member achievement RPC missing authenticated EXECUTE'; END IF;
   IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: member level RPC missing authenticated EXECUTE'; END IF;
   IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points directly'; END IF;
