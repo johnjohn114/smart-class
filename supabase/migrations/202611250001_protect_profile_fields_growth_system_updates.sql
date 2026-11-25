@@ -6,11 +6,10 @@ BEGIN;
 -- functions. Its table privileges are deliberately column/table scoped.
 DO $role$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'growth_points_executor') THEN
-    CREATE ROLE growth_points_executor NOLOGIN BYPASSRLS;
-  ELSE
-    ALTER ROLE growth_points_executor NOLOGIN BYPASSRLS;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'growth_points_executor') THEN
+    RAISE EXCEPTION 'growth_points_executor already exists; review the role before applying this migration';
   END IF;
+  CREATE ROLE growth_points_executor NOLOGIN BYPASSRLS;
 END
 $role$;
 
@@ -85,5 +84,71 @@ REVOKE EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
   TO service_role;
+
+-- Route member check-in rewards through the restricted growth executor.
+-- Previously this SECURITY DEFINER function updated profiles directly as
+-- postgres, which the protected-field trigger correctly rejects for members.
+CREATE OR REPLACE FUNCTION public.checkin_competition(p_competition_id uuid, p_code text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_user uuid := auth.uid();
+  v_comp public.competitions%rowtype;
+  v_reg public.competition_registrations%rowtype;
+  v_att public.competition_attendance%rowtype;
+  v_points integer := 0;
+  v_status text := 'checked_in';
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION '請先登入會員帳號'; END IF;
+  SELECT * INTO v_comp FROM public.competitions
+  WHERE id=p_competition_id AND published=true;
+  IF NOT FOUND THEN RAISE EXCEPTION '找不到已公布的活動'; END IF;
+  IF NOT coalesce(v_comp.checkin_enabled,false) THEN RAISE EXCEPTION '此活動尚未開放簽到'; END IF;
+  IF coalesce(v_comp.checkin_code,'') <> coalesce(trim(p_code),'') THEN RAISE EXCEPTION '簽到碼錯誤'; END IF;
+  IF v_comp.checkin_start_at IS NOT NULL AND now() < v_comp.checkin_start_at THEN RAISE EXCEPTION '尚未到簽到時間'; END IF;
+  IF v_comp.checkin_end_at IS NOT NULL AND now() > v_comp.checkin_end_at THEN RAISE EXCEPTION '簽到時間已結束'; END IF;
+
+  SELECT * INTO v_reg FROM public.competition_registrations
+  WHERE competition_id=p_competition_id AND user_id=v_user AND status IN ('active','approved')
+  ORDER BY created_at DESC LIMIT 1;
+  IF NOT FOUND THEN RAISE EXCEPTION '請先完成活動報名'; END IF;
+
+  SELECT * INTO v_att FROM public.competition_attendance
+  WHERE competition_id=p_competition_id AND user_id=v_user;
+  IF FOUND AND v_att.status IN ('checked_in','late') THEN
+    RETURN jsonb_build_object('success',true,'already',true,'attendance_id',v_att.id,'status',v_att.status,'points_awarded',v_att.points_awarded);
+  END IF;
+
+  v_points := greatest(coalesce(v_comp.checkin_points,0),0);
+  IF v_att.id IS NULL THEN
+    INSERT INTO public.competition_attendance(competition_id,registration_id,user_id,status,checked_in_at,points_awarded)
+    VALUES(v_comp.id,v_reg.id,v_user,v_status,now(),v_points)
+    RETURNING * INTO v_att;
+  ELSE
+    UPDATE public.competition_attendance
+    SET registration_id=v_reg.id,status=v_status,checked_in_at=now(),points_awarded=v_points,updated_at=now()
+    WHERE id=v_att.id RETURNING * INTO v_att;
+  END IF;
+
+  IF v_points > 0 THEN
+    PERFORM public.award_growth_points(
+      v_user, v_points, '活動簽到：' || v_comp.name,
+      'activity_checkin', v_comp.id::text,
+      'checkin:' || v_comp.id::text || ':' || v_user::text, NULL
+    );
+  END IF;
+
+  BEGIN
+    PERFORM public.record_growth_activity();
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
+  RETURN jsonb_build_object('success',true,'already',false,'attendance_id',v_att.id,'status',v_att.status,'points_awarded',v_points);
+END;
+$function$;
 
 COMMIT;
