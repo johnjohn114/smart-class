@@ -329,9 +329,9 @@ begin
   from public.growth_user_achievements
   where user_id=p_user_id;
 
-  select coalesce(max(reset_no),0)+1 into reset_no
-  from public.growth_reset_history
-  where user_id=p_user_id;
+  select coalesce(max(h.reset_no),0)+1 into reset_no
+  from public.growth_reset_history h
+  where h.user_id=p_user_id;
 
   insert into public.growth_reset_history(
     user_id,reset_by,reset_no,reason,before_points,after_points,
