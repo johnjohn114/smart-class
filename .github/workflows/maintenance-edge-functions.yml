@@ -393,6 +393,40 @@ jobs:
           psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/rate-limit-prototype-security.test.sql
 
+      - name: Test concurrent bounded rate-limit cleanup
+        env:
+          RATE_LIMIT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rate_limit_lab_test
+        run: |
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO rate_limit_lab.identity_buckets
+            (endpoint_key, actor_id, window_started_at, last_seen_at, request_count)
+          SELECT
+            'cleanup:parallel',
+            (md5('parallel-stale-' || g::text))::uuid,
+            clock_timestamp() - interval '26 hours',
+            clock_timestamp() - interval '26 hours',
+            1
+          FROM generate_series(1, 1201) AS g;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD:/work" -w /work postgres:17 \
+            pgbench -n -c 12 -j 6 -t 3 \
+              -f supabase/tests/sql/rate-limit-prototype-cleanup-concurrency.sql \
+              "$RATE_LIMIT_DATABASE_URL"
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          DECLARE remaining integer;
+          BEGIN
+            SELECT count(*)::integer INTO remaining
+              FROM rate_limit_lab.identity_buckets
+             WHERE endpoint_key = 'cleanup:parallel';
+            IF remaining <> 0 THEN
+              RAISE EXCEPTION 'concurrent cleanup left % stale buckets', remaining;
+            END IF;
+          END
+          $test$;
+          SQL
+
       - name: Run App Releases anonymous ACL hardening regression test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
