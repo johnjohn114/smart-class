@@ -123,3 +123,20 @@ GitHub Actions runner 可使用免費額度內的 Ubuntu runner，啟動一次�
 **先執行 Job A 的參考快照靜態稽核，並建立 workflow 的安全骨架；Job B 保持停用，直到取得合法的 schema-only dump。**
 
 本文件不授權正式資料庫操作，也不代表正式 baseline 已建立。任何連線方式、憑證管理或 production DDL 都需要另行審核與明確授權。
+
+
+## 8. Reference snapshot CI implementation result (2026-11-25)
+
+The free CI Job A has now been added as `.github/workflows/schema-baseline-reference-audit.yml`.
+
+- Workflow run: [45599889447](https://github.com/johnjohn114/smart-class/actions/runs/45599889447)
+- Result: **success**.
+- Inventory-count/provenance check: passed.
+- PostgreSQL SQL parser and conservative dependency check: passed.
+- Parser is pinned to `pglast==7.25`.
+- The workflow uses GitHub-hosted disposable CI only; it does not connect to Supabase production and does not create a schema dump.
+- The workflow summary explicitly labels this as a reference snapshot audit, not a production restore test.
+
+The first attempt used unavailable `pglast==7.0` and failed during dependency installation. It was corrected to the available `7.25` release; the subsequent run above passed. No database or production setting was changed.
+
+**Scope remains unchanged:** this validates only the 2026-11-08 catalog-derived reference snapshot. It does not resolve the observed difference between that snapshot's 420 public columns and the 2026-11-25 live inventory's 412 columns, and it does not prove that a blank database can be restored from the snapshot.
