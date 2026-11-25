@@ -4,7 +4,12 @@
 -- The auth.uid() and public.is_admin() functions below are test stubs only.
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
+CREATE ROLE service_role NOLOGIN;
 CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD 'authenticator';
+
+-- Match Supabase's production default EXECUTE grant for new public functions.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO service_role;
 GRANT anon, authenticated TO authenticator;
 
 CREATE SCHEMA auth;
@@ -36,12 +41,18 @@ AS $$
 $$;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 
--- Apply the exact draft under test. This runs only in the ephemeral CI database.
-\ir ../../migrations/20261117121103_maintenance_system_initial.sql
-\ir ../../migrations/20261121140000_maintenance_rpc_least_privilege_upgrade.sql
+-- Apply the single-pass development draft under test. This runs only in the ephemeral CI database.
+\ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
 
-DO $$
+DO $service_role_acl$
 BEGIN
+  IF has_function_privilege('service_role', 'public.maintenance_status_public(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_admin_list(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_event_create(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_event_update(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.maintenance_event_action(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: service_role retained default EXECUTE on a Maintenance RPC';
+  END IF;
   IF has_function_privilege('anon', 'public.maintenance_event_create(jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.maintenance_event_update(jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.maintenance_event_action(jsonb)', 'EXECUTE')
@@ -51,25 +62,45 @@ BEGIN
   IF NOT has_function_privilege('anon', 'public.maintenance_status_public(jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: anon cannot execute the public status RPC';
   END IF;
+  IF NOT has_function_privilege('pg_database_owner', 'public.is_admin()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: pg_database_owner cannot execute the existing admin helper';
+  END IF;
 END
-$$;
+$service_role_acl$;
 
--- The admin RPC owner is non-login, non-superuser, and cannot bypass RLS.
+-- The admin RPC owner is PostgreSQL's built-in database-owner pseudo-role.
 DO $$
 DECLARE
-  executor record;
+  db_owner record;
   table_name text;
   column_name text;
   function_name text;
 BEGIN
-  SELECT rolcanlogin, rolinherit, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
-    INTO executor FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor';
-  IF executor.rolcanlogin OR executor.rolinherit OR executor.rolsuper OR executor.rolbypassrls
-     OR executor.rolcreatedb OR executor.rolcreaterole OR executor.rolreplication THEN
-    RAISE EXCEPTION 'FAIL: maintenance RPC executor has elevated role attributes';
+  SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
+    INTO db_owner FROM pg_catalog.pg_roles WHERE rolname='pg_database_owner';
+  IF db_owner.rolcanlogin OR db_owner.rolsuper OR db_owner.rolbypassrls
+     OR db_owner.rolcreatedb OR db_owner.rolcreaterole OR db_owner.rolreplication THEN
+    RAISE EXCEPTION 'FAIL: pg_database_owner has elevated role attributes';
   END IF;
-  IF pg_catalog.has_schema_privilege('maintenance_rpc_executor','public','CREATE') THEN
-    RAISE EXCEPTION 'FAIL: maintenance RPC executor retained CREATE on public schema';
+  IF NOT pg_catalog.pg_has_role(current_user,'pg_database_owner','SET') THEN
+    RAISE EXCEPTION 'FAIL: current database owner cannot SET ROLE pg_database_owner';
+  END IF;
+  IF pg_catalog.pg_has_role('authenticated','pg_database_owner','MEMBER')
+     OR pg_catalog.pg_has_role('anon','pg_database_owner','MEMBER') THEN
+    RAISE EXCEPTION 'FAIL: application roles are members of pg_database_owner';
+  END IF;
+  IF NOT pg_catalog.has_schema_privilege('pg_database_owner','public','CREATE') THEN
+    RAISE EXCEPTION 'FAIL: pg_database_owner must own public schema';
+  END IF;
+  -- service_role must not receive direct access to the private Maintenance data plane.
+  IF pg_catalog.has_schema_privilege('service_role','private','USAGE') THEN
+    RAISE EXCEPTION 'FAIL: service_role has USAGE on the private Maintenance schema';
+  END IF;
+  IF pg_catalog.has_function_privilege('service_role','private.maintenance_uid()','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: service_role can execute the private JWT subject helper';
+  END IF;
+  IF pg_catalog.has_schema_privilege('pg_database_owner','auth','USAGE') THEN
+    RAISE EXCEPTION 'FAIL: admin RPC owner unexpectedly depends on auth schema access';
   END IF;
 
   FOREACH table_name IN ARRAY ARRAY[
@@ -81,6 +112,15 @@ BEGIN
        OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'DELETE')
        OR pg_catalog.has_table_privilege('authenticated','private.'||table_name,'TRUNCATE') THEN
       RAISE EXCEPTION 'FAIL: authenticated has direct write privilege on %', table_name;
+    END IF;
+    IF pg_catalog.has_table_privilege('service_role','private.'||table_name,'SELECT')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'INSERT')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'UPDATE')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'DELETE')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'TRUNCATE')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'REFERENCES')
+       OR pg_catalog.has_table_privilege('service_role','private.'||table_name,'TRIGGER') THEN
+      RAISE EXCEPTION 'FAIL: service_role has direct privilege on private.%', table_name;
     END IF;
     -- Table-level privilege checks do not replace checking every column grant.
     FOR column_name IN
@@ -101,9 +141,9 @@ BEGIN
       JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname='private' AND c.relname=table_name
         AND c.relrowsecurity AND c.relforcerowsecurity
-        AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='maintenance_rpc_executor')
+        AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='pg_database_owner')
     ) THEN
-      RAISE EXCEPTION 'FAIL: table % must FORCE RLS and not be owned by executor', table_name;
+      RAISE EXCEPTION 'FAIL: table % must FORCE RLS and not be owned by pg_database_owner', table_name;
     END IF;
   END LOOP;
 
@@ -115,12 +155,58 @@ BEGIN
         FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
-        WHERE n.nspname='public' AND p.proname=function_name) <> 'maintenance_rpc_executor' THEN
-      RAISE EXCEPTION 'FAIL: admin RPC % is not owned by dedicated executor', function_name;
+        WHERE n.nspname='public' AND p.proname=function_name) <> 'pg_database_owner' THEN
+      RAISE EXCEPTION 'FAIL: admin RPC % is not owned by pg_database_owner', function_name;
     END IF;
   END LOOP;
 END
 $$;
+
+
+-- Test-only helper: mirror the public lifecycle by creating a draft first and
+-- scheduling it through the action RPC when the fixture requests scheduled.
+CREATE FUNCTION pg_temp.maintenance_test_create(p_request jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  v_request jsonb := p_request;
+  v_created jsonb;
+  v_event_id uuid;
+BEGIN
+  IF p_request->>'status' = 'scheduled' THEN
+    v_request := pg_catalog.jsonb_set(v_request, '{status}', '"draft"'::jsonb, false);
+  END IF;
+  v_created := public.maintenance_event_create(v_request);
+  IF p_request->>'status' = 'scheduled' THEN
+    v_event_id := (v_created #>> '{data,event_id}')::uuid;
+    RETURN public.maintenance_event_action(pg_catalog.jsonb_build_object(
+      'event_id', v_event_id,
+      'expected_version', 1,
+      'action', 'schedule',
+      'reason', 'isolated test fixture schedule',
+      'idempotency_key', pg_catalog.gen_random_uuid()
+    ));
+  END IF;
+  RETURN v_created;
+END
+$function$;
+
+-- Only this isolated harness may backdate an event after exercising the
+-- real schedule transition, so completion-after-end can be tested safely.
+CREATE FUNCTION pg_temp.maintenance_test_mark_ended(p_event_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+BEGIN
+  UPDATE private.maintenance_events
+     SET starts_at = pg_catalog.now() - interval '30 minutes',
+         ends_at = pg_catalog.now() - interval '10 minutes'
+   WHERE id = p_event_id;
+END
+$function$;
 
 -- Anonymous caller can read the public status function, but no maintenance is active yet.
 SET ROLE anon;
@@ -148,7 +234,9 @@ DECLARE
   replay_result jsonb;
   conflict_seen boolean := false;
   invalid_scope_seen boolean := false;
+  invalid_status_seen boolean := false;
   invalid_scope_payload jsonb;
+  invalid_status_payload jsonb;
 BEGIN
   request_payload := jsonb_build_object(
     'title', '  CI isolated maintenance event  ', 
@@ -156,12 +244,29 @@ BEGIN
     'internal_note', '  CI_PRIVATE_NOTE_DO_NOT_EXPOSE  ', 
     'is_global', true,
     'scope_codes', '[]'::jsonb,
-    'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '1 hour') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
-    'status', 'scheduled',
+    'status', 'draft',
     'reason', '  isolated PostgreSQL integration test  ', 
     'idempotency_key', '00000000-0000-4000-8000-000000000011'
   );
+  -- The create RPC must reject a direct scheduled status; only the action RPC may schedule.
+  invalid_status_payload := pg_catalog.jsonb_set(
+    request_payload, '{status}', '"scheduled"'::jsonb, false
+  );
+  invalid_status_payload := pg_catalog.jsonb_set(
+    invalid_status_payload, '{idempotency_key}',
+    pg_catalog.to_jsonb('00000000-0000-4000-8000-000000000013'::text), false
+  );
+  BEGIN
+    PERFORM public.maintenance_event_create(invalid_status_payload);
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_status_seen := true;
+  END;
+  IF NOT invalid_status_seen THEN
+    RAISE EXCEPTION 'FAIL: create RPC accepted status=scheduled instead of requiring draft';
+  END IF;
+
   -- JSON arrays must contain strings only; numeric values must not be coerced to text.
   invalid_scope_payload := pg_catalog.jsonb_set(request_payload, '{scope_codes}', '[1]'::jsonb, false);
   invalid_scope_payload := pg_catalog.jsonb_set(invalid_scope_payload, '{idempotency_key}',
@@ -182,7 +287,7 @@ BEGIN
   request_payload := pg_catalog.jsonb_set(request_payload, '{internal_note}', pg_catalog.to_jsonb('CI_PRIVATE_NOTE_DO_NOT_EXPOSE'::text), false);
   request_payload := pg_catalog.jsonb_set(request_payload, '{reason}', pg_catalog.to_jsonb('isolated PostgreSQL integration test'::text), false);
   request_payload := pg_catalog.jsonb_set(request_payload, '{starts_at}',
-    pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
+    pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
   request_payload := pg_catalog.jsonb_set(request_payload, '{ends_at}',
     pg_catalog.to_jsonb(pg_catalog.to_char((pg_catalog.now() + interval '1 hour') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || 'Z'), false);
   replay_result := public.maintenance_event_create(request_payload);
@@ -201,9 +306,18 @@ BEGIN
   IF NOT conflict_seen THEN
     RAISE EXCEPTION 'FAIL: same idempotency key with different payload was accepted';
   END IF;
+
+  PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id', (first_result #>> '{data,event_id}')::uuid,
+    'expected_version', 1,
+    'action', 'schedule',
+    'reason', 'activate initial public status fixture',
+    'idempotency_key', '00000000-0000-4000-8000-000000000099'
+  ));
 END
 $$;
 RESET ROLE;
+SELECT pg_catalog.pg_sleep(2.5);
 
 -- Anonymous public visibility is limited to the active event. The private note
 -- table is not readable by anon, and the RPC response must not contain the note.
@@ -275,7 +389,7 @@ BEGIN
    WHERE internal_note = 'CI_PRIVATE_NOTE_DO_NOT_EXPOSE';
   SELECT count(*) INTO audit_rows FROM private.maintenance_audit_logs;
   SELECT count(*) INTO idempotency_rows FROM private.maintenance_idempotency;
-  IF note_rows <> 1 OR audit_rows <> 1 OR idempotency_rows <> 1 THEN
+  IF note_rows <> 1 OR audit_rows <> 2 OR idempotency_rows <> 2 THEN
     RAISE EXCEPTION 'FAIL: admin could not read expected private/audit/idempotency records';
   END IF;
   BEGIN
@@ -304,14 +418,14 @@ BEGIN
     'message', 'This must be rejected',
     'is_global', true,
     'scope_codes', '[]'::jsonb,
-    'starts_at', pg_catalog.to_char(pg_catalog.now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '30 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'conflict integration test',
     'idempotency_key', '00000000-0000-4000-8000-000000000012'
   );
   BEGIN
-    PERFORM public.maintenance_event_create(request_payload);
+    PERFORM pg_temp.maintenance_test_create(request_payload);
     RAISE EXCEPTION 'FAIL: conflicting schedule was accepted';
   EXCEPTION WHEN unique_violation THEN
     NULL;
@@ -319,7 +433,7 @@ BEGIN
   SELECT count(*) INTO event_rows FROM private.maintenance_events;
   SELECT count(*) INTO audit_rows FROM private.maintenance_audit_logs;
   SELECT count(*) INTO idempotency_rows FROM private.maintenance_idempotency;
-  IF event_rows <> 1 OR audit_rows <> 1 OR idempotency_rows <> 1 THEN
+  IF event_rows <> 1 OR audit_rows <> 2 OR idempotency_rows <> 2 THEN
     RAISE EXCEPTION 'FAIL: rejected conflict left partial records';
   END IF;
 END
@@ -359,7 +473,7 @@ BEGIN
     );
     conflict_seen := false;
     BEGIN
-      PERFORM public.maintenance_event_create(request_payload);
+      PERFORM pg_temp.maintenance_test_create(request_payload);
     EXCEPTION WHEN unique_violation THEN
       conflict_seen := true;
     END;
@@ -429,12 +543,12 @@ BEGIN
     'idempotency_key', '00000000-0000-4000-8000-000000000021'
   ));
 
-  local_result := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+  local_result := pg_temp.maintenance_test_create(pg_catalog.jsonb_build_object(
     'title', 'Local scope isolation test',
     'message', 'Only announcements_info is under maintenance',
     'is_global', false,
     'scope_codes', pg_catalog.jsonb_build_array('announcements_info'),
-    'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '5 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '30 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'local scope isolation integration test',
@@ -448,12 +562,12 @@ BEGIN
 
   -- A second overlapping event for the same local scope must be rejected.
   BEGIN
-    PERFORM public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    PERFORM pg_temp.maintenance_test_create(pg_catalog.jsonb_build_object(
       'title', 'Same scope conflict test',
       'message', 'This overlapping event must be rejected',
       'is_global', false,
       'scope_codes', pg_catalog.jsonb_build_array('announcements_info'),
-      'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '4 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+      'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '3 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
       'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '20 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
       'status', 'scheduled',
       'reason', 'same scope conflict integration test',
@@ -467,12 +581,12 @@ BEGIN
   END IF;
 
   -- A different local scope may be scheduled at the same time.
-  disjoint_result := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+  disjoint_result := pg_temp.maintenance_test_create(pg_catalog.jsonb_build_object(
     'title', 'Disjoint scope coexistence test',
     'message', 'A different local scope may be scheduled concurrently',
     'is_global', false,
     'scope_codes', pg_catalog.jsonb_build_array('downloads_app'),
-    'starts_at', pg_catalog.to_char((pg_catalog.now() - interval '3 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
+    'starts_at', pg_catalog.to_char((pg_catalog.now() + interval '4 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'ends_at', pg_catalog.to_char((pg_catalog.now() + interval '15 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') || '+00:00',
     'status', 'scheduled',
     'reason', 'disjoint scope coexistence integration test',
@@ -494,6 +608,7 @@ BEGIN
 END
 $local_scope_admin$;
 RESET ROLE;
+SELECT pg_catalog.pg_sleep(2.5);
 
 SET ROLE anon;
 SELECT set_config('request.jwt.claim.sub', '', false);
@@ -540,6 +655,7 @@ DECLARE
   cancel_draft_action jsonb;
   cancel_scheduled_create jsonb;
   cancel_scheduled_action jsonb;
+  past_draft_create jsonb;
   event_id uuid;
   event_version bigint;
   event_status text;
@@ -552,44 +668,32 @@ BEGIN
   SELECT count(*) INTO audit_before FROM private.maintenance_audit_logs;
   SELECT count(*) INTO idempotency_before FROM private.maintenance_idempotency;
 
-  -- Create a draft whose time window is already over; scheduling it and
-  -- completing it immediately exercises both legal state transitions.
+  -- Create a draft, schedule it through the lifecycle RPC, then backdate only inside this isolated test harness.
   complete_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
     'title','Lifecycle complete path',
     'message','Synthetic lifecycle integration test',
     'is_global',false,
     'scope_codes',pg_catalog.jsonb_build_array('membership_growth'),
-    'starts_at',pg_catalog.to_char((pg_catalog.now()-interval '30 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
-    'ends_at',pg_catalog.to_char((pg_catalog.now()-interval '10 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'starts_at',pg_catalog.to_char((pg_catalog.now()+interval '2 hours') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'ends_at',pg_catalog.to_char((pg_catalog.now()+interval '3 hours') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
     'status','draft',
-    'reason','create draft lifecycle test',
+    'reason','create completion lifecycle draft fixture',
     'idempotency_key','00000000-0000-4000-8000-000000000031'
   ));
   event_id := (complete_create #>> '{data,event_id}')::uuid;
-  event_version := (complete_create #>> '{data,version}')::bigint;
-  IF (complete_create #>> '{data,status}') IS DISTINCT FROM 'draft' OR event_version<>1 THEN
-    RAISE EXCEPTION 'FAIL: draft create returned unexpected status/version';
-  END IF;
-
-  complete_schedule := public.maintenance_event_action(pg_catalog.jsonb_build_object(
-    'event_id',event_id,'expected_version',event_version,'action','schedule',
-    'reason','schedule lifecycle test',
-    'idempotency_key','00000000-0000-4000-8000-000000000032'
+  PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+    'event_id', event_id, 'expected_version', 1, 'action', 'schedule',
+    'reason', 'schedule completion fixture',
+    'idempotency_key', '00000000-0000-4000-8000-000000000044'
   ));
-  IF (complete_schedule #>> '{data,status}') IS DISTINCT FROM 'scheduled'
-     OR (complete_schedule #>> '{data,version}')::bigint<>2 THEN
-    RAISE EXCEPTION 'FAIL: draft -> scheduled transition/version incorrect';
+  SELECT status,version INTO event_status,event_version
+    FROM private.maintenance_events WHERE id=event_id;
+  IF event_status IS DISTINCT FROM 'scheduled' OR event_version<>2 THEN
+    RAISE EXCEPTION 'FAIL: completion fixture was not scheduled through the lifecycle RPC';
   END IF;
+  PERFORM pg_temp.maintenance_test_mark_ended(event_id);
 
-  -- Same key + same payload must replay the original schedule result.
-  complete_replay := public.maintenance_event_action(pg_catalog.jsonb_build_object(
-    'event_id',event_id,'expected_version',event_version,'action','schedule',
-    'reason','schedule lifecycle test',
-    'idempotency_key','00000000-0000-4000-8000-000000000032'
-  ));
-  IF complete_replay IS DISTINCT FROM complete_schedule THEN
-    RAISE EXCEPTION 'FAIL: schedule action idempotency replay changed the response';
-  END IF;
+  -- The fixture was scheduled through the lifecycle RPC and then ended by the test harness.
 
   invalid_seen := false;
   BEGIN
@@ -695,9 +799,41 @@ BEGIN
     RAISE EXCEPTION 'FAIL: scheduled -> cancelled transition/version incorrect';
   END IF;
 
+  -- An expired draft must not be scheduled, even by calling the RPC directly.
+  past_draft_create := public.maintenance_event_create(pg_catalog.jsonb_build_object(
+    'title','Lifecycle reject past schedule',
+    'message','Synthetic lifecycle integration test',
+    'is_global',false,
+    'scope_codes',pg_catalog.jsonb_build_array('membership_growth'),
+    'starts_at',pg_catalog.to_char((pg_catalog.now()-interval '30 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'ends_at',pg_catalog.to_char((pg_catalog.now()+interval '30 minutes') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS')||'+00:00',
+    'status','draft',
+    'reason','create past draft scheduling rejection test',
+    'idempotency_key','00000000-0000-4000-8000-000000000042'
+  ));
+  event_id := (past_draft_create #>> '{data,event_id}')::uuid;
+  invalid_seen := false;
+  BEGIN
+    PERFORM public.maintenance_event_action(pg_catalog.jsonb_build_object(
+      'event_id',event_id,'expected_version',1,'action','schedule',
+      'reason','past schedule must fail',
+      'idempotency_key','00000000-0000-4000-8000-000000000043'
+    ));
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    invalid_seen := true;
+  END;
+  IF NOT invalid_seen THEN
+    RAISE EXCEPTION 'FAIL: an expired draft was allowed to be scheduled';
+  END IF;
+  SELECT status,version INTO event_status,event_version
+    FROM private.maintenance_events WHERE id=event_id;
+  IF event_status IS DISTINCT FROM 'draft' OR event_version<>1 THEN
+    RAISE EXCEPTION 'FAIL: rejected past schedule changed event state or version';
+  END IF;
+
   SELECT count(*) INTO audit_after FROM private.maintenance_audit_logs;
   SELECT count(*) INTO idempotency_after FROM private.maintenance_idempotency;
-  IF audit_after-audit_before<>8 OR idempotency_after-idempotency_before<>8 THEN
+  IF audit_after-audit_before<>9 OR idempotency_after-idempotency_before<>9 THEN
     RAISE EXCEPTION 'FAIL: lifecycle success audit/idempotency counts incorrect (audit %, idempotency %)',
       audit_after-audit_before,idempotency_after-idempotency_before;
   END IF;

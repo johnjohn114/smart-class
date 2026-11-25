@@ -1,0 +1,219 @@
+-- Disposable CI-only rate-limit prototype. Never apply to production.
+-- Uses one atomic UPSERT per bucket; no external service and no app integration.
+CREATE SCHEMA rate_limit_lab;
+
+CREATE TABLE rate_limit_lab.buckets (
+  bucket_key text PRIMARY KEY CHECK (pg_catalog.char_length(bucket_key) BETWEEN 1 AND 200),
+  window_started_at timestamptz NOT NULL,
+  request_count integer NOT NULL CHECK (request_count >= 1)
+);
+
+CREATE TABLE rate_limit_lab.decisions (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  allowed boolean NOT NULL,
+  remaining integer NOT NULL,
+  retry_after_seconds integer NOT NULL
+);
+
+CREATE FUNCTION rate_limit_lab.consume(
+  p_bucket_key text,
+  p_limit integer,
+  p_window_seconds integer
+)
+RETURNS TABLE (
+  allowed boolean,
+  remaining integer,
+  retry_after_seconds integer
+)
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_started_at timestamptz;
+  v_count integer;
+BEGIN
+  IF p_bucket_key IS NULL OR pg_catalog.char_length(p_bucket_key) NOT BETWEEN 1 AND 200
+     OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 1000
+     OR p_window_seconds IS NULL OR p_window_seconds NOT BETWEEN 1 AND 3600 THEN
+    RAISE EXCEPTION 'invalid rate-limit arguments' USING ERRCODE = '22023';
+  END IF;
+
+  -- Use one timestamp for both window and counter decisions. This avoids
+  -- split decisions if the clock crosses the boundary between expressions.
+  INSERT INTO rate_limit_lab.buckets AS current_bucket
+    (bucket_key, window_started_at, request_count)
+  VALUES (p_bucket_key, v_now, 1)
+  ON CONFLICT (bucket_key) DO UPDATE
+    SET window_started_at = CASE
+          WHEN current_bucket.window_started_at
+               + pg_catalog.make_interval(secs => p_window_seconds) <= v_now
+          THEN v_now
+          ELSE current_bucket.window_started_at
+        END,
+        request_count = CASE
+          WHEN current_bucket.window_started_at
+               + pg_catalog.make_interval(secs => p_window_seconds) <= v_now
+          THEN 1
+          WHEN current_bucket.request_count >= p_limit + 1
+          THEN p_limit + 1
+          ELSE current_bucket.request_count + 1
+        END
+  RETURNING current_bucket.window_started_at, current_bucket.request_count
+       INTO v_started_at, v_count;
+
+  allowed := v_count <= p_limit;
+  remaining := CASE
+    WHEN p_limit - v_count > 0 THEN p_limit - v_count
+    ELSE 0
+  END;
+  retry_after_seconds := CASE
+    WHEN allowed THEN 0
+    WHEN pg_catalog.date_part(
+      'epoch', v_started_at + pg_catalog.make_interval(secs => p_window_seconds)
+        - pg_catalog.clock_timestamp()
+    ) < 1 THEN 1
+    ELSE pg_catalog.ceil(pg_catalog.date_part(
+      'epoch', v_started_at + pg_catalog.make_interval(secs => p_window_seconds)
+        - pg_catalog.clock_timestamp()
+    ))::integer
+  END;
+  RETURN NEXT;
+END;
+$function$;
+
+COMMENT ON SCHEMA rate_limit_lab IS
+  'Disposable CI prototype only; not exposed through the Supabase Data API.';
+COMMENT ON FUNCTION rate_limit_lab.consume(text, integer, integer) IS
+  'Atomic fixed-window limiter prototype using one PostgreSQL UPSERT per bucket.';
+
+-- CI roles model Supabase API roles in a disposable database only.
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END
+$roles$;
+
+REVOKE ALL ON SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL TABLES IN SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA rate_limit_lab FROM PUBLIC, anon, authenticated;
+
+-- Identity-aware lab endpoint: actor identity is read from the verified-JWT
+-- claim setting, never accepted as a function argument. This SECURITY DEFINER
+-- function exists only in the disposable CI database.
+CREATE TABLE rate_limit_lab.identity_buckets (
+  endpoint_key text NOT NULL,
+  actor_id uuid NOT NULL,
+  window_started_at timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  request_count integer NOT NULL CHECK (request_count >= 1),
+  PRIMARY KEY (endpoint_key, actor_id)
+);
+
+CREATE FUNCTION rate_limit_lab.consume_authenticated_admin()
+RETURNS TABLE (allowed boolean, remaining integer, retry_after_seconds integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $identity$
+DECLARE
+  v_actor uuid;
+  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_started timestamptz;
+  v_count integer;
+BEGIN
+  -- Use the same Supabase auth.uid() identity source as public.is_admin().
+  -- Reading legacy and JSON claim settings separately could otherwise make
+  -- the quota actor differ from the identity checked for admin authorization.
+  BEGIN
+    v_actor := auth.uid();
+  EXCEPTION WHEN invalid_text_representation THEN
+    RAISE EXCEPTION 'verified JWT subject invalid' USING ERRCODE = '28000';
+  END;
+  IF v_actor IS NULL THEN
+    RAISE EXCEPTION 'verified JWT subject required' USING ERRCODE = '28000';
+  END IF;
+
+  -- Authentication alone is insufficient: this endpoint is admin-only.
+  -- The helper checks the authenticated subject against the server-side
+  -- profile role; no client-supplied role or actor ID is accepted.
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'admin role required' USING ERRCODE = '42501';
+  END IF;
+
+  -- Keep the window reset, count reset, and last-seen update on one clock
+  -- sample so they cannot disagree at the exact window boundary.
+  INSERT INTO rate_limit_lab.identity_buckets AS existing
+    (endpoint_key, actor_id, window_started_at, last_seen_at, request_count)
+  VALUES ('maintenance_admin', v_actor, v_now, v_now, 1)
+  ON CONFLICT (endpoint_key, actor_id) DO UPDATE
+    SET window_started_at = CASE
+          WHEN existing.window_started_at + interval '60 seconds' <= v_now
+          THEN v_now
+          ELSE existing.window_started_at
+        END,
+        last_seen_at = v_now,
+        request_count = CASE
+          WHEN existing.window_started_at + interval '60 seconds' <= v_now
+          THEN 1
+          WHEN existing.request_count >= 4 THEN 4
+          ELSE existing.request_count + 1
+        END
+  RETURNING existing.window_started_at, existing.request_count
+       INTO v_started, v_count;
+
+  allowed := v_count <= 3;
+  remaining := GREATEST(0, 3 - v_count);
+  retry_after_seconds := CASE WHEN allowed THEN 0 ELSE
+    GREATEST(1, pg_catalog.ceil(pg_catalog.date_part(
+      'epoch', v_started + interval '60 seconds' - pg_catalog.clock_timestamp()
+    ))::integer) END;
+  RETURN NEXT;
+END;
+$identity$;
+
+REVOKE ALL ON rate_limit_lab.identity_buckets FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION rate_limit_lab.consume_authenticated_admin() FROM PUBLIC, anon, authenticated;
+GRANT USAGE ON SCHEMA rate_limit_lab TO authenticated;
+GRANT EXECUTE ON FUNCTION rate_limit_lab.consume_authenticated_admin() TO authenticated;
+
+
+-- Bounded, owner-only cleanup for the disposable lab. The function does not
+-- accept a caller-controlled batch size or retention period.
+CREATE FUNCTION rate_limit_lab.cleanup_stale_identity_buckets()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $cleanup$
+DECLARE
+  v_deleted integer;
+BEGIN
+  WITH stale AS (
+    SELECT endpoint_key, actor_id
+      FROM rate_limit_lab.identity_buckets
+     WHERE last_seen_at < pg_catalog.clock_timestamp() - interval '24 hours'
+       AND window_started_at + interval '60 seconds' < pg_catalog.clock_timestamp()
+     ORDER BY last_seen_at
+     LIMIT 500
+     FOR UPDATE SKIP LOCKED
+  ),
+  removed AS (
+    DELETE FROM rate_limit_lab.identity_buckets AS b
+     USING stale
+     WHERE b.endpoint_key = stale.endpoint_key
+       AND b.actor_id = stale.actor_id
+    RETURNING 1
+  )
+  SELECT pg_catalog.count(*)::integer INTO v_deleted FROM removed;
+  RETURN v_deleted;
+END;
+$cleanup$;
+
+REVOKE ALL ON FUNCTION rate_limit_lab.cleanup_stale_identity_buckets() FROM PUBLIC, anon, authenticated;

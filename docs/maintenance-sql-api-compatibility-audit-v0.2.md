@@ -116,3 +116,49 @@
 - 未執行 DDL/DML、Migration、migration repair、db push、db reset。
 - 未部署 Edge Functions。
 - 未建立付費服務或額外專案。
+
+
+## 8. 2026-11-22 現行分支與隔離驗證補記
+
+本節更新目前 repository 的狀態，不回寫或抹除 11/08 原始稽核當時可取得的證據。原始上傳的 `啟動第一步檢查.txt` 是舊四表設計的審查摘要，不是 SQL 原始碼；其四表與 service_role 權限描述不可直接當作目前六表 Maintenance 架構。
+
+### 8.1 現行 repository 架構
+
+目前工作分支：`feature/maintenance-single-pass-migration-20261122`，相對 `main` 為 ahead 44、behind 0。現行 API 契約為 `docs/maintenance-api-spec-v0.7.md`。
+
+repository 內可讀取到兩個正式命名的 migration 檔案：
+- `supabase/migrations/20261117121103_maintenance_system_initial.sql`
+- `supabase/migrations/20261121140000_maintenance_rpc_least_privilege_upgrade.sql`
+
+兩個 migration 建立／升級六張 private tables：`maintenance_scopes`、`maintenance_events`、`maintenance_event_private_notes`、`maintenance_event_scopes`、`maintenance_audit_logs`、`maintenance_idempotency`，以及五個 public RPC。另有 `supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql` 作為 single-pass development draft；它不是已核准或已套用的正式 migration。
+
+因此，11/08 摘要中的四張表（`maintenance_state`、`maintenance_events`、`maintenance_scopes`、`maintenance_audit_logs`）只代表舊設計線索，不是 v0.7 現行 schema。完整欄位與限制應以目前 migration 和 API v0.7 為準。
+
+### 8.2 已核對的欄位長度
+
+目前 API v0.7、Edge parser 與 SQL 草案／驗證使用一致限制：
+- `title`: 200 字元
+- `message`: 4,000 字元
+- `internal_note`: 4,000 字元
+- `reason`: 500 字元
+
+原第 4 節所列「Edge 暫定、尚未核准」已由這次程式碼與 SQL 對照更新；不應再把這四個限制標示為待定。這項核對只證明 repository 內來源一致，不代表正式資料庫已套用。
+
+### 8.3 隔離 CI 證據
+
+最新 GitHub Actions run [#270](https://github.com/johnjohn114/smart-class/actions/runs/44997928704) 對應分支 commit `182eef7377a313c3f98431410daee2608aef1f73`，四個 jobs 全數成功：
+- Deno type check（27 項 validation tests）/ feature gate / Playwright（首頁、管理頁、維護生命週期 UI）/ SQL static guardrails。
+- 隔離 PostgreSQL RPC、RLS 與回歸測試。
+- GoTrue-issued JWT + PostgREST single-pass draft 整合測試。
+- GoTrue-issued JWT + PostgREST legacy migration 路徑整合測試。
+
+此 CI run 驗證的是隔離測試資料庫與測試服務；Playwright 管理操作使用 in-memory mock。它不是正式 Supabase smoke test，不證明 production migration history，也不代表已部署。
+
+### 8.4 仍然有效的限制
+
+- 尚未對正式 Supabase 執行 DDL/DML、migration 或 migration repair。
+- 尚未部署五支 Edge Functions，未啟用正式功能旗標。
+- single-pass draft 是否取代 migration pair，仍須先盤點所有可能使用環境的 migration history；不得直接改寫已套用的 migration 歷史。
+- 正式 schema baseline、Data API Exposed schemas、CORS/env 與部署後 smoke test 仍待獨立審核。
+- 本補記不執行安全強化或正式環境權限變更；相關安全工作依原排程另行處理。
+

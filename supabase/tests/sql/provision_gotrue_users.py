@@ -40,6 +40,11 @@ def create_user(label: str, role: str) -> tuple[str, str, str]:
 admin = create_user("admin", "admin")
 member = create_user("member", "member")
 
+# These credentials exist only in the disposable CI GoTrue database. Mask them
+# before later steps inherit them through GITHUB_ENV.
+for password in (admin[1], member[1]):
+    print(f"::add-mask::{password}")
+
 env_path = os.environ.get("GITHUB_ENV")
 if not env_path:
     raise RuntimeError("GITHUB_ENV is required for this CI provisioning step")

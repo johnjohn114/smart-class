@@ -1,0 +1,54 @@
+name: Schema Baseline Reference Audit
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docs/schema-snapshots/**"
+      - "scripts/verify_schema_snapshot.py"
+      - "scripts/verify_schema_dependencies.py"
+      - ".github/workflows/schema-baseline-reference-audit.yml"
+  push:
+    branches:
+      - feature/maintenance-single-pass-migration-20261122
+    paths:
+      - "docs/schema-snapshots/**"
+      - "scripts/verify_schema_snapshot.py"
+      - "scripts/verify_schema_dependencies.py"
+      - ".github/workflows/schema-baseline-reference-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reference-snapshot-static-audit:
+    name: Reference snapshot static checks (not production restore)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned SQL parser
+        run: python -m pip install --disable-pip-version-check "pglast==7.25"
+
+      - name: Check reference snapshot inventory counts
+        run: python scripts/verify_schema_snapshot.py docs/schema-snapshots
+
+      - name: Check reference snapshot SQL syntax and conservative dependencies
+        run: python scripts/verify_schema_dependencies.py docs/schema-snapshots
+
+      - name: Record scope limitation
+        run: |
+          {
+            echo "## Schema baseline reference audit"
+            echo ""
+            echo "- This job checks the repository's 2026-11-08 catalog-derived reference snapshot only."
+            echo "- It does not connect to production, create a production dump, or prove a restorable baseline."
+            echo "- A full PostgreSQL 17 schema-only dump and disposable restore remain separate blocked work."
+            echo "- Production schema and migration history are unchanged."
+          } >> "$GITHUB_STEP_SUMMARY"

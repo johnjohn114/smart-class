@@ -1,4 +1,7 @@
 name: Maintenance Edge Function Checks
+# Includes transaction rollback and hosted-style non-superuser database-owner coverage.
+# Admin RPCs are owned by PostgreSQL's built-in pg_database_owner pseudo-role.
+# Verifies cleanup against the original migration actor after RESET ROLE.
 # Includes disposable PostgreSQL 17 checks for default ACLs and trigger side effects.
 
 on:
@@ -18,6 +21,7 @@ on:
       - "supabase/tests/sql/**"
       - "tests/test_verify_maintenance_sql_draft.py"
       - "scripts/verify_maintenance_sql_draft.py"
+      - "scripts/test_maintenance_sql_rollback.py"
       - "supabase/sql/**"
       - "supabase/migrations/**"
       - "supabase/tests/sql/growth-function-authorization.test.sql"
@@ -37,6 +41,7 @@ on:
       - "supabase/functions/**"
       - "supabase/tests/functions/**"
       - "supabase/tests/sql/**"
+      - "scripts/test_maintenance_sql_rollback.py"
       - "supabase/sql/**"
       - "supabase/migrations/**"
       - "supabase/tests/sql/growth-function-authorization.test.sql"
@@ -73,7 +78,9 @@ jobs:
             supabase/functions/maintenance-event-create/index.ts \
             supabase/functions/maintenance-event-update/index.ts \
             supabase/functions/maintenance-event-action/index.ts \
-            supabase/tests/functions/maintenance-validation.test.ts
+            supabase/tests/functions/maintenance-validation.test.ts \
+            supabase/tests/functions/maintenance-runtime-server.ts
+          python -m py_compile supabase/tests/functions/maintenance-supabase-test-proxy.py supabase/tests/functions/test_maintenance_runtime_integration.py
 
       - name: Run maintenance validation tests
         run: deno test --allow-env=MAINTENANCE_ALLOWED_ORIGINS,SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY supabase/tests/functions/maintenance-validation.test.ts
@@ -96,7 +103,13 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_verify_maintenance_sql_draft.py'
 
   maintenance-gotrue-postgrest-integration:
-    name: GoTrue-issued JWT and PostgREST integration
+    name: GoTrue-issued JWT and PostgREST integration (${{ matrix.migration_track }})
+    strategy:
+      fail-fast: false
+      matrix:
+        migration_track:
+          - legacy
+          - single-pass-draft
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -186,18 +199,56 @@ jobs:
             -v member_id="$TEST_MEMBER_ID" \
             -f supabase/tests/sql/maintenance-gotrue-bootstrap.sql
 
-      - name: Apply ordered maintenance migrations to disposable GoTrue database
+      - name: Verify legacy migration privilege boundary in disposable GoTrue database
+        if: matrix.migration_track == 'legacy'
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
         run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261117121103_maintenance_system_initial.sql
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261121140000_maintenance_rpc_least_privilege_upgrade.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/maintenance-legacy-migration-boundary.test.sql
+
+      - name: Verify single-pass draft rollback after injected late failure
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: python scripts/test_maintenance_sql_rollback.py
+
+      - name: Prepare hosted-style non-superuser CREATEROLE deployer
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/maintenance-deployer-role-setup.sql
+
+      - name: Apply single-pass draft as non-superuser database owner
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DEPLOYER_DATABASE_URL: postgresql://maintenance_deployer:maintenance-deployer-ci-only@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DEPLOYER_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/sql/maintenance-private-schema-rpc-draft-v0.1.sql
+
+      - name: Verify hosted-style executor ownership and privilege cleanup
+        if: matrix.migration_track == 'single-pass-draft'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/maintenance-supabase-deployer-role.test.sql
+
+      - name: Install isolated JWT-subject rate-limit lab
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_gotrue_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/rate-limit-prototype-setup.sql
 
       - name: Start PostgREST against GoTrue database
         run: |
           docker run --detach --network host --name maintenance-gotrue-postgrest \
             --env PGRST_DB_URI=postgres://authenticator:authenticator@127.0.0.1:5432/maintenance_gotrue_test \
-            --env PGRST_DB_SCHEMAS=public \
+            --env PGRST_DB_SCHEMAS=public,rate_limit_lab \
             --env PGRST_DB_ANON_ROLE=anon \
             --env PGRST_JWT_SECRET=maintenance-gotrue-ci-secret-at-least-32-bytes-long \
             --env PGRST_SERVER_PORT=3000 \
@@ -215,10 +266,56 @@ jobs:
           echo 'PostgREST did not become ready' >&2
           exit 1
 
+      - name: Set up Deno for Edge runtime integration
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Start disposable Auth and REST routing proxy
+        run: |
+          nohup python supabase/tests/functions/maintenance-supabase-test-proxy.py >/tmp/maintenance-proxy.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if python -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1',8001)); s.close()" 2>/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/maintenance-proxy.log
+          echo 'Maintenance test proxy did not become ready' >&2
+          exit 1
+
+      - name: Start Deno Edge handler runtime
+        env:
+          SUPABASE_URL: http://127.0.0.1:8001
+          SUPABASE_ANON_KEY: maintenance-ci-anon-key
+          MAINTENANCE_RUNTIME_PORT: "8002"
+        run: |
+          nohup deno run --allow-net=127.0.0.1 --allow-env=SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,SUPABASE_ANON_KEY,SUPABASE_PUBLISHABLE_KEYS,MAINTENANCE_RUNTIME_PORT,MAINTENANCE_ALLOWED_ORIGINS supabase/tests/functions/maintenance-runtime-server.ts >/tmp/maintenance-edge-runtime.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8002/__health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/maintenance-edge-runtime.log
+          echo 'Deno maintenance Edge runtime did not become ready' >&2
+          exit 1
+
+      - name: Verify Edge runtime through GoTrue and PostgREST
+        env:
+          GOTRUE_URL: http://127.0.0.1:9999
+        run: |
+          python supabase/tests/functions/test_maintenance_runtime_integration.py || {
+            cat /tmp/maintenance-edge-runtime.log
+            cat /tmp/maintenance-proxy.log
+            exit 1
+          }
+
       - name: Verify GoTrue-issued JWT, roles, RPC, RLS and concurrency
         env:
           GOTRUE_URL: http://localhost:9999
           POSTGREST_URL: http://localhost:3000
+          MAINTENANCE_EXPECT_DRAFT_ONLY_CREATE: ${{ matrix.migration_track == 'single-pass-draft' && '1' || '0' }}
         run: python supabase/tests/sql/test_gotrue_postgrest_integration.py
 
   maintenance-postgres-integration:
@@ -249,6 +346,96 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/maintenance-postgres-isolated.test.sql
 
+      - name: Test isolated PostgreSQL rate-limit concurrency prototype
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+          RATE_LIMIT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rate_limit_lab_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE rate_limit_lab_test"
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/rate-limit-prototype-setup.sql
+          docker run --rm --network host \
+            -v "$PWD:/work" -w /work postgres:17 \
+            pgbench -n -c 40 -j 10 -t 1 \
+              -f supabase/tests/sql/rate-limit-prototype-concurrency.sql \
+              "$RATE_LIMIT_DATABASE_URL"
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          DECLARE
+            total_calls integer;
+            allowed_calls integer;
+            denied_calls integer;
+            bucket_count integer;
+            bucket_value integer;
+          BEGIN
+            SELECT count(*), count(*) FILTER (WHERE allowed),
+                   count(*) FILTER (WHERE NOT allowed)
+              INTO total_calls, allowed_calls, denied_calls
+              FROM rate_limit_lab.decisions;
+            SELECT count(*), max(request_count)
+              INTO bucket_count, bucket_value
+              FROM rate_limit_lab.buckets
+             WHERE bucket_key = 'ci:v1:admin:test-user';
+            IF total_calls <> 40 OR allowed_calls <> 5 OR denied_calls <> 35
+               OR bucket_count <> 1 OR bucket_value <> 6 THEN
+              RAISE EXCEPTION 'rate limit concurrency assertion failed: total %, allowed %, denied %, buckets %, count %',
+                total_calls, allowed_calls, denied_calls, bucket_count, bucket_value;
+            END IF;
+            BEGIN
+              PERFORM * FROM rate_limit_lab.consume('bad-policy', 0, 60);
+              RAISE EXCEPTION 'invalid policy unexpectedly accepted';
+            EXCEPTION WHEN SQLSTATE '22023' THEN
+              NULL;
+            END;
+          END
+          $test$;
+          SQL
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/rate-limit-prototype-security.test.sql
+
+      - name: Test concurrent bounded rate-limit cleanup
+        env:
+          RATE_LIMIT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rate_limit_lab_test
+        run: |
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO rate_limit_lab.identity_buckets
+            (endpoint_key, actor_id, window_started_at, last_seen_at, request_count)
+          SELECT
+            'cleanup:parallel',
+            (md5('parallel-stale-' || g::text))::uuid,
+            clock_timestamp() - interval '26 hours',
+            clock_timestamp() - interval '26 hours',
+            1
+          FROM generate_series(1, 1201) AS g;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD:/work" -w /work postgres:17 \
+            pgbench -n -c 12 -j 6 -t 3 \
+              -f supabase/tests/sql/rate-limit-prototype-cleanup-concurrency.sql \
+              "$RATE_LIMIT_DATABASE_URL"
+          psql "$RATE_LIMIT_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          DECLARE remaining integer;
+          BEGIN
+            SELECT count(*)::integer INTO remaining
+              FROM rate_limit_lab.identity_buckets
+             WHERE endpoint_key = 'cleanup:parallel';
+            IF remaining <> 0 THEN
+              RAISE EXCEPTION 'concurrent cleanup left % stale buckets', remaining;
+            END IF;
+          END
+          $test$;
+          SQL
+
+      - name: Run App Releases anonymous ACL hardening regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE app_releases_acl_test"
+          psql postgresql://postgres:postgres@localhost:5432/app_releases_acl_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/app-releases-anon-acl.test.sql
+
       - name: Run growth function authorization regression tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
@@ -257,6 +444,19 @@ jobs:
           psql postgresql://postgres:postgres@localhost:5432/growth_function_authorization_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-function-authorization.test.sql
+      - name: Test Maintenance then Growth deployment order (isolated CI database, real SQL)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -c "CREATE DATABASE maintenance_growth_order_test"
+          psql postgresql://postgres:postgres@localhost:5432/maintenance_growth_order_test -v ON_ERROR_STOP=1 -v maintenance_order_test=1 -v maintenance_first=1 -f supabase/tests/sql/growth-function-authorization.test.sql
+
+      - name: Test Growth then Maintenance deployment order (isolated CI database)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -c "CREATE DATABASE growth_maintenance_order_test"
+          psql postgresql://postgres:postgres@localhost:5432/growth_maintenance_order_test -v ON_ERROR_STOP=1 -v maintenance_order_test=1 -v maintenance_first=0 -f supabase/tests/sql/growth-function-authorization.test.sql
       - name: Run default privileges and trigger side-effect regression tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
@@ -290,7 +490,7 @@ jobs:
         run: |
           docker run --detach --network host --name maintenance-postgrest \
             --env PGRST_DB_URI=postgres://authenticator:authenticator@127.0.0.1:5432/maintenance_test \
-            --env PGRST_DB_SCHEMAS=public \
+            --env PGRST_DB_SCHEMAS=public,rate_limit_lab \
             --env PGRST_DB_ANON_ROLE=anon \
             --env PGRST_JWT_SECRET=maintenance-ci-only-secret-key-at-least-32-bytes-long \
             --env PGRST_SERVER_PORT=3000 \

@@ -1,4 +1,16 @@
 -- Disposable regression test for growth-function authorization hardening.
+
+-- Optional cross-feature deployment-order mode:
+-- psql -v maintenance_order_test=1 -v maintenance_first=1|0
+\if :{?maintenance_order_test}
+\else
+\set maintenance_order_test 0
+\endif
+\if :{?maintenance_first}
+\else
+\set maintenance_first 0
+\endif
+SELECT set_config('maintenance.order_test', :'maintenance_order_test', false);
 -- Run in a fresh PostgreSQL 17 database as postgres:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f this-file.sql
 
@@ -24,7 +36,7 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
 CREATE TABLE public.download_files (
   id uuid PRIMARY KEY,
   published boolean NOT NULL,
-  download_count integer NOT NULL DEFAULT 0,
+  download_count bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE public.profiles (
@@ -94,6 +106,14 @@ CREATE TABLE public.growth_user_achievements (
   achievement_id uuid NOT NULL,
   UNIQUE(user_id, achievement_id)
 );
+-- Shared sequential integration fixture: the follow-up trigger test extends
+-- this table with registration-specific columns. Keep it in public, separate
+-- from the anonymous-policy fixtures isolated under ci_anon_rls.
+CREATE TABLE public.competitions (
+  id uuid PRIMARY KEY,
+  published boolean NOT NULL DEFAULT false
+);
+
 CREATE TABLE public.competition_registrations (
   user_id uuid NOT NULL,
   status text NOT NULL
@@ -102,6 +122,90 @@ CREATE TABLE public.competition_results (
   user_id uuid NOT NULL,
   place integer
 );
+ALTER TABLE public.competition_results ADD COLUMN competition_id uuid;
+
+-- Isolated schema fixtures reproduce the live anonymous-read policy predicates
+-- without leaking table names into the sequential migration test's public
+-- schema. Policies call the same public.is_admin() helper used in production.
+CREATE SCHEMA ci_anon_rls;
+GRANT USAGE ON SCHEMA ci_anon_rls TO anon;
+CREATE TABLE ci_anon_rls.competitions (
+  id uuid PRIMARY KEY,
+  published boolean NOT NULL,
+  published_at timestamptz
+);
+CREATE TABLE ci_anon_rls.forms (
+  id uuid PRIMARY KEY,
+  published boolean NOT NULL
+);
+CREATE TABLE ci_anon_rls.form_questions (
+  id uuid PRIMARY KEY,
+  form_id uuid NOT NULL
+);
+CREATE TABLE ci_anon_rls.products (
+  id uuid PRIMARY KEY,
+  active boolean NOT NULL
+);
+CREATE TABLE ci_anon_rls.competition_results (
+  user_id uuid NOT NULL,
+  competition_id uuid
+);
+ALTER TABLE ci_anon_rls.competitions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ci_anon_rls.forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ci_anon_rls.form_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ci_anon_rls.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ci_anon_rls.competition_results ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY competition_public_read ON ci_anon_rls.competitions
+  FOR SELECT TO PUBLIC
+  USING (public.is_admin() OR (published = true AND (published_at IS NULL OR published_at <= now())));
+CREATE POLICY forms_public_read ON ci_anon_rls.forms
+  FOR SELECT TO PUBLIC
+  USING (published = true OR public.is_admin());
+CREATE POLICY form_questions_public_read ON ci_anon_rls.form_questions
+  FOR SELECT TO PUBLIC
+  USING (EXISTS (
+    SELECT 1 FROM ci_anon_rls.forms f
+    WHERE f.id = form_questions.form_id AND (f.published = true OR public.is_admin())
+  ));
+CREATE POLICY product_public_read ON ci_anon_rls.products
+  FOR SELECT TO PUBLIC
+  USING (public.is_admin() OR active = true);
+CREATE POLICY competition_result_public_read ON ci_anon_rls.competition_results
+  FOR SELECT TO PUBLIC
+  USING (
+    public.is_admin()
+    OR user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM ci_anon_rls.competitions c
+      WHERE c.id = competition_results.competition_id
+        AND c.published = true
+        AND (c.published_at IS NULL OR c.published_at <= now())
+    )
+  );
+GRANT SELECT ON ci_anon_rls.competitions, ci_anon_rls.forms,
+  ci_anon_rls.form_questions, ci_anon_rls.products,
+  ci_anon_rls.competition_results TO anon;
+
+INSERT INTO ci_anon_rls.competitions(id,published,published_at) VALUES
+  ('00000000-0000-4000-8000-000000000070',true,NULL),
+  ('00000000-0000-4000-8000-000000000071',true,now()+interval '1 day');
+INSERT INTO ci_anon_rls.forms(id,published) VALUES
+  ('00000000-0000-4000-8000-000000000072',true),
+  ('00000000-0000-4000-8000-000000000073',false);
+INSERT INTO ci_anon_rls.form_questions(id,form_id) VALUES
+  ('00000000-0000-4000-8000-000000000074','00000000-0000-4000-8000-000000000072'),
+  ('00000000-0000-4000-8000-000000000075','00000000-0000-4000-8000-000000000073');
+INSERT INTO ci_anon_rls.products(id,active) VALUES
+  ('00000000-0000-4000-8000-000000000076',true),
+  ('00000000-0000-4000-8000-000000000077',false);
+INSERT INTO ci_anon_rls.competition_results(user_id,competition_id) VALUES
+  ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000070'),
+  ('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000071');
+INSERT INTO public.competition_results(user_id,place,competition_id) VALUES
+  ('00000000-0000-4000-8000-000000000002',1,'00000000-0000-4000-8000-000000000070'),
+  ('00000000-0000-4000-8000-000000000003',2,'00000000-0000-4000-8000-000000000071');
+
 CREATE TABLE public.notifications (
   user_id uuid NOT NULL,
   title text NOT NULL,
@@ -260,12 +364,21 @@ BEGIN
       ('growth_result_reward', '', true),
       ('is_admin_user', '', false),
       ('join_competition_waitlist', 'uuid,text', false),
+      ('maintenance_admin_list', 'jsonb', false),
+      ('maintenance_event_action', 'jsonb', false),
+      ('maintenance_event_create', 'jsonb', false),
+      ('maintenance_event_update', 'jsonb', false),
       ('record_growth_activity', '', false),
       ('redeem_growth_reward', 'uuid', false),
       ('use_growth_coupon', 'uuid', false)
     ) AS v(name, argtypes, is_trigger)
   LOOP
-    IF to_regprocedure(format('public.%I(%s)', r.name, r.argtypes)) IS NULL THEN
+    IF (current_setting('maintenance.order_test', true) IS DISTINCT FROM '1'
+        OR r.name NOT IN (
+          'maintenance_admin_list','maintenance_event_action',
+          'maintenance_event_create','maintenance_event_update'
+        ))
+       AND to_regprocedure(format('public.%I(%s)', r.name, r.argtypes)) IS NULL THEN
       IF r.is_trigger THEN
         EXECUTE format(
           'CREATE FUNCTION public.%I(%s) RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS %L',
@@ -282,6 +395,14 @@ BEGIN
 END
 $catalog_fixtures$;
 
+-- In cross-feature order tests, install the real Maintenance RPCs instead of
+-- placeholder signatures. Growth's ACL migration must preserve them.
+\if :maintenance_order_test
+  \if :maintenance_first
+    \ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
+  \endif
+\endif
+
 -- Simulate the live project's unsafe defaults before applying the fix:
 -- PUBLIC gets PostgreSQL's normal function EXECUTE default, and the public
 -- schema additionally grants anon/authenticated EXECUTE for postgres-owned
@@ -292,6 +413,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
+
+\if :maintenance_order_test
+  \if :maintenance_first
+  \else
+    \ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
+  \endif
+\endif
 
 -- A SECURITY DEFINER function created after the migration must not become a
 -- callable API endpoint through either PUBLIC or schema-specific defaults.
@@ -335,6 +463,25 @@ BEGIN
   IF public.is_admin() IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'FAIL: is_admin() did not return false for anon';
   END IF;
+
+  -- These counts must be evaluated through the actual RLS policies as anon.
+  -- The query must succeed (no missing-function EXECUTE error) and expose
+  -- only published/active rows, never draft or future-published rows.
+  IF (SELECT count(*) FROM ci_anon_rls.competitions) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon competition RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM ci_anon_rls.forms) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon forms RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM ci_anon_rls.form_questions) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon form_questions RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM ci_anon_rls.products) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon products RLS read returned the wrong rows';
+  END IF;
+  IF (SELECT count(*) FROM ci_anon_rls.competition_results) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: anon competition_results RLS read returned the wrong rows';
+  END IF;
 END
 $anon_is_admin_result$;
 RESET ROLE;
@@ -352,6 +499,18 @@ BEGIN
   IF NOT has_function_privilege('authenticated','public.increment_download_count(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute increment_download_count'; END IF;
   IF NOT has_function_privilege('authenticated','public.admin_delete_growth_reward(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: reviewed admin RPC missing authenticated EXECUTE'; END IF;
   IF NOT has_function_privilege('authenticated','public.admin_upsert_growth_reward(uuid,text,text,text,text,text,integer,text,uuid,integer,integer,text,text,text,integer,timestamptz,timestamptz,integer,boolean)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: reviewed admin upsert RPC missing authenticated EXECUTE'; END IF;
+  IF has_function_privilege('anon','public.maintenance_admin_list(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.maintenance_event_create(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.maintenance_event_update(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.maintenance_event_action(jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: anon can execute a Maintenance admin RPC';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.maintenance_admin_list(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.maintenance_event_create(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.maintenance_event_update(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.maintenance_event_action(jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL: Growth ACL hardening removed authenticated EXECUTE from a Maintenance admin RPC';
+  END IF;
   IF NOT has_function_privilege('authenticated','public.check_growth_achievements(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: member achievement RPC missing authenticated EXECUTE'; END IF;
   IF NOT has_function_privilege('authenticated','public.refresh_growth_level(uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: member level RPC missing authenticated EXECUTE'; END IF;
   IF has_function_privilege('authenticated','public.award_growth_points(uuid,integer,text,text,text,text,uuid)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated can execute award_growth_points directly'; END IF;
@@ -359,6 +518,115 @@ BEGIN
   IF NOT has_function_privilege('authenticated','public.complete_growth_task(text)','EXECUTE') THEN RAISE EXCEPTION 'FAIL: authenticated cannot execute own task RPC'; END IF;
 END
 $anon_acl$;
+
+-- Prove that anonymous SQL callers are rejected at the EXECUTE boundary,
+-- not merely by catalog inspection. These calls must fail before function bodies run.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE anon;
+DO $anon_direct_calls_denied$
+DECLARE
+  denied boolean;
+BEGIN
+  denied := false;
+  BEGIN
+    PERFORM public.award_growth_points(
+      '00000000-0000-4000-8000-000000000003',50,'anon test','manual',NULL,NULL,NULL
+    );
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed award_growth_points'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed check_growth_achievements'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed check_activity_badges'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed refresh_growth_level'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.admin_delete_growth_reward('00000000-0000-4000-8000-000000000010');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed admin_delete_growth_reward'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.admin_upsert_growth_reward(
+      NULL,'anon-should-not-create','Anon should not create',NULL,'star','test',5,
+      NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,true
+    );
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon directly executed admin_upsert_growth_reward'; END IF;
+END
+$anon_direct_calls_denied$;
+RESET ROLE;
+
+-- A JWT-less authenticated database role must also fail closed for every
+-- user-targeted RPC, even when an explicit victim UUID is supplied.
+SET ROLE authenticated;
+DO $authenticated_missing_uid_denied$
+DECLARE
+  denied boolean;
+BEGIN
+  denied := false;
+  BEGIN
+    PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限檢查此會員成就' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: check_growth_achievements accepted missing auth.uid()'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: check_activity_badges accepted missing auth.uid()'; END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.refresh_growth_level('00000000-0000-4000-8000-000000000003');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = '沒有權限更新此會員等級' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'FAIL: refresh_growth_level accepted missing auth.uid()'; END IF;
+END
+$authenticated_missing_uid_denied$;
+RESET ROLE;
+
+DO $no_identity_side_effects$
+BEGIN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 0 THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls changed another member growth points';
+  END IF;
+  IF (SELECT growth_level FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000003') <> 'newbie' THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls changed another member growth level';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.user_activity_badges WHERE user_id='00000000-0000-4000-8000-000000000003') THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls created another member activity badges';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.growth_user_achievements WHERE user_id='00000000-0000-4000-8000-000000000003') THEN
+    RAISE EXCEPTION 'FAIL: JWT-less calls created another member achievements';
+  END IF;
+END
+$no_identity_side_effects$;
 
 -- The authenticated-only download counter still updates published files.
 INSERT INTO public.download_files(id,published,download_count) VALUES
@@ -626,6 +894,10 @@ BEGIN
       ('is_admin()', true, true, false),
       ('is_admin_user()', true, false, false),
       ('join_competition_waitlist(uuid,text)', true, false, false),
+      ('maintenance_admin_list(jsonb)', true, false, false),
+      ('maintenance_event_action(jsonb)', true, false, false),
+      ('maintenance_event_create(jsonb)', true, false, false),
+      ('maintenance_event_update(jsonb)', true, false, false),
       ('record_growth_activity()', true, false, false),
       ('redeem_growth_reward(uuid)', true, false, false),
       ('refresh_growth_level(uuid)', true, false, false),
@@ -667,8 +939,8 @@ BEGIN
       AND p.prosecdef
       AND p.prokind = 'f'
       AND p.oid::regprocedure::text <> 'ci_security_definer_trigger()'
-  ) <> 38 THEN
-    RAISE EXCEPTION 'FAIL: expected 38 catalog entries (36 live routines, internal helper, and future-function fixture)';
+  ) <> 42 THEN
+    RAISE EXCEPTION 'FAIL: public SECURITY DEFINER catalog count mismatch for selected deployment-order mode';
   END IF;
 END
 $complete_acl_matrix$;

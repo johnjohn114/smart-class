@@ -1,0 +1,189 @@
+# Production Supabase schema baseline — read-only inventory
+
+> Captured: 2026-11-25 (Asia/Taipei)  
+> Project ref: `fsoowongtavlsrwvzbze`  
+> Database: `postgres`, PostgreSQL `17.11`, region `ap-northeast-1`  
+> Scope: read-only catalog inventory via Supabase database tools. No DDL/DML, migration, setting, or data-row changes were performed.  
+> Status: **inventory only — NOT a complete schema-only dump and NOT a reconstructed baseline.**
+
+## 1. Executive finding
+
+The production migration ledger remains unresolved:
+
+- Supabase `list_migrations` returned an empty migration list.
+- `to_regclass('supabase_migrations.schema_migrations')`, `to_regclass('supabase_migrations')`, and `to_regclass('public.schema_migrations')` all returned `NULL`.
+- The database is active and reports PostgreSQL 17.11.
+- The project contains application objects and managed Supabase objects across multiple schemas. A `public`-only export would be incomplete.
+
+**Decision:** do not run `db pull`, `db push`, migration repair, hand-written ledger insertion, or any production DDL as a shortcut. A genuine schema-only dump and a disposable blank-database replay are still required before establishing the global migration baseline.
+
+## 2. Schema and relation inventory
+
+| Schema | Owner | Tables | Views | Sequences | Notes |
+|---|---|---:|---:|---:|---|
+| `auth` | `supabase_admin` | 27 | 0 | 1 | Managed Auth objects |
+| `extensions` | `postgres` | 0 | 2 | 0 | Extension views |
+| `graphql` | `supabase_admin` | 0 | 0 | 0 | Schema present |
+| `graphql_public` | `supabase_admin` | 0 | 0 | 0 | Schema present |
+| `public` | `pg_database_owner` | 44 | 1 | 2 | Application schema |
+| `realtime` | `supabase_admin` | 3 | 0 | 1 | Managed Realtime objects |
+| `storage` | `supabase_admin` | 10 | 0 | 0 | Managed Storage objects |
+| `vault` | `supabase_admin` | 1 | 1 | 0 | Vault objects |
+| **Total** | | **85** | **4** | **4** | No foreign tables found |
+
+The 44 `public` tables contain 412 columns. The one `public` view (`activity_member_stats`) exposes another 8 columns, so the 45 public relations expose 420 columns in total. Each of the 44 tables currently has RLS enabled. The detailed column/PK/FK inventory was retrieved from the database tool; the full per-column schema is not reproduced here because this document is a summary, not a dump.
+
+### Public table inventory
+
+`announcements`, `site_settings`, `visitor_profiles`, `profiles`, `products`, `visitor_accounts`, `support_tickets`, `coupons`, `competitions`, `competition_results`, `quick_links`, `forms`, `form_questions`, `form_responses`, `form_answers`, `competition_categories`, `notifications`, `member_no_counter`, `competition_registrations`, `announcement_reads`, `growth_levels`, `growth_point_transactions`, `growth_tasks`, `growth_user_tasks`, `growth_achievements`, `growth_user_achievements`, `growth_activity_days`, `growth_rewards`, `growth_reward_redemptions`, `growth_achievement_unlock_history`, `growth_reset_history`, `videos`, `ai_announcement_generations`, `competition_attendance`, `competition_waitlist`, `activity_badges`, `user_activity_badges`, `competition_reward_rules`, `competition_reward_grants`, `download_files`, `orders`, `order_items`, `app_releases`, `device_push_tokens`.
+
+## 3. Application schema structural counts
+
+| Object | `public` count | Notes |
+|---|---:|---|
+| Tables | 44 | 412 columns |
+| Views | 1 | `activity_member_stats` (8 view columns) |
+| Sequences | 2 | `device_push_tokens_id_seq`, `member_no_seq` |
+
+### Sequence ownership, dependency and ACL detail (2026-11-25)
+
+A separate read-only catalogue query inspected every non-system sequence, its owner, sequence parameters, `OWNED BY` dependency, and ACL. Four sequences exist across the inventoried application/managed schemas:
+
+| Sequence | Owner | Parameters | Dependency |
+|---|---|---|---|
+| `public.device_push_tokens_id_seq` | `postgres` | bigint; start/min 1; increment 1; cache 1; no cycle | Identity dependency (`i`) on `public.device_push_tokens.id` |
+| `public.member_no_seq` | `postgres` | bigint; start/min 1; increment 1; cache 1; no cycle | No `OWNED BY` dependency found |
+| `auth.refresh_tokens_id_seq` | `supabase_auth_admin` | bigint; start/min 1; increment 1; cache 1; no cycle | Auto dependency (`a`) on `auth.refresh_tokens.id` |
+| `realtime.subscription_id_seq` | `supabase_realtime_admin` | bigint; start/min 1; increment 1; cache 1; no cycle | Identity dependency (`i`) on `realtime.subscription.id` |
+
+Additional observations:
+
+- The only column default found that directly calls `nextval(...)` is `auth.refresh_tokens.id` using `auth.refresh_tokens_id_seq`.
+- No stored function source directly mentions `member_no_seq`; this does not rule out dynamic SQL or external callers. Do not classify it as unused or drop it based on this observation.
+- Both public sequences currently have explicit grants to `anon`, `authenticated`, and `service_role` for SELECT, UPDATE and USAGE. This is recorded as existing state, not endorsed as a desired future policy.
+- The public snapshot's two-sequence count is consistent with the two public sequences; the full database inventory contains four sequences once managed `auth` and `realtime` sequences are included.
+- Schema-only capture does not preserve sequence current values as row data. A restorable data backup would need sequence-state handling separately; this task is only the schema baseline.
+
+No sequence, grant, owner, dependency, or value was modified during this inspection.
+| Indexes | 109 | 62 unique; 0 invalid |
+| Primary-key constraints | 44 | |
+| Foreign-key constraints | 51 | |
+| Unique constraints | 16 | |
+| Check constraints | 39 | |
+| RLS policies | 98 | 3 policies explicitly include `anon`; 84 explicitly include `authenticated`; other policies may target `public` |
+| User triggers | 7 | All enabled |
+| Functions | 38 | 36 SECURITY DEFINER; no procedures |
+
+The only application view found in `public` is `activity_member_stats`. No materialized views or foreign tables were found in the inventoried schemas.
+
+## 4. RLS posture by schema
+
+| Schema | Tables | RLS enabled | FORCE RLS |
+|---|---:|---:|---:|
+| `public` | 44 | 44 | 0 |
+| `storage` | 10 | 10 | 0 |
+| `auth` | 27 | 16 | 0 |
+| `realtime` | 3 | 1 | 0 |
+| `vault` | 1 | 0 | 0 |
+
+This is an inventory, not a recommendation to enable/disable RLS on managed Supabase schemas. The Maintenance design's FORCE RLS requirement applies to its own future private tables; it must not be generalized into blanket changes to managed schemas.
+
+## 5. Application trigger inventory
+
+All seven `public` user triggers are enabled:
+
+| Table | Trigger | Function | SECURITY DEFINER |
+|---|---|---|---|
+| `competition_registrations` | `trg_check_competition_registration_rules` | `check_competition_registration_rules()` | Yes |
+| `competition_registrations` | `trg_growth_registration_reward` | `growth_registration_reward()` | Yes |
+| `competition_results` | `trg_growth_result_reward` | `growth_result_reward()` | Yes |
+| `competitions` | `trg_competition_publish_time` | `set_competition_publish_time()` | No |
+| `profiles` | `trg_profiles_member_no` | `assign_member_no_and_nickname()` | Yes |
+| `profiles` | `trg_protect_profile_fields` | `protect_profile_fields()` | No |
+| `visitor_accounts` | `trg_visitor_accounts_profile` | `ensure_visitor_profile()` | Yes |
+
+Managed `realtime` and `storage` schemas have another 12 user triggers combined (1 Realtime, 11 Storage). These must be preserved in any complete schema capture/replay.
+
+## 6. Installed extensions
+
+Only the following five extensions were reported as installed (not merely available):
+
+- `pg_stat_statements` 1.11 — schema `extensions`
+- `pgcrypto` 1.3 — schema `extensions`
+- `plpgsql` 1.0 — schema `pg_catalog`
+- `supabase_vault` 0.3.1 — schema `vault`
+- `uuid-ossp` 1.1 — schema `extensions`
+
+The extension catalogue also listed many available-but-not-installed extensions. Do not enable any extension as part of baseline reconstruction unless the actual dump or a verified dependency requires it.
+
+## 7. Default privileges — important baseline detail
+
+The live `pg_default_acl` catalogue includes broad API-role defaults:
+
+- `postgres` in `public`: future tables, sequences and functions default to grants for `anon`, `authenticated`, and `service_role`.
+- `postgres` in `storage`: similarly broad defaults.
+- `supabase_admin` in `public`, `graphql`, and `graphql_public`: broad API-role defaults are also present.
+- Other managed owners have their own schema-specific defaults.
+
+The existing candidate hardening migration changes defaults for `postgres` in `public`; it does not normalize every managed owner/schema default. A reconstructed baseline must preserve the actual current state first. Any security-hardening change must be treated as a separate, explicitly reviewed migration, not silently folded into a purported baseline dump.
+
+## 8. What this inventory does not establish
+
+This catalog snapshot does **not** establish:
+
+- Full CREATE statements for all 85 tables, columns, constraints, indexes, views, functions and policies.
+- All object grants/ACLs, ownership and dependency ordering in a restorable SQL dump.
+- Complete Auth, Storage, Realtime, Vault internal schema replayability.
+- Data contents, sequence current values, storage objects, Auth users or other production records.
+- Which historical migration files were actually applied.
+- Whether a blank database can be reconstructed from the repository migrations.
+
+The earlier migration-file fingerprint review remains only a structural comparison; matching structure is not proof of execution.
+
+## 9. Required next steps
+
+1. Obtain a genuine schema-only export using a supported read-only method. Current working environment has no Supabase CLI, `psql`, `pg_dump` or Docker, so the Supabase MCP catalog queries cannot replace `pg_dump`.
+2. Keep the export local/private; it may contain sensitive object definitions. Do not commit secrets or production data. Review the export for embedded credentials or sensitive comments before sharing any excerpts.
+3. Reconcile the export against the seven repository migration files already audited and all later migrations.
+4. Create a clean, disposable PostgreSQL 17 environment using only free CI resources and replay the verified baseline plus migration sequence.
+5. Compare resulting schemas, owners, ACLs, RLS, policies, triggers, functions, extensions, sequences and indexes against the captured production metadata.
+6. Only after the replay is proven, decide the Maintenance final migration path. Until then the Maintenance SQL remains a development draft.
+
+## 10. Safety boundary
+
+This document was created from read-only catalog queries only. No production DDL/DML, migration operation, Edge Function deployment, Data API exposure change, feature-flag change, paid service or PR merge was performed. The Maintenance PR remains Draft.
+
+
+## 2.1 Corrected exact public table-column comparison with the 2026-11-08 snapshot (2026-11-25)
+
+A second, identifier-aware comparison was run against the 2026-11-08 SQL snapshot and the live read-only PostgreSQL catalog. The first comparison parser did not recognize quoted identifiers such as `"position"`; its earlier reported one-column drift was a parser false positive and is withdrawn.
+
+| Check | 2026-11-08 snapshot | 2026-11-25 live |
+|---|---:|---:|
+| Public tables | 44 | 44 |
+| Public table columns | 412 | 412 |
+| Public view columns | 8 (separate view snapshot) | 8 |
+| Total public relation columns | 420 | 420 |
+
+**Result:** all 412 public table column names match exactly across the 44 tables. No missing or extra table column was found. In particular, `public.competition_waitlist.position` exists in both the snapshot and live production.
+
+For `public.competition_waitlist.position`, the snapshot declaration and live catalog agree: type `integer`, NOT NULL, no default, not an identity column, and not a generated column. The live table's five constraints were also inspected and match the five constraints declared in the snapshot. The live indexes include the primary key and unique `(competition_id, user_id)` indexes plus `competition_waitlist_queue_idx` on `(competition_id, status, position, created_at)`; the snapshot's index declarations should be checked independently before asserting full index equality.
+
+This comparison verifies public table column names and the stated `position` metadata only. It does not prove equality of all types/defaults across every table, indexes, grants, policies, functions, ownership, managed schemas, or restore behavior. The snapshot remains reference material only and is not promoted to a baseline.
+
+
+## 2.2 Public indexes, constraints, and RLS policy name inventory (2026-11-25)
+
+A read-only live catalog inventory was compared with the object declarations in `docs/schema-snapshots/20261108-public-tables-policies.sql`.
+
+| Object inventory | 2026-11-08 snapshot | 2026-11-25 live | Name-set result |
+|---|---:|---:|---|
+| Explicit CREATE INDEX statements | 49 | — | — |
+| Constraint-backed indexes (PRIMARY KEY / UNIQUE) | 60 | — | — |
+| Total indexes (combined) | 109 | 109 | Exact name-set match |
+| Constraints | 150 | 150 | Count and declared-name inventory match |
+| RLS policies | 98 | 98 | Exact name-set match |
+
+The 49 explicit index statements plus 60 indexes created by primary-key/unique constraints account for all 109 live public indexes. The snapshot and live catalog have no missing or extra index names. All 98 policy names in the snapshot match the live public policy-name inventory; this includes quoted policy names containing spaces. The 150 constraint names declared in the snapshot match the live public constraint count and name inventory.
+
+**Scope limitation:** this pass compares inventory counts and object names, not the full definitions. It does not yet prove that index key order, expressions, predicates, operator classes, constraint definitions/deferrability, or policy roles/commands/USING/WITH CHECK expressions are identical. Definition-level comparison remains required before using the snapshot for reconstruction.

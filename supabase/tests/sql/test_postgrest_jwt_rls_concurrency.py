@@ -116,17 +116,30 @@ def main():
         "scope_codes": [],
         "starts_at": iso(start),
         "ends_at": iso(end),
-        "status": "scheduled",
+        "status": "draft",
         "reason": "isolated concurrent integration test",
     }
-    requests = []
+    event_ids = []
     for index in range(2):
         item = dict(base)
         item["idempotency_key"] = str(uuid.uuid4())
-        requests.append(item)
+        status, created = rpc("maintenance_event_create", item, admin)
+        assert_true(status == 200 and created.get("ok") is True,
+                    f"created concurrent maintenance draft {index + 1}")
+        event_ids.append(created["data"]["event_id"])
+
+    def schedule(event_id):
+        payload = {
+            "event_id": event_id,
+            "expected_version": 1,
+            "action": "schedule",
+            "reason": "isolated concurrent integration test",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        return rpc("maintenance_event_action", payload, admin)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda item: rpc("maintenance_event_create", item, admin), requests))
+        results = list(pool.map(schedule, event_ids))
 
     successes = [r for r in results if r[0] == 200 and r[1] and r[1].get("ok") is True]
     failures = [r for r in results if r[0] in (400, 409, 422)]

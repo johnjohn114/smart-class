@@ -57,6 +57,29 @@ Deno.test("create: accepts a valid global draft", async () => {
   });
   const result = await parseCreateRequest(req);
   if (result.is_global !== true || result.status !== "draft") throw new Error("create payload mismatch");
+
+  const scheduledReq = new Request("https://example.test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "Direct scheduled status",
+      message: "Must be rejected",
+      is_global: true,
+      scope_codes: [],
+      starts_at: "2027-01-10T02:00:00.000Z",
+      ends_at: "2027-01-10T03:00:00.000Z",
+      status: "scheduled",
+      reason: "negative create validation test",
+      idempotency_key: "00000000-0000-4000-8000-000000000099",
+    }),
+  });
+  let scheduledRejected = false;
+  try {
+    await parseCreateRequest(scheduledReq);
+  } catch (error) {
+    scheduledRejected = error instanceof Error && error.message.includes("status 必須是 draft");
+  }
+  if (!scheduledRejected) throw new Error("create parser accepted status=scheduled");
 });
 
 Deno.test("create: rejects local event without scopes", async () => {

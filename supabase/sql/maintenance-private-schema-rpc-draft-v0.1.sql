@@ -1,16 +1,25 @@
 -- Maintenance private schema + RPC draft v0.1
 -- DEVELOPMENT DRAFT ONLY. DO NOT RUN AGAINST PRODUCTION.
--- Architecture: public status uses SECURITY INVOKER; admin RPCs use a dedicated NOLOGIN, NOBYPASSRLS owner with RLS policies. No service_role impersonation.
+-- Architecture: public status uses SECURITY INVOKER; admin RPCs use built-in pg_database_owner (NOLOGIN, NOBYPASSRLS) with RLS policies. No new roles or service_role impersonation.
 -- Preconditions: public.is_admin() exists and is callable by authenticated users.
 -- This file is intentionally not stored under supabase/migrations/.
+-- Apply as one transaction; any failed statement must roll back the complete draft.
+
+BEGIN;
 
 DO $preflight$
 BEGIN
+  IF NOT pg_catalog.pg_has_role(current_user, 'pg_database_owner', 'SET') THEN
+    RAISE EXCEPTION 'PRECONDITION_FAILED: current role must be the database owner with SET access to pg_database_owner';
+  END IF;
+  IF NOT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE') THEN
+    RAISE EXCEPTION 'PRECONDITION_FAILED: current database owner must have CREATE on public';
+  END IF;
   IF pg_catalog.to_regprocedure('public.is_admin()') IS NULL THEN
     RAISE EXCEPTION 'PRECONDITION_FAILED: public.is_admin() is required';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'maintenance_rpc_executor') THEN
-    RAISE EXCEPTION 'PRECONDITION_FAILED: maintenance_rpc_executor already exists; inspect it before applying';
+  IF NOT pg_catalog.has_function_privilege(current_user, 'public.is_admin()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'PRECONDITION_FAILED: current role must be able to grant EXECUTE on public.is_admin()';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = 'private') THEN
     RAISE EXCEPTION 'PRECONDITION_FAILED: private schema already exists; inspect it before applying this draft';
@@ -25,11 +34,24 @@ BEGIN
 END
 $preflight$;
 
--- Dedicated non-login function owner. It is not a table owner and cannot bypass RLS.
-CREATE ROLE maintenance_rpc_executor
-  NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-
+-- pg_database_owner is PostgreSQL's built-in pseudo-role for the current database owner.
+-- It is NOLOGIN, NOSUPERUSER and NOBYPASSRLS; ordinary application roles are not members.
 CREATE SCHEMA private;
+
+-- Read the subject from PostgREST's verified request JWT without depending on
+-- USAGE grants on Supabase-managed auth schema. This function never accepts input.
+CREATE FUNCTION private.maintenance_uid()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = ''
+AS $maintenance_uid$
+  SELECT NULLIF(COALESCE(
+    NULLIF(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb->>'sub',
+    NULLIF(pg_catalog.current_setting('request.jwt.claim.sub', true), '')
+  ), '')::uuid
+$maintenance_uid$;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 GRANT USAGE ON SCHEMA private TO anon, authenticated;
 
@@ -83,7 +105,7 @@ CREATE TABLE private.maintenance_event_scopes (
 CREATE TABLE private.maintenance_audit_logs (
   id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
   event_id uuid NOT NULL REFERENCES private.maintenance_events(id) ON DELETE RESTRICT,
-  admin_id uuid NOT NULL DEFAULT auth.uid(),
+  admin_id uuid NOT NULL DEFAULT private.maintenance_uid(),
   action text NOT NULL,
   reason text NOT NULL CHECK (pg_catalog.char_length(reason) BETWEEN 1 AND 500),
   before_data jsonb,
@@ -92,7 +114,7 @@ CREATE TABLE private.maintenance_audit_logs (
 );
 
 CREATE TABLE private.maintenance_idempotency (
-  actor_id uuid NOT NULL DEFAULT auth.uid(),
+  actor_id uuid NOT NULL DEFAULT private.maintenance_uid(),
   idempotency_key uuid NOT NULL,
   request_hash bytea NOT NULL CHECK (pg_catalog.octet_length(request_hash) = 32),
   response_json jsonb NOT NULL,
@@ -128,33 +150,33 @@ CREATE POLICY maintenance_scopes_public_enabled_select
   ON private.maintenance_scopes FOR SELECT TO anon, authenticated
   USING (enabled = true);
 CREATE POLICY maintenance_scopes_admin_select
-  ON private.maintenance_scopes FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_scopes FOR SELECT TO authenticated, pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_events_public_active_select
   ON private.maintenance_events FOR SELECT TO anon, authenticated
   USING (status = 'scheduled' AND starts_at <= pg_catalog.now() AND ends_at > pg_catalog.now());
 CREATE POLICY maintenance_events_admin_select
-  ON private.maintenance_events FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_events FOR SELECT TO authenticated, pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_events_admin_insert
-  ON private.maintenance_events FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_events FOR INSERT TO pg_database_owner
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_events_admin_update
-  ON private.maintenance_events FOR UPDATE TO maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin())
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_events FOR UPDATE TO pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin())
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_event_private_notes_admin_select
-  ON private.maintenance_event_private_notes FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_event_private_notes FOR SELECT TO authenticated, pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_insert
-  ON private.maintenance_event_private_notes FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_event_private_notes FOR INSERT TO pg_database_owner
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_private_notes_admin_update
-  ON private.maintenance_event_private_notes FOR UPDATE TO maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin())
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_event_private_notes FOR UPDATE TO pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin())
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_event_scopes_public_select
   ON private.maintenance_event_scopes FOR SELECT TO anon, authenticated
@@ -164,34 +186,37 @@ CREATE POLICY maintenance_event_scopes_public_select
       AND e.starts_at <= pg_catalog.now() AND e.ends_at > pg_catalog.now()
   ));
 CREATE POLICY maintenance_event_scopes_admin_select
-  ON private.maintenance_event_scopes FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_event_scopes FOR SELECT TO authenticated, pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_scopes_admin_insert
-  ON private.maintenance_event_scopes FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_event_scopes FOR INSERT TO pg_database_owner
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_event_scopes_admin_delete
-  ON private.maintenance_event_scopes FOR DELETE TO maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_event_scopes FOR DELETE TO pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 
 CREATE POLICY maintenance_audit_admin_select
-  ON private.maintenance_audit_logs FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND public.is_admin());
+  ON private.maintenance_audit_logs FOR SELECT TO authenticated, pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND public.is_admin());
 CREATE POLICY maintenance_audit_admin_insert
-  ON private.maintenance_audit_logs FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND public.is_admin() AND admin_id = auth.uid());
+  ON private.maintenance_audit_logs FOR INSERT TO pg_database_owner
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND public.is_admin() AND admin_id = private.maintenance_uid());
 
 CREATE POLICY maintenance_idempotency_admin_select
-  ON private.maintenance_idempotency FOR SELECT TO authenticated, maintenance_rpc_executor
-  USING (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
+  ON private.maintenance_idempotency FOR SELECT TO authenticated, pg_database_owner
+  USING (private.maintenance_uid() IS NOT NULL AND actor_id = private.maintenance_uid() AND public.is_admin());
 CREATE POLICY maintenance_idempotency_admin_insert
-  ON private.maintenance_idempotency FOR INSERT TO maintenance_rpc_executor
-  WITH CHECK (auth.uid() IS NOT NULL AND actor_id = auth.uid() AND public.is_admin());
+  ON private.maintenance_idempotency FOR INSERT TO pg_database_owner
+  WITH CHECK (private.maintenance_uid() IS NOT NULL AND actor_id = private.maintenance_uid() AND public.is_admin());
 
 -- Reset object-level privileges before applying the explicit least-privilege grants below.
 -- This is scoped to the newly-created private schema and avoids inheriting broader grants.
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC, anon, authenticated;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated;
+
+-- The claim helper returns only the caller's own JWT subject (NULL for anon).
+GRANT EXECUTE ON FUNCTION private.maintenance_uid() TO anon, authenticated, pg_database_owner;
 
 -- Internal notes are isolated in an admin-only table, independent of public event-row visibility.
 -- Keep private excluded from Data API Exposed schemas as an additional security boundary.
@@ -206,17 +231,18 @@ GRANT SELECT ON private.maintenance_event_private_notes,
   private.maintenance_audit_logs, private.maintenance_idempotency TO authenticated;
 
 -- Only the dedicated RPC owner receives the table privileges needed for validated mutations.
-GRANT USAGE ON SCHEMA public, private, auth TO maintenance_rpc_executor;
-GRANT EXECUTE ON FUNCTION auth.uid() TO maintenance_rpc_executor;
-GRANT EXECUTE ON FUNCTION public.is_admin() TO maintenance_rpc_executor;
+GRANT USAGE ON SCHEMA private TO pg_database_owner;
+-- Avoid calling Supabase-managed auth-schema functions under pg_database_owner.
+-- The private helper reads the verified PostgREST JWT subject claims instead.
+GRANT EXECUTE ON FUNCTION public.is_admin() TO pg_database_owner;
 GRANT SELECT ON private.maintenance_scopes, private.maintenance_events,
   private.maintenance_event_private_notes, private.maintenance_event_scopes,
   private.maintenance_audit_logs, private.maintenance_idempotency
-  TO maintenance_rpc_executor;
-GRANT INSERT, UPDATE ON private.maintenance_events TO maintenance_rpc_executor;
-GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO maintenance_rpc_executor;
-GRANT INSERT, DELETE ON private.maintenance_event_scopes TO maintenance_rpc_executor;
-GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO maintenance_rpc_executor;
+  TO pg_database_owner;
+GRANT INSERT, UPDATE ON private.maintenance_events TO pg_database_owner;
+GRANT INSERT, UPDATE ON private.maintenance_event_private_notes TO pg_database_owner;
+GRANT INSERT, DELETE ON private.maintenance_event_scopes TO pg_database_owner;
+GRANT INSERT ON private.maintenance_audit_logs, private.maintenance_idempotency TO pg_database_owner;
 
 CREATE FUNCTION private.maintenance_set_updated_at()
 RETURNS trigger
@@ -285,7 +311,7 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'VALIDATION_ERROR';
   END IF;
 
-  IF auth.uid() IS NOT NULL THEN
+  IF private.maintenance_uid() IS NOT NULL THEN
     v_is_admin := public.is_admin();
   END IF;
 
@@ -317,8 +343,7 @@ BEGIN
       'message', v_event.message,
       'starts_at', v_event.starts_at,
       'ends_at', v_event.ends_at,
-      'server_time', pg_catalog.now()
-    ) || CASE
+      'server_time', pg_catalog.now()    ) || CASE
       WHEN v_is_admin THEN pg_catalog.jsonb_build_object('admin_bypass', true)
       ELSE '{}'::jsonb
     END
@@ -346,7 +371,7 @@ DECLARE
   v_has_more boolean := false;
   v_next_cursor text;
 BEGIN
-  IF auth.uid() IS NULL OR NOT public.is_admin() THEN
+  IF private.maintenance_uid() IS NULL OR NOT public.is_admin() THEN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'FORBIDDEN';
   END IF;
   IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request) <> 'object'
@@ -471,7 +496,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor uuid := auth.uid();
+  v_actor uuid := private.maintenance_uid();
   v_key uuid;
   v_payload jsonb;
   v_request_hash bytea;
@@ -526,7 +551,7 @@ BEGIN
      OR (v_note IS NOT NULL AND pg_catalog.char_length(v_note)>4000)
      OR v_reason IS NULL OR v_reason='' OR pg_catalog.char_length(v_reason)>500
      OR v_start IS NULL OR v_end IS NULL OR v_start>=v_end
-     OR v_status IS NULL OR v_status NOT IN ('draft','scheduled') THEN
+     OR v_status IS DISTINCT FROM 'draft' THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(p_request->'scope_codes') AS item(value)
@@ -571,17 +596,6 @@ BEGIN
     RETURN v_old_response;
   END IF;
 
-  IF v_status='scheduled' AND EXISTS (
-    SELECT 1 FROM private.maintenance_events e
-     WHERE e.status='scheduled' AND e.starts_at<v_end AND v_start<e.ends_at
-       AND (v_global OR e.is_global OR 'site_core'=ANY(v_codes) OR EXISTS (
-         SELECT 1 FROM private.maintenance_event_scopes es
-          WHERE es.event_id=e.id AND (es.scope_code='site_core' OR es.scope_code=ANY(v_codes))
-       ))
-  ) THEN
-    RAISE EXCEPTION USING ERRCODE='23505', MESSAGE='CONFLICT';
-  END IF;
-
   INSERT INTO private.maintenance_events(title,message,is_global,status,starts_at,ends_at)
   VALUES(v_title,v_message,v_global,v_status,v_start,v_end)
   RETURNING * INTO v_event;
@@ -618,7 +632,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor uuid := auth.uid();
+  v_actor uuid := private.maintenance_uid();
   v_key uuid;
   v_payload jsonb;
   v_request_hash bytea;
@@ -648,8 +662,7 @@ BEGIN
      OR NOT (p_request ?| ARRAY['title','message','internal_note','is_global','scope_codes','starts_at','ends_at']) THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
-  IF pg_catalog.jsonb_typeof(p_request->'event_id') IS DISTINCT FROM 'string'
-     OR pg_catalog.jsonb_typeof(p_request->'expected_version') IS DISTINCT FROM 'number'
+  IF pg_catalog.jsonb_typeof(p_request->'event_id') IS DISTINCT FROM 'string'     OR pg_catalog.jsonb_typeof(p_request->'expected_version') IS DISTINCT FROM 'number'
      OR (p_request->>'expected_version') !~ '^[1-9][0-9]*$'
      OR pg_catalog.jsonb_typeof(p_request->'reason') IS DISTINCT FROM 'string'
      OR pg_catalog.jsonb_typeof(p_request->'idempotency_key') IS DISTINCT FROM 'string'
@@ -774,7 +787,7 @@ BEGIN
     'scope_codes', COALESCE((SELECT pg_catalog.jsonb_agg(es.scope_code ORDER BY es.scope_code)
               FROM private.maintenance_event_scopes es WHERE es.event_id=v_event.id),'[]'::jsonb));
   v_schedule_changed := p_request ?| ARRAY['is_global','scope_codes','starts_at','ends_at'];
-  IF v_event.status='scheduled' AND v_event.starts_at<=pg_catalog.now() AND v_schedule_changed THEN
+  IF v_event.status='scheduled' AND v_schedule_changed AND v_start<=pg_catalog.now() THEN
     RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
   END IF;
   IF v_event.status='scheduled' AND EXISTS (
@@ -832,7 +845,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor uuid := auth.uid();
+  v_actor uuid := private.maintenance_uid();
   v_key uuid;
   v_payload jsonb;
   v_request_hash bytea;
@@ -903,7 +916,7 @@ BEGIN
     'scope_codes',v_codes);
 
   IF v_action='schedule' THEN
-    IF v_event.status<>'draft' THEN
+    IF v_event.status<>'draft' OR v_event.starts_at<=pg_catalog.now() THEN
       RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='VALIDATION_ERROR';
     END IF;
     IF EXISTS (
@@ -952,28 +965,32 @@ EXCEPTION
 END;
 $$;
 
--- The dedicated owner is NOLOGIN, NOBYPASSRLS, and does not own the tables.
--- Its table access is constrained by RLS policies targeted to this role.
-GRANT CREATE ON SCHEMA public TO maintenance_rpc_executor;
-ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO maintenance_rpc_executor;
-ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO maintenance_rpc_executor;
-ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO maintenance_rpc_executor;
-ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO maintenance_rpc_executor;
-REVOKE CREATE ON SCHEMA public FROM maintenance_rpc_executor;
+-- The built-in pg_database_owner role owns the admin RPCs, but not the data tables.
+-- It is NOLOGIN and NOBYPASSRLS; table writes remain constrained by RLS policies.
+ALTER FUNCTION public.maintenance_admin_list(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_create(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_update(jsonb) OWNER TO pg_database_owner;
+ALTER FUNCTION public.maintenance_event_action(jsonb) OWNER TO pg_database_owner;
 
--- RPC ACLs: revoke PostgreSQL's default PUBLIC EXECUTE first.
-REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon;
+-- The public status RPC remains SECURITY INVOKER and owned by the migration role.
+REVOKE ALL ON FUNCTION public.maintenance_status_public(jsonb) FROM PUBLIC, service_role;
 GRANT EXECUTE ON FUNCTION public.maintenance_status_public(jsonb) TO anon, authenticated;
+
+-- Apply the admin RPC ACLs as their built-in function owner.
+SET ROLE pg_database_owner;
+REVOKE ALL ON FUNCTION public.maintenance_admin_list(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_create(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_update(jsonb) FROM PUBLIC, anon, service_role;
+REVOKE ALL ON FUNCTION public.maintenance_event_action(jsonb) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.maintenance_admin_list(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_create(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_update(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.maintenance_event_action(jsonb) TO authenticated;
+RESET ROLE;
 
 COMMENT ON SCHEMA private IS 'Maintenance data schema; keep excluded from Supabase Data API exposed schemas.';
-COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by a least-privilege RLS-bound role.';
+COMMENT ON TABLE private.maintenance_events IS 'Draft schema proposal only; public event fields; all writes should use validated admin RPCs owned by pg_database_owner and constrained by RLS.';
 COMMENT ON TABLE private.maintenance_event_private_notes IS 'Admin-only internal notes, separated from publicly visible maintenance event rows.';
 COMMENT ON TABLE private.maintenance_audit_logs IS 'Append-only audit trail; row mutation and TRUNCATE are blocked by triggers.';
+
+COMMIT;

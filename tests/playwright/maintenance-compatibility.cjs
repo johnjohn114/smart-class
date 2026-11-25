@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 const { chromium } = require('playwright');
@@ -78,6 +80,166 @@ async function createPageErrors(page) {
     assert.equal(await page.locator('#loginButton').count(), 1);
     assert.equal(await page.locator('[data-tab="maintenanceTab"]').isHidden(), true);
     assert.equal(await page.locator('#dashboard').evaluate(el => el.classList.contains('hidden')), true);
+
+    // A 401 from a maintenance request refreshes the admin session once,
+    // retries with the rotated access token, and stores the rotated refresh token.
+    const refreshResult = await page.evaluate(async () => {
+      localStorage.setItem('access_token', 'expired-test-access');
+      localStorage.setItem('refresh_token', 'old-test-refresh');
+      const originalFetch = window.fetch;
+      const maintenanceAuthHeaders = [];
+      let refreshCalls = 0;
+      window.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (target.includes('/auth/v1/token?grant_type=refresh_token')) {
+          refreshCalls += 1;
+          return new Response(JSON.stringify({
+            access_token: 'fresh-test-access',
+            refresh_token: 'rotated-test-refresh'
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (target.includes('/functions/v1/maintenance-admin-list')) {
+          maintenanceAuthHeaders.push(options.headers?.Authorization || '');
+          if (maintenanceAuthHeaders.length === 1) {
+            return new Response(JSON.stringify({ ok: false, error: { message: 'expired' } }), {
+              status: 401, headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          return new Response(JSON.stringify({ ok: true, data: { events: [], next_cursor: null } }), {
+            status: 200, headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return originalFetch(url, options);
+      };
+      try {
+        const data = await maintenanceAdminRequest('maintenance-admin-list');
+        return {
+          data,
+          refreshCalls,
+          maintenanceAuthHeaders,
+          storedAccess: localStorage.getItem('access_token'),
+          storedRefresh: localStorage.getItem('refresh_token')
+        };
+      } finally {
+        window.fetch = originalFetch;
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+    });
+    assert.equal(refreshResult.refreshCalls, 1, 'one 401 should trigger exactly one refresh');
+    assert.deepEqual(refreshResult.maintenanceAuthHeaders, [
+      'Bearer expired-test-access',
+      'Bearer fresh-test-access'
+    ], 'the retry must use the refreshed access token');
+    assert.equal(refreshResult.storedAccess, 'fresh-test-access');
+    assert.equal(refreshResult.storedRefresh, 'rotated-test-refresh');
+    assert.deepEqual(refreshResult.data, { events: [], next_cursor: null });
+
+    // A sessionStorage-backed login must remain session-only after rotation.
+    const sessionStorageResult = await page.evaluate(async () => {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      sessionStorage.setItem('access_token', 'session-test-access');
+      sessionStorage.setItem('refresh_token', 'session-test-refresh');
+      const originalFetch = window.fetch;
+      window.fetch = async url => {
+        if (String(url).includes('/auth/v1/token?grant_type=refresh_token')) {
+          return new Response(JSON.stringify({
+            access_token: 'session-fresh-access',
+            refresh_token: 'session-rotated-refresh'
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return originalFetch(url);
+      };
+      try {
+        await refreshAdminSession();
+        return {
+          localAccess: localStorage.getItem('access_token'),
+          localRefresh: localStorage.getItem('refresh_token'),
+          sessionAccess: sessionStorage.getItem('access_token'),
+          sessionRefresh: sessionStorage.getItem('refresh_token')
+        };
+      } finally {
+        window.fetch = originalFetch;
+        sessionStorage.removeItem('access_token');
+        sessionStorage.removeItem('refresh_token');
+      }
+    });
+    assert.equal(sessionStorageResult.localAccess, null, 'session-only access token must not be promoted to localStorage');
+    assert.equal(sessionStorageResult.localRefresh, null, 'session-only refresh token must not be promoted to localStorage');
+    assert.equal(sessionStorageResult.sessionAccess, 'session-fresh-access');
+    assert.equal(sessionStorageResult.sessionRefresh, 'session-rotated-refresh');
+
+    // An invalid refresh token clears stale credentials and reports a login error.
+    const refreshFailure = await page.evaluate(async () => {
+      localStorage.setItem('access_token', 'expired-access');
+      localStorage.setItem('refresh_token', 'invalid-refresh');
+      const originalFetch = window.fetch;
+      window.fetch = async url => String(url).includes('/auth/v1/token?grant_type=refresh_token')
+        ? new Response(JSON.stringify({ error: 'invalid_grant' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' }
+          })
+        : originalFetch(url);
+      let message = '';
+      try { await refreshAdminSession(); }
+      catch (error) { message = error.message; }
+      finally {
+        window.fetch = originalFetch;
+      }
+      const result = {
+        message,
+        localAccess: localStorage.getItem('access_token'),
+        localRefresh: localStorage.getItem('refresh_token'),
+        sessionAccess: sessionStorage.getItem('access_token'),
+        sessionRefresh: sessionStorage.getItem('refresh_token')
+      };
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      return result;
+    });
+    assert.match(refreshFailure.message, /登入狀態已失效/);
+    assert.equal(refreshFailure.localAccess, null);
+    assert.equal(refreshFailure.localRefresh, null);
+    assert.equal(refreshFailure.sessionAccess, null);
+    assert.equal(refreshFailure.sessionRefresh, null);
+
+    // If the post-refresh retry is still unauthorized, do not refresh again.
+    const repeated401 = await page.evaluate(async () => {
+      localStorage.setItem('access_token', 'expired-again-access');
+      localStorage.setItem('refresh_token', 'retry-test-refresh');
+      const originalFetch = window.fetch;
+      let refreshCalls = 0;
+      let requestCalls = 0;
+      window.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (target.includes('/auth/v1/token?grant_type=refresh_token')) {
+          refreshCalls += 1;
+          return new Response(JSON.stringify({
+            access_token: 'fresh-but-rejected-access',
+            refresh_token: 'fresh-but-rejected-refresh'
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (target.includes('/functions/v1/maintenance-admin-list')) {
+          requestCalls += 1;
+          return new Response(JSON.stringify({ ok: false, error: { message: 'still unauthorized' } }), {
+            status: 401, headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return originalFetch(url, options);
+      };
+      let message = '';
+      try { await maintenanceAdminRequest('maintenance-admin-list'); }
+      catch (error) { message = error.message; }
+      finally {
+        window.fetch = originalFetch;
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+      return { refreshCalls, requestCalls, message };
+    });
+    assert.equal(repeated401.refreshCalls, 1, 'a failed retry must not trigger another refresh');
+    assert.equal(repeated401.requestCalls, 2, 'the request should run once and retry once');
+    assert.match(repeated401.message, /still unauthorized/);
 
     // Pending idempotency keys survive a reload in the same tab, but successful
     // operations clear them so a later intentional retry receives a fresh key.
@@ -170,7 +332,206 @@ async function createPageErrors(page) {
     await page.close();
   }
 
-  console.log('Browser compatibility checks passed (homepage + admin feature gate).');
+
+  // Public maintenance notice: the enabled flag and active status are
+  // simulated locally; this never contacts the hosted Supabase project.
+  {
+    const page = await browser.newPage();
+    const errors = await createPageErrors(page);
+    const configPath = path.resolve(__dirname, '../../config.js');
+    const configSource = fs.readFileSync(configPath, 'utf8');
+    const disabledFlag = 'const MAINTENANCE_FEATURE_ENABLED = false;';
+    assert.ok(configSource.includes(disabledFlag), 'expected default-off maintenance feature flag');
+    await page.route('**/config.js**', route => route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: configSource.replace(disabledFlag, 'const MAINTENANCE_FEATURE_ENABLED = true;')
+    }));
+    await page.route('https://*.supabase.co/functions/v1/maintenance-status**', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          is_maintenance: true,
+          is_global: true,
+          title: '瀏覽器測試維護通知',
+          message: '網站目前進行測試維護。',
+          scopes: []
+        }
+      })
+    }));
+    await page.goto(BASE_URL + '/index.html', { waitUntil: 'domcontentloaded' });
+    const banner = page.locator('#maintenanceStatusBanner');
+    await banner.waitFor({ state: 'visible' });
+    assert.match(await banner.innerText(), /瀏覽器測試維護通知/);
+    assert.match(await banner.innerText(), /網站目前進行測試維護/);
+    assert.deepEqual(errors, [], 'public maintenance banner runtime errors: ' + errors.join('; '));
+    await page.close();
+  }
+
+  // Enabled maintenance flow: override the feature flag only in this isolated
+  // browser context and keep every API operation in an in-memory test double.
+  {
+    const page = await browser.newPage();
+    const errors = await createPageErrors(page);
+    const configPath = path.resolve(__dirname, '../../config.js');
+    const configSource = fs.readFileSync(configPath, 'utf8');
+    const disabledFlag = 'const MAINTENANCE_FEATURE_ENABLED = false;';
+    assert.ok(configSource.includes(disabledFlag), 'expected default-off maintenance feature flag');
+    await page.route('**/config.js**', route => route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: configSource.replace(disabledFlag, 'const MAINTENANCE_FEATURE_ENABLED = true;')
+    }));
+    await page.route('https://*.supabase.co/functions/v1/maintenance-status**', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          is_maintenance: true,
+          is_global: true,
+          title: '測試維護通知',
+          message: '這是隔離瀏覽器測試，不會影響正式網站。',
+          scopes: []
+        }
+      })
+    }));
+    page.on('dialog', dialog => dialog.accept());
+
+    await page.goto(BASE_URL + '/admin.html', { waitUntil: 'domcontentloaded' });
+    // Reveal the dashboard before asserting tab visibility: the tab is nested
+    // inside #dashboard, which is hidden until an admin logs in.
+    await page.evaluate(() => {
+      document.querySelector('#login')?.classList.add('hidden');
+      document.querySelector('#dashboard')?.classList.remove('hidden');
+    });
+    await page.locator('[data-tab="maintenanceTab"]').waitFor({ state: 'visible' });
+    await page.evaluate(() => {
+      window.__maintenanceEvents = [];
+      window.__maintenanceCalls = [];
+      window.maintenanceAdminRequest = async (endpoint, options = {}) => {
+        const method = options.method || 'GET';
+        const body = options.body || null;
+        window.__maintenanceCalls.push({ endpoint, method, body });
+        if (endpoint.startsWith('maintenance-admin-list?')) {
+          return { events: window.__maintenanceEvents, next_cursor: null };
+        }
+        if (endpoint === 'maintenance-event-create') {
+          const event = {
+            id: 'browser-event-' + (window.__maintenanceEvents.length + 1),
+            version: 1,
+            status: 'draft',
+            title: body.title,
+            message: body.message,
+            internal_note: body.internal_note,
+            is_global: body.is_global,
+            scopes: body.scope_codes,
+            starts_at: body.starts_at,
+            ends_at: body.ends_at
+          };
+          window.__maintenanceEvents.push(event);
+          return { event };
+        }
+        if (endpoint === 'maintenance-event-update') {
+          const event = window.__maintenanceEvents.find(item => item.id === body.event_id);
+          if (!event) throw new Error('test event not found for update');
+          Object.assign(event, {
+            title: body.title,
+            message: body.message,
+            internal_note: body.internal_note,
+            version: event.version + 1
+          });
+          return { event };
+        }
+        if (endpoint === 'maintenance-event-action') {
+          const event = window.__maintenanceEvents.find(item => item.id === body.event_id);
+          if (!event) throw new Error('test event not found for action');
+          event.status = body.action === 'schedule' ? 'scheduled' :
+            body.action === 'cancel' ? 'cancelled' : 'completed';
+          event.version += 1;
+          return { event };
+        }
+        throw new Error('Unexpected maintenance endpoint: ' + endpoint);
+      };
+    });
+
+    await page.locator('[data-tab="maintenanceTab"]').click();
+    await page.locator('#maintenanceTitle').fill('瀏覽器測試維護事件');
+    await page.locator('#maintenanceMessage').fill('測試訪客維護通知');
+    await page.locator('#maintenanceStartsAt').fill('2027-01-10T10:00');
+    await page.locator('#maintenanceEndsAt').fill('2027-01-10T11:00');
+    await page.locator('[data-maintenance-scope="site_core"]').check();
+    await page.locator('#maintenanceReason').fill('隔離瀏覽器建立測試');
+    await page.locator('#saveMaintenanceEvent').click();
+    await page.getByText('瀏覽器測試維護事件').waitFor();
+
+    let calls = await page.evaluate(() => window.__maintenanceCalls);
+    const createCall = calls.find(call => call.endpoint === 'maintenance-event-create');
+    assert.ok(createCall, 'create action should call the maintenance create endpoint');
+    assert.equal(createCall.body.status, 'draft');
+    assert.equal(createCall.body.is_global, false);
+    assert.deepEqual(createCall.body.scope_codes, ['site_core']);
+    assert.equal(createCall.body.starts_at, '2027-01-10T02:00:00.000Z',
+      'Taipei start time should be converted to UTC correctly');
+    assert.equal(createCall.body.ends_at, '2027-01-10T03:00:00.000Z',
+      'Taipei end time should be converted to UTC correctly');
+
+    await page.locator('[data-maintenance-edit="browser-event-1"]').click();
+    await page.locator('#maintenanceTitle').fill('瀏覽器測試維護事件（已修改）');
+    await page.locator('#maintenanceMessage').fill('修改後的訪客訊息');
+    await page.locator('#maintenanceReason').fill('隔離瀏覽器修改測試');
+    await page.locator('#saveMaintenanceEvent').click();
+    await page.getByText('瀏覽器測試維護事件（已修改）').waitFor();
+    calls = await page.evaluate(() => window.__maintenanceCalls);
+    assert.ok(calls.some(call => call.endpoint === 'maintenance-event-update' &&
+      call.body.title === '瀏覽器測試維護事件（已修改）'),
+    'edit action should submit the changed event');
+
+    await page.locator('#maintenanceReason').fill('隔離瀏覽器排程測試');
+    await page.locator('[data-maintenance-action="schedule"][data-maintenance-id="browser-event-1"]').click();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已排程' }).waitFor({ state: 'visible' });
+
+    // Simulate the scheduled event reaching its end time without waiting in CI.
+    await page.evaluate(async () => {
+      window.__maintenanceEvents[0].ends_at = '2020-01-01T00:00:00.000Z';
+      await loadMaintenanceEvents({ reset: true });
+    });
+    await page.locator('#maintenanceReason').fill('隔離瀏覽器完成測試');
+    await page.locator('[data-maintenance-action="complete"][data-maintenance-id="browser-event-1"]').click();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已完成' }).waitFor({ state: 'visible' });
+
+    // A second event exercises the cancellation path independently.
+    await page.locator('#maintenanceTitle').fill('瀏覽器測試取消事件');
+    await page.locator('#maintenanceMessage').fill('取消流程測試');
+    await page.locator('#maintenanceStartsAt').fill('2027-01-11T10:00');
+    await page.locator('#maintenanceEndsAt').fill('2027-01-11T11:00');
+    await page.locator('[data-maintenance-scope="site_core"]').check();
+    await page.locator('#maintenanceReason').fill('隔離瀏覽器取消流程建立');
+    await page.locator('#saveMaintenanceEvent').click();
+    await page.getByText('瀏覽器測試取消事件').waitFor();
+    await page.locator('#maintenanceReason').fill('隔離瀏覽器取消測試');
+    await page.locator('[data-maintenance-action="schedule"][data-maintenance-id="browser-event-2"]').click();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已排程' }).waitFor({ state: 'visible' });
+    await page.locator('#maintenanceReason').fill('隔離瀏覽器取消測試');
+    await page.locator('[data-maintenance-action="cancel"][data-maintenance-id="browser-event-2"]').click();
+    await page.locator('#maintenanceEventList .notice .date').filter({ hasText: '已取消' }).waitFor({ state: 'visible' });
+
+    calls = await page.evaluate(() => window.__maintenanceCalls);
+    for (const endpoint of [
+      'maintenance-event-create',
+      'maintenance-event-update',
+      'maintenance-event-action'
+    ]) {
+      assert.ok(calls.some(call => call.endpoint === endpoint),
+        'expected browser interaction to call ' + endpoint);
+    }
+    assert.deepEqual(errors, [], 'enabled maintenance browser runtime errors: ' + errors.join('; '));
+    await page.close();
+  }
+
+  console.log('Browser compatibility checks passed (homepage + admin feature gate + maintenance lifecycle).');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

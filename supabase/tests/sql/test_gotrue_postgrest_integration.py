@@ -7,14 +7,18 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import time
 from datetime import datetime, timedelta, timezone
 
 POSTGREST = os.environ["POSTGREST_URL"].rstrip("/")
 GOTRUE = os.environ["GOTRUE_URL"].rstrip("/")
 
 
-def http_request(base: str, path: str, token: str | None = None, payload=None):
+def http_request(base: str, path: str, token: str | None = None, payload=None,
+                 extra_headers: dict | None = None):
     headers = {"Accept": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
     data = None
     method = "GET"
     if token:
@@ -82,6 +86,64 @@ def main():
         os.environ["TEST_MEMBER_PASSWORD"],
         os.environ["TEST_MEMBER_ID"],
     )
+
+    # Disposable identity-aware limiter lab. The RPC has no actor/policy
+    # arguments: PostgREST derives the subject from each verified GoTrue JWT.
+    status, anon_limiter = http_request(
+        POSTGREST, "/rpc/consume_authenticated_admin", None, {},
+        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
+    )
+    assert_true(status != 200,
+                "anonymous caller cannot execute the authenticated limiter RPC")
+
+    # A signed-in ordinary member must be rejected before a bucket is
+    # created or consumed. PostgreSQL insufficient_privilege maps to HTTP 403.
+    member_status, member_body = http_request(
+        POSTGREST, "/rpc/consume_authenticated_admin", member, {},
+        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
+    )
+    assert_true(member_status == 403,
+                f"authenticated non-admin is rejected before limiter consumption (HTTP {member_status}; body={member_body!r})")
+
+    # Exercise the actual identity-derived admin limiter under simultaneous
+    # PostgREST requests. Its atomic UPSERT must allow exactly the configured
+    # three requests, regardless of which concurrent requests win the race.
+    def consume_admin_limiter(_):
+        return http_request(
+            POSTGREST, "/rpc/consume_authenticated_admin", admin, {},
+            {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+        limiter_results = list(pool.map(consume_admin_limiter, range(24)))
+
+    limiter_statuses = [status for status, _ in limiter_results]
+    limiter_decisions = [
+        body[0]["allowed"] for status, body in limiter_results
+        if status == 200 and isinstance(body, list) and len(body) == 1
+    ]
+    assert_true(
+        all(status == 200 for status in limiter_statuses)
+        and len(limiter_decisions) == 24
+        and sum(limiter_decisions) == 3
+        and limiter_decisions.count(False) == 21,
+        "concurrent admin limiter calls enforce exactly 3 allowed and 21 denied requests",
+    )
+
+    spoof_status, _ = http_request(
+        POSTGREST, "/rpc/consume_authenticated_admin", admin,
+        {"p_actor_id": os.environ["TEST_MEMBER_ID"]},
+        {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
+    )
+    assert_true(spoof_status in (400, 404),
+                "caller cannot supply or override the limiter actor UUID")
+
+    table_status, _ = http_request(
+        POSTGREST, "/identity_buckets", admin, None,
+        {"Accept-Profile": "rate_limit_lab"}
+    )
+    assert_true(table_status in (401, 403, 404),
+                "authenticated clients cannot read the limiter storage table")
 
     status, body = rpc("maintenance_status_public", {}, None)
     assert_true(status == 200 and body.get("ok") is True,
@@ -178,20 +240,31 @@ def main():
         "scope_codes": [],
         "starts_at": iso(start),
         "ends_at": iso(end),
-        "status": "scheduled",
+        "status": "draft",
         "reason": "isolated GoTrue/PostgREST integration test",
     }
-    requests = []
-    for _ in range(2):
+    event_ids = []
+    for item_index in range(2):
         item = dict(base)
+        item["status"] = "draft"
         item["idempotency_key"] = str(uuid.uuid4())
-        requests.append(item)
+        create_status, created = rpc("maintenance_event_create", item, admin)
+        assert_true(create_status == 200 and created.get("ok") is True,
+                    f"created concurrent schedule draft {item_index + 1}")
+        event_ids.append(created["data"]["event_id"])
+
+    def schedule_concurrently(event_id):
+        action = {
+            "event_id": event_id,
+            "expected_version": 1,
+            "action": "schedule",
+            "reason": "concurrent schedule race test",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        return rpc("maintenance_event_action", action, admin)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(
-            lambda item: rpc("maintenance_event_create", item, admin),
-            requests,
-        ))
+        results = list(pool.map(schedule_concurrently, event_ids))
 
     successes = [r for r in results if r[0] == 200 and r[1] and r[1].get("ok") is True]
     conflicts = [r for r in results if r[0] in (400, 409, 422)]
@@ -319,6 +392,16 @@ def main():
         "reason": "  isolated GoTrue/PostgREST idempotency integration test  ",
         "idempotency_key": str(uuid.uuid4()),
     }
+    if os.environ.get("MAINTENANCE_EXPECT_DRAFT_ONLY_CREATE") == "1":
+        direct_scheduled_request = dict(idem_request)
+        direct_scheduled_request["status"] = "scheduled"
+        direct_scheduled_request["idempotency_key"] = str(uuid.uuid4())
+        status, direct_scheduled_result = rpc("maintenance_event_create", direct_scheduled_request, admin)
+        assert_true(status == 400 and isinstance(direct_scheduled_result, dict)
+                    and direct_scheduled_result.get("message") == "VALIDATION_ERROR",
+                    "create RPC rejects direct scheduled status; scheduling must use the lifecycle action RPC")
+
+
     spoofed_create = dict(idem_request)
     spoofed_create["actor_id"] = os.environ["TEST_MEMBER_ID"]
     status, spoofed_body = rpc("maintenance_event_create", spoofed_create, admin)
@@ -427,23 +510,36 @@ def main():
         "scope_codes": [],
         "starts_at": iso(past_start),
         "ends_at": iso(past_end),
-        "status": "scheduled",
+        "status": "draft",
         "reason": "complete lifecycle integration test",
         "idempotency_key": str(uuid.uuid4()),
     }
+    past_event_payload["starts_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=5))
+    past_event_payload["ends_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=8))
     status, past_event = rpc("maintenance_event_create", past_event_payload, admin)
     assert_true(status == 200 and past_event.get("ok") is True,
-                "created an already-ended scheduled event for completion test")
-    complete_request = {
-        "event_id": past_event["data"]["event_id"],
+                "created a draft for the completion lifecycle test")
+    past_event_id = past_event["data"]["event_id"]
+    status, past_event_scheduled = rpc("maintenance_event_action", {
+        "event_id": past_event_id,
         "expected_version": 1,
+        "action": "schedule",
+        "reason": "schedule completion lifecycle fixture",
+        "idempotency_key": str(uuid.uuid4()),
+    }, admin)
+    assert_true(status == 200 and past_event_scheduled.get("data", {}).get("status") == "scheduled",
+                "completion fixture was scheduled through the lifecycle RPC")
+    time.sleep(9)
+    complete_request = {
+        "event_id": past_event_id,
+        "expected_version": 2,
         "action": "complete",
         "reason": "GoTrue complete action test",
         "idempotency_key": str(uuid.uuid4()),
     }
     status, completed = rpc("maintenance_event_action", complete_request, admin)
     assert_true(status == 200 and completed.get("data", {}).get("status") == "completed"
-                and completed.get("data", {}).get("version") == 2,
+                and completed.get("data", {}).get("version") == 3,
                 "ended scheduled event can be completed through lifecycle action RPC")
 
     cancel_request = {
@@ -470,13 +566,25 @@ def main():
         "scope_codes": ["membership_growth"],
         "starts_at": iso(active_start),
         "ends_at": iso(active_end),
-        "status": "scheduled",
+        "status": "draft",
         "reason": "public scope status test",
         "idempotency_key": str(uuid.uuid4()),
     }
+    public_scope_payload["starts_at"] = iso(datetime.now(timezone.utc) + timedelta(seconds=1))
+    public_scope_payload["ends_at"] = iso(datetime.now(timezone.utc) + timedelta(minutes=30))
     status, active_scope_created = rpc("maintenance_event_create", public_scope_payload, admin)
     assert_true(status == 200 and active_scope_created.get("ok") is True,
-                "admin can create an active local-scope event")
+                "admin can create a draft for public scope status")
+    status, active_scope_scheduled = rpc("maintenance_event_action", {
+        "event_id": active_scope_created["data"]["event_id"],
+        "expected_version": 1,
+        "action": "schedule",
+        "reason": "schedule public scope status fixture",
+        "idempotency_key": str(uuid.uuid4()),
+    }, admin)
+    assert_true(status == 200 and active_scope_scheduled.get("data", {}).get("status") == "scheduled",
+                "public scope fixture is scheduled through lifecycle RPC")
+    time.sleep(6)
 
     status, matching_scope_status = rpc(
         "maintenance_status_public", {"scope": "membership_growth"}, None
