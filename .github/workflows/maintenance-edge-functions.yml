@@ -444,6 +444,19 @@ jobs:
           psql postgresql://postgres:postgres@localhost:5432/growth_function_authorization_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-function-authorization.test.sql
+      - name: Test Maintenance then Growth deployment order (isolated CI database)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -c "CREATE DATABASE maintenance_growth_order_test"
+          psql postgresql://postgres:postgres@localhost:5432/maintenance_growth_order_test -v ON_ERROR_STOP=1 -v maintenance_order_test=1 -v maintenance_first=1 -f supabase/tests/sql/growth-function-authorization.test.sql
+
+      - name: Test Growth then Maintenance deployment order (isolated CI database)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -c "CREATE DATABASE growth_maintenance_order_test"
+          psql postgresql://postgres:postgres@localhost:5432/growth_maintenance_order_test -v ON_ERROR_STOP=1 -v maintenance_order_test=1 -v maintenance_first=0 -f supabase/tests/sql/growth-function-authorization.test.sql
       - name: Run default privileges and trigger side-effect regression tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
