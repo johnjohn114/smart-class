@@ -94,6 +94,14 @@ CREATE TABLE public.growth_user_achievements (
   achievement_id uuid NOT NULL,
   UNIQUE(user_id, achievement_id)
 );
+-- Shared sequential integration fixture: the follow-up trigger test extends
+-- this table with registration-specific columns. Keep it in public, separate
+-- from the anonymous-policy fixtures isolated under ci_anon_rls.
+CREATE TABLE public.competitions (
+  id uuid PRIMARY KEY,
+  published boolean NOT NULL DEFAULT false
+);
+
 CREATE TABLE public.competition_registrations (
   user_id uuid NOT NULL,
   status text NOT NULL
