@@ -141,7 +141,6 @@ END;
 $function$;
 CREATE TRIGGER growth_registration_reward AFTER INSERT ON public.competition_registrations
 FOR EACH ROW EXECUTE FUNCTION public.growth_registration_reward();
-GRANT EXECUTE ON FUNCTION public.checkin_competition(uuid,text) TO authenticated;
 
 INSERT INTO public.profiles(id,role,member_no,growth_points,growth_level)
 VALUES('00000000-0000-4000-8000-000000000001','visitor',100,0,'newbie');
@@ -153,6 +152,7 @@ GRANT EXECUTE ON FUNCTION public.award_growth_points(uuid,integer,text,text,text
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid) TO authenticated,anon;
 
 \ir ../../migrations/202611250001_protect_profile_fields_growth_system_updates.sql
+GRANT EXECUTE ON FUNCTION public.checkin_competition(uuid,text) TO authenticated;
 
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
 SET ROLE authenticated;
@@ -162,7 +162,7 @@ RESET ROLE;
 
 DO $registration_success$
 BEGIN
- IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 5 THEN
+ IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 8 THEN
    RAISE EXCEPTION 'FAIL: registration did not award exactly five points';
  END IF;
  IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='registration:00000000-0000-4000-8000-000000000010') <> 1 THEN
@@ -173,6 +173,30 @@ BEGIN
  END IF;
 END
 $registration_success$;
+
+-- Check-in must use the same protected growth path and remain idempotent.
+INSERT INTO public.competitions(id,name,published,checkin_enabled,checkin_code,checkin_points)
+VALUES('00000000-0000-4000-8000-000000000020','CI 測試活動',true,true,'CI-CODE',3);
+SET ROLE authenticated;
+SELECT public.checkin_competition('00000000-0000-4000-8000-000000000020','CI-CODE');
+SELECT public.checkin_competition('00000000-0000-4000-8000-000000000020','CI-CODE');
+RESET ROLE;
+
+DO $checkin_success$
+BEGIN
+ IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 8 THEN
+   RAISE EXCEPTION 'FAIL: check-in did not add exactly three points';
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM public.competition_attendance
+   WHERE competition_id='00000000-0000-4000-8000-000000000020' AND status='checked_in') THEN
+   RAISE EXCEPTION 'FAIL: check-in attendance row missing';
+ END IF;
+ IF (SELECT count(*) FROM public.growth_point_transactions
+   WHERE source_key='checkin:00000000-0000-4000-8000-000000000020:00000000-0000-4000-8000-000000000001') <> 1 THEN
+   RAISE EXCEPTION 'FAIL: check-in reward ledger missing or duplicated';
+ END IF;
+END
+$checkin_success$;
 
 -- Ordinary members still cannot edit protected columns.
 SET ROLE authenticated;
