@@ -379,7 +379,6 @@ begin
  update public.competitions set settled_at=now() where id=p_competition_id;
  v_reward:=public.admin_apply_competition_rewards(p_competition_id);
  return jsonb_build_object('success',true,'already',false,'completed',v_completed,'no_show',v_no_show,'completion_points',v_points,'rewards',v_reward,'settled_at',now());
-end $function$
-
+end $function$;
 
 COMMIT;
