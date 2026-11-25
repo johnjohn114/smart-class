@@ -338,6 +338,7 @@ DO $catalog_fixtures$
 DECLARE
   r record;
 BEGIN
+  IF current_setting('maintenance.order_test', true) IS DISTINCT FROM '1' THEN
   FOR r IN
     SELECT * FROM (VALUES
       ('admin_activity_analytics', '', false),
@@ -364,6 +365,10 @@ BEGIN
       ('growth_result_reward', '', true),
       ('is_admin_user', '', false),
       ('join_competition_waitlist', 'uuid,text', false),
+      ('maintenance_admin_list', 'jsonb', false),
+      ('maintenance_event_action', 'jsonb', false),
+      ('maintenance_event_create', 'jsonb', false),
+      ('maintenance_event_update', 'jsonb', false),
       ('record_growth_activity', '', false),
       ('redeem_growth_reward', 'uuid', false),
       ('use_growth_coupon', 'uuid', false)
@@ -383,6 +388,7 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
+  END IF;
 END
 $catalog_fixtures$;
 
@@ -926,7 +932,7 @@ BEGIN
       AND p.prosecdef
       AND p.prokind = 'f'
       AND p.oid::regprocedure::text <> 'ci_security_definer_trigger()'
-  ) <> CASE WHEN current_setting('maintenance.order_test', true) = '1' THEN 46 ELSE 42 END THEN
+  ) <> 42 THEN
     RAISE EXCEPTION 'FAIL: public SECURITY DEFINER catalog count mismatch for selected deployment-order mode';
   END IF;
 END
