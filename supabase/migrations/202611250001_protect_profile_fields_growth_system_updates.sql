@@ -132,7 +132,7 @@ $function$;
 -- function continue to invoke them through their existing trusted context.
 REVOKE EXECUTE ON FUNCTION public.award_growth_points(
   uuid, integer, text, text, text, text, uuid
-) FROM PUBLIC, anon;
+) FROM PUBLIC, anon, authenticated;
 -- Existing SECURITY DEFINER admin/check-in routines are owned by postgres.
 -- The managed Supabase postgres role is not a superuser, so grant it explicit
 -- EXECUTE after ownership moves to the restricted executor.
