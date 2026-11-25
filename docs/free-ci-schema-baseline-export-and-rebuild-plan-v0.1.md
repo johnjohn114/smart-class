@@ -140,3 +140,18 @@ The free CI Job A has now been added as `.github/workflows/schema-baseline-refer
 The first attempt used unavailable `pglast==7.0` and failed during dependency installation. It was corrected to the available `7.25` release; the subsequent run above passed. No database or production setting was changed.
 
 **Scope remains unchanged:** this validates only the 2026-11-08 catalog-derived reference snapshot. It does not resolve the observed difference between that snapshot's 420 public columns and the 2026-11-25 live inventory's 412 columns, and it does not prove that a blank database can be restored from the snapshot.
+
+## 9. GitHub Actions production-export feasibility review (2026-11-25)
+
+The current PR #34 workflow was inspected. Its PostgreSQL credentials are hard-coded disposable CI service credentials for localhost only; the workflow does not define a production Supabase database URL, Supabase Management API token, or production database secret. It does not connect to the production project.
+
+The current Supabase documentation also describes **Temporary Access** for PostgreSQL connections. For projects on a supported PostgreSQL version, a project user can connect using a Supabase Personal Access Token or dashboard session token as the password for an authorized PostgreSQL role. This can avoid resetting the database role password, but it is not automatically available:
+
+- Temporary Access must already be enabled for the project.
+- The user must be authorized to assume the intended database role (for example, a narrowly scoped read-only role, if configured and permitted).
+- A valid platform access token is still required; it must be handled as a secret and must never appear in logs or artifacts.
+- Enabling Temporary Access or changing role mappings changes production access configuration. No such setting or role change has been made or is authorized by this review.
+
+**Assessment:** GitHub Actions can technically run the Supabase CLI/pg_dump in a disposable runner if a valid, approved temporary database connection is available. The most conservative path would be a short-lived, least-privilege, read-only connection and a manual, protected workflow that exports schema only. However, the project’s Temporary Access state and role mapping have not been verified in this session, and no platform token has been configured for CI. Therefore production export remains blocked; do not add a workflow secret or enable/change production access as part of this task.
+
+This is a newly identified possible path, not proof that access is enabled or that export has succeeded. The user's prior decision not to reset the database password remains respected.
