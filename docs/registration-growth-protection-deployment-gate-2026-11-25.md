@@ -3,7 +3,7 @@
 Date: 2026-11-25  
 Related PR: https://github.com/johnjohn114/smart-class/pull/38  
 Candidate branch: `fix/registration-protected-profile-growth-guard-20261125`  
-Reviewed candidate head: `75513204ec1c20e3f755efc42eaeaf0482b16d82`
+Reviewed candidate head: `873b7411606e8f90b74501da39f58eb122faf360`
 
 ## Current decision: HOLD — not approved for production
 
@@ -39,7 +39,7 @@ Security caveat: `BYPASSRLS` is a powerful attribute. It is acceptable only if t
 
 ## CI evidence
 
-For candidate head `75513204ec1c20e3f755efc42eaeaf0482b16d82`, workflow run [45613974577](https://github.com/johnjohn114/smart-class/actions/runs/45613974577) completed successfully.
+For the current candidate head `873b7411606e8f90b74501da39f58eb122faf360`, workflow run [45614991398](https://github.com/johnjohn114/smart-class/actions/runs/45614991398) completed successfully. It ran all three jobs on this exact head; the earlier run [45613974577](https://github.com/johnjohn114/smart-class/actions/runs/45613974577) belongs to the previous candidate head and is historical evidence only.
 
 The three jobs passed:
 1. Deno type check and tests.
