@@ -105,18 +105,30 @@ def main():
     assert_true(member_status == 403,
                 f"authenticated non-admin is rejected before limiter consumption (HTTP {member_status}; body={member_body!r})")
 
-    admin_decisions = []
-    for _ in range(4):
-        limiter_status, limiter_body = http_request(
+    # Exercise the actual identity-derived admin limiter under simultaneous
+    # PostgREST requests. Its atomic UPSERT must allow exactly the configured
+    # three requests, regardless of which concurrent requests win the race.
+    def consume_admin_limiter(_):
+        return http_request(
             POSTGREST, "/rpc/consume_authenticated_admin", admin, {},
             {"Accept-Profile": "rate_limit_lab", "Content-Profile": "rate_limit_lab"}
         )
-        assert_true(limiter_status == 200 and isinstance(limiter_body, list)
-                    and len(limiter_body) == 1,
-                    f"verified admin JWT can call the identity-derived limiter RPC (HTTP {limiter_status}; body={limiter_body!r})")
-        admin_decisions.append(limiter_body[0]["allowed"])
-    assert_true(admin_decisions == [True, True, True, False],
-                "admin quota is isolated and denies the fourth request")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+        limiter_results = list(pool.map(consume_admin_limiter, range(24)))
+
+    limiter_statuses = [status for status, _ in limiter_results]
+    limiter_decisions = [
+        body[0]["allowed"] for status, body in limiter_results
+        if status == 200 and isinstance(body, list) and len(body) == 1
+    ]
+    assert_true(
+        all(status == 200 for status in limiter_statuses)
+        and len(limiter_decisions) == 24
+        and sum(limiter_decisions) == 3
+        and limiter_decisions.count(False) == 21,
+        "concurrent admin limiter calls enforce exactly 3 allowed and 21 denied requests",
+    )
 
     spoof_status, _ = http_request(
         POSTGREST, "/rpc/consume_authenticated_admin", admin,
