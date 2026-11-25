@@ -429,8 +429,8 @@ BEGIN
  IF (SELECT nickname FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 'Member nickname' THEN
    RAISE EXCEPTION 'FAIL: ordinary nickname update stopped working';
  END IF;
- IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 8 THEN
-   RAISE EXCEPTION 'FAIL: points changed unexpectedly';
+ IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 12 THEN
+   RAISE EXCEPTION 'FAIL: points changed unexpectedly after settlement';
  END IF;
  IF (SELECT role FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000001') <> 'visitor' THEN
    RAISE EXCEPTION 'FAIL: role changed unexpectedly';
