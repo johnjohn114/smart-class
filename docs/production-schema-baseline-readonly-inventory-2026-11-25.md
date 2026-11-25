@@ -170,3 +170,20 @@ A second, identifier-aware comparison was run against the 2026-11-08 SQL snapsho
 For `public.competition_waitlist.position`, the snapshot declaration and live catalog agree: type `integer`, NOT NULL, no default, not an identity column, and not a generated column. The live table's five constraints were also inspected and match the five constraints declared in the snapshot. The live indexes include the primary key and unique `(competition_id, user_id)` indexes plus `competition_waitlist_queue_idx` on `(competition_id, status, position, created_at)`; the snapshot's index declarations should be checked independently before asserting full index equality.
 
 This comparison verifies public table column names and the stated `position` metadata only. It does not prove equality of all types/defaults across every table, indexes, grants, policies, functions, ownership, managed schemas, or restore behavior. The snapshot remains reference material only and is not promoted to a baseline.
+
+
+## 2.2 Public indexes, constraints, and RLS policy name inventory (2026-11-25)
+
+A read-only live catalog inventory was compared with the object declarations in `docs/schema-snapshots/20261108-public-tables-policies.sql`.
+
+| Object inventory | 2026-11-08 snapshot | 2026-11-25 live | Name-set result |
+|---|---:|---:|---|
+| Explicit CREATE INDEX statements | 49 | — | — |
+| Constraint-backed indexes (PRIMARY KEY / UNIQUE) | 60 | — | — |
+| Total indexes (combined) | 109 | 109 | Exact name-set match |
+| Constraints | 150 | 150 | Count and declared-name inventory match |
+| RLS policies | 98 | 98 | Exact name-set match |
+
+The 49 explicit index statements plus 60 indexes created by primary-key/unique constraints account for all 109 live public indexes. The snapshot and live catalog have no missing or extra index names. All 98 policy names in the snapshot match the live public policy-name inventory; this includes quoted policy names containing spaces. The 150 constraint names declared in the snapshot match the live public constraint count and name inventory.
+
+**Scope limitation:** this pass compares inventory counts and object names, not the full definitions. It does not yet prove that index key order, expressions, predicates, operator classes, constraint definitions/deferrability, or policy roles/commands/USING/WITH CHECK expressions are identical. Definition-level comparison remains required before using the snapshot for reconstruction.
