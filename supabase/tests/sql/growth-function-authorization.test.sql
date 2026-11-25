@@ -1,4 +1,16 @@
 -- Disposable regression test for growth-function authorization hardening.
+
+-- Optional cross-feature deployment-order mode:
+-- psql -v maintenance_order_test=1 -v maintenance_first=1|0
+\if :{?maintenance_order_test}
+\else
+\set maintenance_order_test 0
+\endif
+\if :{?maintenance_first}
+\else
+\set maintenance_first 0
+\endif
+SELECT set_config('maintenance.order_test', :'maintenance_order_test', false);
 -- Run in a fresh PostgreSQL 17 database as postgres:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f this-file.sql
 
@@ -352,10 +364,6 @@ BEGIN
       ('growth_result_reward', '', true),
       ('is_admin_user', '', false),
       ('join_competition_waitlist', 'uuid,text', false),
-      ('maintenance_admin_list', 'jsonb', false),
-      ('maintenance_event_action', 'jsonb', false),
-      ('maintenance_event_create', 'jsonb', false),
-      ('maintenance_event_update', 'jsonb', false),
       ('record_growth_activity', '', false),
       ('redeem_growth_reward', 'uuid', false),
       ('use_growth_coupon', 'uuid', false)
@@ -378,6 +386,14 @@ BEGIN
 END
 $catalog_fixtures$;
 
+-- In cross-feature order tests, install the real Maintenance RPCs instead of
+-- placeholder signatures. Growth's ACL migration must preserve them.
+\if :maintenance_order_test
+  \if :maintenance_first
+    \ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
+  \endif
+\endif
+
 -- Simulate the live project's unsafe defaults before applying the fix:
 -- PUBLIC gets PostgreSQL's normal function EXECUTE default, and the public
 -- schema additionally grants anon/authenticated EXECUTE for postgres-owned
@@ -388,6 +404,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 
 \ir ../../migrations/202611160001_growth_function_authorization_hardening.sql
+
+\if :maintenance_order_test
+  \if :maintenance_first
+  \else
+    \ir ../../sql/maintenance-private-schema-rpc-draft-v0.1.sql
+  \endif
+\endif
 
 -- A SECURITY DEFINER function created after the migration must not become a
 -- callable API endpoint through either PUBLIC or schema-specific defaults.
@@ -903,8 +926,8 @@ BEGIN
       AND p.prosecdef
       AND p.prokind = 'f'
       AND p.oid::regprocedure::text <> 'ci_security_definer_trigger()'
-  ) <> 42 THEN
-    RAISE EXCEPTION 'FAIL: expected 42 catalog entries (40 live routines, internal helper, and future-function fixture)';
+  ) <> CASE WHEN current_setting('maintenance.order_test', true) = '1' THEN 46 ELSE 42 END THEN
+    RAISE EXCEPTION 'FAIL: public SECURITY DEFINER catalog count mismatch for selected deployment-order mode';
   END IF;
 END
 $complete_acl_matrix$;
