@@ -278,6 +278,8 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE growth_executor_managed_role_test"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE migration_runner NOLOGIN CREATEROLE BYPASSRLS"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "GRANT CREATE ON DATABASE growth_executor_managed_role_test TO migration_runner"
           psql postgresql://postgres:postgres@localhost:5432/growth_executor_managed_role_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-executor-managed-role-order.test.sql
