@@ -14,11 +14,10 @@ DECLARE
   expected integer;
   found integer;
 BEGIN
-  FOREACH arr SLICE 1 IN ARRAY ARRAY[admin_names,member_names,trigger_names,internal_names,helper_names] LOOP
+  FOREACH nm IN ARRAY admin_names || member_names || trigger_names || internal_names || helper_names LOOP
     SELECT count(*) INTO found FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-      WHERE n.nspname='public' AND p.prosecdef AND p.proname=ANY(arr);
-    expected := cardinality(arr);
-    IF found <> expected THEN RAISE EXCEPTION 'SECURITY DEFINER inventory mismatch: expected %, found %',expected,found; END IF;
+      WHERE n.nspname='public' AND p.prosecdef AND p.proname=nm;
+    IF found <> 1 THEN RAISE EXCEPTION 'SECURITY DEFINER inventory mismatch for %: found %',nm,found; END IF;
   END LOOP;
   FOREACH nm IN ARRAY admin_names || member_names LOOP
     FOR oid_ IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef AND p.proname=nm LOOP
