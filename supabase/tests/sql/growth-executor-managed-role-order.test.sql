@@ -36,9 +36,9 @@ BEGIN
       WHERE oid='migration_role_probe.probe()'::regprocedure) <> 'growth_executor_probe' THEN
     RAISE EXCEPTION 'FAIL: function ownership was not transferred';
   END IF;
-  IF (SELECT set_option FROM pg_auth_members
+  IF coalesce((SELECT bool_or(set_option) FROM pg_auth_members
       WHERE roleid='growth_executor_probe'::regrole
-        AND member='migration_runner'::regrole) THEN
+        AND member='migration_runner'::regrole), true) THEN
     RAISE EXCEPTION 'FAIL: migration runner retained SET ROLE after hardening';
   END IF;
 
