@@ -125,3 +125,15 @@ This is a product-design decision for the candidate only. It is not evidence tha
 - PR #41 remains Draft and unmerged.
 - GitHub Pages was not deployed.
 - No paid service was enabled or purchased.
+
+## 2026-11-27 visitor_profiles dependency follow-up
+
+Read-only catalog checks of `public.visitor_profiles` confirmed:
+
+- RLS is enabled, `FORCE ROW LEVEL SECURITY` is not enabled, and the table has **zero policies**.
+- The table owner is `postgres`; current table ACL grants broad table privileges to `anon`, `authenticated`, and `service_role`. With no applicable RLS policy, the ordinary API roles do not receive row access through RLS; `service_role` is a privileged bypass role and must be considered separately.
+- Columns are `id uuid`, `username text`, `active boolean`, and `created_at timestamptz`.
+- The only catalog dependency found is its foreign key `id REFERENCES auth.users(id) ON DELETE CASCADE`. No view/materialized-view dependency, inbound foreign key, database function body reference, or trigger on this table was found in the inspected catalogs.
+- Candidate-branch browser files `app.js` and `admin.js`, and the reviewed visitor-related Edge Functions, did not contain a direct `visitor_profiles` reference. GitHub code search on the repository's default branch also returned no matching source file. These searches are limited evidence; they do not rule out older branches, external integrations, manually issued SQL, or clients not represented in the inspected repository.
+
+**Disposition:** do not delete the table or change grants/policies yet. First verify the deployed visitor-account lifecycle and check any external consumers. The table may be legacy, but the evidence is not sufficient to classify it as safely removable. No production object or data was changed.
