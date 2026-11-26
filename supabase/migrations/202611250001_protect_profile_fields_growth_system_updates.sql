@@ -140,12 +140,12 @@ REVOKE EXECUTE ON FUNCTION public.award_growth_points(
 -- EXECUTE after ownership moves to the restricted executor.
 GRANT EXECUTE ON FUNCTION public.award_growth_points(
   uuid, integer, text, text, text, text, uuid
-) TO postgres, service_role;
+) TO postgres;
 
 REVOKE EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.refresh_growth_level(uuid)
-  TO postgres, service_role;
+  TO postgres;
 
 -- Route member check-in rewards through the restricted growth executor.
 -- Previously this SECURITY DEFINER function updated profiles directly as
