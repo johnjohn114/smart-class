@@ -611,7 +611,7 @@ async function loadMyGrowth(){
       await fetch(SUPABASE_URL+'/rest/v1/rpc/complete_growth_task',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_task_code:task.code})}).catch(()=>{});
     }
     await fetch(SUPABASE_URL+'/rest/v1/rpc/check_growth_achievements',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_user_id:u.id})}).catch(()=>{});
-    await fetch(SUPABASE_URL+'/rest/v1/rpc/refresh_growth_level',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_user_id:u.id})}).catch(()=>{});
+    // Growth level is refreshed by trusted database routines; do not call the internal RPC from the browser.
 
     const pr=await fetch(SUPABASE_URL+'/rest/v1/profiles?id=eq.'+encodeURIComponent(u.id)+'&select=growth_points,growth_level,nickname',{headers:auth()});
     const p=pr.ok?(await pr.json())[0]:null;
