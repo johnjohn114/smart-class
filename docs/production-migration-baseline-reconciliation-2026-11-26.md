@@ -83,6 +83,21 @@ The isolated ACL regression test now asserts the service_role denial for these c
 
 This does not resolve the production migration-baseline blocker. PR #41 remains Draft and unmerged; no production migration or deployment was performed.
 
+
+## 2026-11-26 product decision: public individual leaderboard
+
+The project owner confirmed retaining the current individual public leaderboard design rather than replacing it with aggregate-only statistics. The intended public projection remains limited to:
+
+- member nickname;
+- attended count;
+- late count;
+- no-show count;
+- activity points.
+
+It continues to omit account IDs and internal check-in/completion point subtotals.
+
+This is a product-design decision for the candidate only. It is not evidence that every member whose statistics may appear has been informed or has authorized publication. Before production release, the operator must provide a clear notice describing the public fields and obtain any required member/guardian/school authorization or opt-in, as applicable. If that cannot be established, do not enable the public view. No production schema or data has been changed.
+
 ## Explicit non-actions
 
 - No production migration was applied.
