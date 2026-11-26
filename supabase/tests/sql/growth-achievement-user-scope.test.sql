@@ -54,10 +54,10 @@ DO $member_scope$
 DECLARE denied boolean;
 BEGIN
  denied:=false;
- BEGIN PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000002'); EXCEPTION WHEN raise_exception THEN IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END; END;
+ BEGIN PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000002'); EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF; END;
  IF NOT denied THEN RAISE EXCEPTION 'FAIL: member can check another member achievements'; END IF;
  denied:=false;
- BEGIN PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000002'); EXCEPTION WHEN raise_exception THEN IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END; END;
+ BEGIN PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000002'); EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM='沒有權限' THEN denied:=true; ELSE RAISE; END IF; END;
  IF NOT denied THEN RAISE EXCEPTION 'FAIL: member can check another member badges'; END IF;
 END $member_scope$;
 RESET ROLE;
