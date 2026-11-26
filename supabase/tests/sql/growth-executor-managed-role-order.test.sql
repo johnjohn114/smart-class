@@ -3,7 +3,7 @@
 DO $roles$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='migration_runner') THEN
-    CREATE ROLE migration_runner NOLOGIN CREATEROLE;
+    CREATE ROLE migration_runner NOLOGIN CREATEROLE BYPASSRLS;
   END IF;
 END
 $roles$;
