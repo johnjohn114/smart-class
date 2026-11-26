@@ -273,6 +273,15 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/protected-profile-growth-update.test.sql
 
+      - name: Run managed-role growth executor ownership-order regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE growth_executor_managed_role_test"
+          psql postgresql://postgres:postgres@localhost:5432/growth_executor_managed_role_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/growth-executor-managed-role-order.test.sql
+
       - name: Run SECURITY DEFINER execution-scope ACL regression test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
