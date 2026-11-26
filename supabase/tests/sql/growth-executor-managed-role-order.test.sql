@@ -26,7 +26,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog'
 AS $$ SELECT 2 $$;
 
 ALTER FUNCTION migration_role_probe.probe() OWNER TO growth_executor_probe;
-GRANT growth_executor_probe TO migration_runner WITH ADMIN OPTION, SET FALSE, INHERIT FALSE;
+GRANT growth_executor_probe TO migration_runner WITH SET FALSE, INHERIT FALSE;
 
 DO $ownership_check$
 DECLARE
