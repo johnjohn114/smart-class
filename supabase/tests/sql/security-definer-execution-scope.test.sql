@@ -29,7 +29,13 @@ BEGIN
  END LOOP;
  FOREACH nm IN ARRAY restrictn LOOP
   oid_:=to_regprocedure(format('public.%I()',nm));
-  IF oid_ IS NULL OR has_function_privilege('anon',oid_,'EXECUTE') OR has_function_privilege('authenticated',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Restricted function exposed: %',nm; END IF;
+  IF oid_ IS NULL
+     OR has_function_privilege('anon',oid_,'EXECUTE')
+     OR has_function_privilege('authenticated',oid_,'EXECUTE')
+     OR has_function_privilege('service_role',oid_,'EXECUTE')
+  THEN
+    RAISE EXCEPTION 'Restricted function exposed to anon/authenticated/service_role: %',nm;
+  END IF;
  END LOOP;
  FOREACH nm IN ARRAY helpern LOOP
   oid_:=to_regprocedure(format('public.%I()',nm));
