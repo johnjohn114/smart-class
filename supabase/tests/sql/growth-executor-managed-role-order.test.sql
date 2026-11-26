@@ -59,12 +59,7 @@ BEGIN
 END
 $ownership_check$;
 
+-- This test runs in a dedicated disposable database that is destroyed with
+-- the CI service container; leave its probe objects in place for job teardown.
 RESET ROLE;
--- Drop the probe function first because its owner is the executor role.
-DROP SCHEMA migration_role_probe CASCADE;
-REVOKE growth_executor_probe FROM migration_runner;
-REVOKE CREATE ON DATABASE growth_executor_managed_role_test FROM migration_runner;
-DROP ROLE growth_executor_probe;
-DROP ROLE migration_runner;
-
 \echo 'PASS: non-superuser migration role can replace before transfer and cannot replace after SET is revoked'
