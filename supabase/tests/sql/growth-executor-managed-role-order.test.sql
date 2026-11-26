@@ -62,6 +62,7 @@ $ownership_check$;
 
 RESET ROLE;
 REVOKE growth_executor_probe FROM migration_runner;
+REVOKE CREATE ON DATABASE growth_executor_managed_role_test FROM migration_runner;
 DROP SCHEMA migration_role_probe CASCADE;
 DROP ROLE growth_executor_probe;
 DROP ROLE migration_runner;
