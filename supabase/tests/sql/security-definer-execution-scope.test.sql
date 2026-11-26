@@ -48,7 +48,7 @@ BEGIN
   IF oid_ IS NULL OR has_function_privilege('anon',oid_,'EXECUTE') OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Helper ACL mismatch: %',nm; END IF;
  END LOOP;
  oid_:=to_regprocedure('public.increment_download_count()');
- IF oid_ IS NULL OR NOT has_function_privilege('anon',oid_,'EXECUTE') OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Public counter ACL mismatch'; END IF;
+ IF oid_ IS NULL OR NOT has_function_privilege('anon',oid_,'EXECUTE') OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') OR has_function_privilege('service_role',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Public counter ACL mismatch'; END IF;
 END $check$;
 CREATE TABLE public.trigger_probe(id integer);
 CREATE TRIGGER trigger_probe_before_insert BEFORE INSERT ON public.trigger_probe FOR EACH ROW EXECUTE FUNCTION public.assign_member_no_and_nickname();
