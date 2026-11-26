@@ -98,6 +98,17 @@ It continues to omit account IDs and internal check-in/completion point subtotal
 
 This is a product-design decision for the candidate only. It is not evidence that every member whose statistics may appear has been informed or has authorized publication. Before production release, the operator must provide a clear notice describing the public fields and obtain any required member/guardian/school authorization or opt-in, as applicable. If that cannot be established, do not enable the public view. No production schema or data has been changed.
 
+
+## 2026-11-27 read-only reconciliation: public object inventory and exact-head CI
+
+- Re-ran the public-schema inventory using both PostgreSQL catalogs and the Supabase table-list interface.
+- PostgreSQL reports **44 ordinary tables and 1 view** in `public`.
+- The Supabase table-list interface returned the same 44 table names; a name-by-name comparison found no missing or extra table. The earlier apparent 42-versus-44 discrepancy is therefore resolved as a stale/partial prior count, not a current inventory mismatch.
+- All 44 returned public tables report RLS enabled. This confirms the RLS-enabled flag only; it does not prove that policies are correct or that every table has safe grants.
+- The one public view is `activity_member_stats`. The candidate-only `activity_public_leaderboard` is not part of production inventory.
+- Candidate head `4b5d85978de4122e8e564d7e3b96f633f7270a49`: both workflows completed successfully. Maintenance Edge Function Checks Run `45854369279` passed all 3 jobs (isolated PostgreSQL RPC/RLS and migration tests, Deno checks, GoTrue/PostgREST integration). Notification Page Checks Run `45854368962` passed both jobs (notification contracts and isolated browser preview). Total: **5/5 jobs passed on this exact commit**.
+- The candidate remains Draft and unmerged. These isolated CI results and read-only catalog checks do not authorize production migration or deployment. Application migration provenance/baseline remains unresolved.
+
 ## Explicit non-actions
 
 - No production migration was applied.
