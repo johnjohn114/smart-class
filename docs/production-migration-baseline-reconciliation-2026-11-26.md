@@ -7,7 +7,7 @@ This is a read-only comparison of the connected Supabase production catalog with
 Project ref: `fsoowongtavlsrwvzbze`  
 Repository: `johnjohn114/smart-class`  
 PR: #41  
-Candidate head at time of inspection: `2202165bc8bd8a30916c1dca97e1c0733f56abca`
+Candidate head after 2026-11-26 ACL follow-up: `9b04f34fe4ef349bf3a0a3a17c087c24926b3643`
 
 ## Executive result
 
@@ -65,6 +65,23 @@ These observations support the need for the candidate ACL work, but do not by th
 3. Reconcile the effects of migrations `202611160001` and `202611170001` against live default ACLs, function ACLs, triggers, and service-role dependencies before any production execution.
 4. Validate candidate migrations `202611250001`–`202611250005` against the verified baseline, including ownership transfer, function caller grants, RLS behavior, and the public leaderboard data-exposure decision.
 5. Produce a reviewed forward plan and rollback/restore plan. Do not treat reverse SQL alone as a safe rollback for data-changing operations.
+
+
+## 2026-11-26 follow-up: service-role RPC scope and CI
+
+The combined candidate removes direct `service_role` EXECUTE from the application-facing SECURITY DEFINER RPC classes in migration `202611250004_security_definer_execution_scope_guard.sql`:
+
+- Admin and member RPCs: EXECUTE remains granted to `authenticated`; direct `service_role` EXECUTE is revoked.
+- Trigger-only routines: EXECUTE is revoked from PUBLIC, anon, authenticated, and service_role; trigger dispatch is covered by the isolated SQL regression test.
+- Internal growth routines: direct EXECUTE is granted to `postgres` for existing postgres-owned SECURITY DEFINER callers, and revoked from service_role.
+- Admin helper functions: authenticated access remains; direct service_role EXECUTE is revoked.
+- Public download counter: anon/authenticated access remains; direct service_role EXECUTE is revoked.
+
+A source scan of the browser clients and reviewed Edge Functions found that browser RPC requests use the signed-in user's JWT; the reviewed Edge Functions perform privileged Auth/table operations and do not directly call this RPC set. This is evidence for the reviewed call sites, not a substitute for rechecking every deployed function and external integration before production release.
+
+The isolated ACL regression test now asserts the service_role denial for these classes. On candidate head `9b04f34fe4ef349bf3a0a3a17c087c24926b3643`, all five GitHub checks completed successfully: PostgreSQL RPC/RLS, GoTrue/PostgREST JWT integration, Deno, notification contract, and isolated browser preview.
+
+This does not resolve the production migration-baseline blocker. PR #41 remains Draft and unmerged; no production migration or deployment was performed.
 
 ## Explicit non-actions
 
