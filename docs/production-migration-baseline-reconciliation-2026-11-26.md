@@ -109,6 +109,15 @@ This is a product-design decision for the candidate only. It is not evidence tha
 - Candidate head `4b5d85978de4122e8e564d7e3b96f633f7270a49`: both workflows completed successfully. Maintenance Edge Function Checks Run `45854369279` passed all 3 jobs (isolated PostgreSQL RPC/RLS and migration tests, Deno checks, GoTrue/PostgREST integration). Notification Page Checks Run `45854368962` passed both jobs (notification contracts and isolated browser preview). Total: **5/5 jobs passed on this exact commit**.
 - The candidate remains Draft and unmerged. These isolated CI results and read-only catalog checks do not authorize production migration or deployment. Application migration provenance/baseline remains unresolved.
 
+
+## 2026-11-27 read-only policy and helper-table follow-up
+
+- The live public schema currently has 98 RLS policies across 42 of the 44 public tables. The two RLS-enabled tables with no policy rows are `member_no_counter` and `visitor_profiles`. RLS being enabled with no policies means ordinary Data API roles do not gain row access through a policy; it does not by itself establish that the tables are unused or safe to change.
+- Current grants show `member_no_counter` is granted to `service_role` with broad table privileges, while `visitor_profiles` has broad grants to `anon`, `authenticated`, and `service_role`. Because `visitor_profiles` has RLS enabled and no policies, those grants alone do not make rows visible through RLS-protected access.
+- The `member_no_counter` table has columns `id boolean`, `next_no integer`, `compacted boolean`, and `repair_version integer`. Its live database dependency is the SECURITY DEFINER trigger function `assign_member_no_and_nickname()`, attached as a BEFORE INSERT trigger on `public.profiles`; that function increments the counter when creating a visitor profile. The trigger function uses an empty search_path and schema-qualified table references.
+- A read-only scan of public function definitions found no function reference to `visitor_profiles`; no trigger is attached to either helper table. This is not a complete proof that no frontend, Edge Function, or external integration accesses `visitor_profiles`.
+- No grants, policies, tables, functions, or triggers were changed. Before narrowing `member_no_counter` grants or removing/retiring `visitor_profiles`, inspect all browser/Edge Function/external call sites and confirm the visitor-account creation flow end-to-end.
+
 ## Explicit non-actions
 
 - No production migration was applied.
