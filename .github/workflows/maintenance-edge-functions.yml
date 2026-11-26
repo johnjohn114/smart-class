@@ -273,6 +273,15 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/protected-profile-growth-update.test.sql
 
+      - name: Run SECURITY DEFINER execution-scope ACL regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE security_definer_acl_test"
+          psql postgresql://postgres:postgres@localhost:5432/security_definer_acl_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/security-definer-execution-scope.test.sql
+
       - name: Run growth achievement and badge user-scope regression test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
