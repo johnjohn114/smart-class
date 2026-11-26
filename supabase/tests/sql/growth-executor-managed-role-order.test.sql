@@ -5,17 +5,16 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='migration_runner') THEN
     CREATE ROLE migration_runner NOLOGIN CREATEROLE;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='growth_executor_probe') THEN
-    CREATE ROLE growth_executor_probe NOLOGIN BYPASSRLS;
-  END IF;
 END
 $roles$;
 
+-- Create the executor while acting as the same non-superuser CREATEROLE
+-- migration role used by the managed project, not as the CI superuser.
+SET ROLE migration_runner;
+CREATE ROLE growth_executor_probe NOLOGIN BYPASSRLS;
 CREATE SCHEMA migration_role_probe;
 GRANT USAGE, CREATE ON SCHEMA migration_role_probe TO migration_runner, growth_executor_probe;
-GRANT growth_executor_probe TO migration_runner WITH ADMIN OPTION, SET TRUE, INHERIT FALSE;
-
-SET ROLE migration_runner;
+GRANT growth_executor_probe TO migration_runner WITH SET TRUE, INHERIT FALSE;
 CREATE FUNCTION migration_role_probe.probe() RETURNS integer
 LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog'
 AS $$ SELECT 1 $$;
