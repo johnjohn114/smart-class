@@ -37,6 +37,12 @@ BEGIN
     RAISE EXCEPTION 'Restricted function exposed to anon/authenticated/service_role: %',nm;
   END IF;
  END LOOP;
+ FOREACH nm IN ARRAY adminn||membern||helpern LOOP
+  oid_:=to_regprocedure(format('public.%I()',nm));
+  IF oid_ IS NULL OR has_function_privilege('service_role',oid_,'EXECUTE') THEN
+    RAISE EXCEPTION 'service_role must not directly execute application RPC: %',nm;
+  END IF;
+ END LOOP;
  FOREACH nm IN ARRAY helpern LOOP
   oid_:=to_regprocedure(format('public.%I()',nm));
   IF oid_ IS NULL OR has_function_privilege('anon',oid_,'EXECUTE') OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Helper ACL mismatch: %',nm; END IF;
