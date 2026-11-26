@@ -21,7 +21,7 @@ BEGIN
   END LOOP;
   FOREACH nm IN ARRAY admin_names || member_names LOOP
     FOR oid_ IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef AND p.proname=nm LOOP
-      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon',oid_);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, service_role',oid_);
       EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',oid_);
     END LOOP;
   END LOOP;
@@ -38,7 +38,7 @@ BEGIN
   END LOOP;
   FOREACH nm IN ARRAY helper_names LOOP
     FOR oid_ IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef AND p.proname=nm LOOP
-      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon',oid_);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, service_role',oid_);
       EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',oid_);
     END LOOP;
   END LOOP;
