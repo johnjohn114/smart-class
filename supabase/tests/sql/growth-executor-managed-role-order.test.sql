@@ -60,9 +60,10 @@ END
 $ownership_check$;
 
 RESET ROLE;
+-- Drop the probe function first because its owner is the executor role.
+DROP SCHEMA migration_role_probe CASCADE;
 REVOKE growth_executor_probe FROM migration_runner;
 REVOKE CREATE ON DATABASE growth_executor_managed_role_test FROM migration_runner;
-DROP SCHEMA migration_role_probe CASCADE;
 DROP ROLE growth_executor_probe;
 DROP ROLE migration_runner;
 
