@@ -137,3 +137,14 @@ Read-only catalog checks of `public.visitor_profiles` confirmed:
 - Candidate-branch browser files `app.js` and `admin.js`, and the reviewed visitor-related Edge Functions, did not contain a direct `visitor_profiles` reference. GitHub code search on the repository's default branch also returned no matching source file. These searches are limited evidence; they do not rule out older branches, external integrations, manually issued SQL, or clients not represented in the inspected repository.
 
 **Disposition:** do not delete the table or change grants/policies yet. First verify the deployed visitor-account lifecycle and check any external consumers. The table may be legacy, but the evidence is not sufficient to classify it as safely removable. No production object or data was changed.
+
+## 2026-11-27 visitor-account lifecycle verification
+
+A further read-only check of live database objects and the candidate visitor Edge Functions found:
+
+- The deployed `visitor_accounts` table has an AFTER INSERT trigger `trg_visitor_accounts_profile` that calls `ensure_visitor_profile()`; that function inserts/upserts a visitor-role row into `public.profiles`.
+- `public.profiles` also has a BEFORE INSERT trigger `trg_profiles_member_no` that assigns visitor member number/nickname using `member_no_counter`.
+- The inspected candidate `create-visitor` and `reset-visitor-password` Edge Functions use `profiles` and `visitor_accounts`; neither uses `visitor_profiles`.
+- This establishes that the inspected active visitor-account creation/reset path is centered on `profiles` + `visitor_accounts`, not `visitor_profiles`. It does not establish that all deployed clients or external integrations have stopped using the separate table.
+
+**Updated assessment:** `visitor_profiles` appears disconnected from the currently inspected visitor-account lifecycle and is a plausible legacy table. Keep it in a **retirement candidate** state only. Before removal, confirm no live external consumer and preserve a rollback/export plan. Do not drop it or alter grants in this audit. No production changes were made.
