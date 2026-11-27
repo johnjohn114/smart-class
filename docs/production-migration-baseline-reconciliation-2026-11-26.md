@@ -229,3 +229,34 @@ These are source-level findings from the current function definitions; no unauth
 - Its current ACL still permits anon, authenticated, and service_role EXECUTE. Migration 202611250004 places it in the admin allowlist, revoking PUBLIC/anon/service_role and granting authenticated execution. This preserves the intended admin UI call while removing direct anonymous/backend-role RPC exposure; the internal admin check remains necessary.
 - The current `admin_apply_competition_rewards`, `admin_mark_competition_member_attendance`, `admin_settle_competition`, and `admin_reset_growth_member` bodies still contain direct growth_points/growth_level updates. Migration 202611250001 replaces these bodies with calls to award_growth_points/refresh_growth_level under the dedicated restricted owner. This is a material reason not to apply the field-protection trigger change without the corresponding writer rewrites in the same transaction.
 - The browser admin UI calls admin_adjust_growth_points from admin.js using the authenticated request headers. No direct Edge Function call to this RPC was found in the audited current source set.
+## 2026-11-27 frontend/RPC compatibility cross-check
+
+### Browser RPC inventory
+
+- Scanned app.js and admin.js for PostgREST /rest/v1/rpc calls. Found 18 distinct browser RPC names. Every one is represented in the candidate Migration 004 ACL allowlist: admin_activity_analytics, admin_adjust_growth_points, admin_delete_video, admin_grant_competition_reward, admin_mark_competition_member_attendance, admin_promote_competition_waitlist, admin_reset_growth_member, admin_settle_competition, admin_upsert_video, check_growth_achievements, checkin_competition, close_my_support_ticket, complete_growth_task, increment_download_count, join_competition_waitlist, record_growth_activity, redeem_growth_reward, and use_growth_coupon.
+- The browser request payloads inspected match the live/candidate parameter names for the calls found, including p_competition_id, p_user_id, p_status, p_note, p_task_code, p_reward_id, p_coupon_id, and p_file_id.
+- Candidate Migration 004 keeps authenticated execution for the browser's member/admin RPCs, removes anon and service_role execution for those allowlisted functions, and keeps anon execution only for increment_download_count and is_admin() where required by the existing public-facing policies.
+
+### Signature and response-shape compatibility
+
+- Read-only catalog comparison confirmed the live and candidate signatures/return types align for the inspected replacements: checkin_competition(uuid,text) -> jsonb; admin_apply_competition_rewards(uuid) -> jsonb; admin_mark_competition_member_attendance(uuid,uuid,text,text) -> jsonb; admin_reset_growth_member(uuid,text) -> jsonb; admin_settle_competition(uuid) -> jsonb; award_growth_points(uuid,integer,text,text,text,text,uuid) -> integer; admin_delete_growth_reward(uuid) -> jsonb; admin_upsert_growth_reward(19 parameters) -> jsonb; check_growth_achievements(uuid) -> integer; check_activity_badges(uuid) -> jsonb.
+- The browser consumes the existing JSON keys from checkin_competition (already, points_awarded), admin_settle_competition (already, completed, no_show, completion_points), admin_mark_competition_member_attendance (status, points_awarded), and admin_reset_growth_member (reset_no, before_points, before_level). Candidate replacements preserve these keys.
+- app.js member activity history selects attended_count, late_count, no_show_count, and activity_points from activity_member_stats. Migration 005 preserves those fields while restricting the view to authenticated/service_role SELECT and enabling security_invoker.
+- app.js public leaderboard selects nickname, attended_count, late_count, no_show_count, and activity_points from activity_public_leaderboard. Candidate Migration 005 defines these exact columns and grants public SELECT to anon/authenticated/service_role. The view intentionally exposes nickname and activity aggregates; product/privacy approval is still required.
+
+### Security findings validated against live definitions
+
+- Live admin_delete_growth_reward and admin_upsert_growth_reward use caller_role <> 'admin'; if no profile row is found, caller_role is NULL and the IF condition does not reject. Candidate Migration 002 adds auth.uid() IS NULL and caller_role IS DISTINCT FROM 'admin'.
+- Live check_growth_achievements accepts a supplied p_user_id without a self/admin target check. Candidate Migration 003 requires auth.uid() and rejects cross-user targets unless public.is_admin() is true. check_activity_badges receives the same explicit target-scope guard.
+- Other inspected admin RPCs check the caller's profile role or is_admin/is_admin_user before mutating data. The two NULL-sensitive reward RPCs above are the identified exception addressed by Migration 002.
+- The candidate growth executor's permission model is consistent with the inspected refresh_growth_level body: it needs SELECT on profiles/growth_levels and UPDATE of profiles.growth_level; award_growth_points additionally needs profile growth_points update, growth transaction SELECT/INSERT, and notifications INSERT. These are the privileges granted by Migration 001. The function owner transfer and trigger exception still require exact managed-Supabase rehearsal.
+
+### Remaining compatibility gates
+
+- No live production RPC was executed or mutated for this audit; function bodies and catalog metadata were read only.
+- The 18-call inventory covers repository app.js/admin.js only. It does not prove the absence of external clients, older deployed bundles, scripts, or integrations using service_role or direct RPCs.
+- Candidate Migration 004's allowlist is therefore compatible with the inspected current browser calls, but service_role revocation must remain pending until external consumers are confirmed absent or migrated.
+- The public leaderboard requires an explicit product/privacy decision before release.
+- This is a source/catalog compatibility review, not an end-to-end runtime test. Exact managed Supabase rehearsal and the production baseline/order gate remain open.
+
+- PR #41 remains Draft/unmerged; no production SQL changes, deployment, or paid service occurred.
