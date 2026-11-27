@@ -72,7 +72,11 @@ BEGIN
   WHERE n.nspname='public' AND p.prosecdef
     AND p.proname = ANY(adminn||membern||restrictn||helpern||ARRAY['increment_download_count'])
  LOOP
-  IF NOT ('search_path=pg_catalog, public, auth, pg_temp'=ANY(coalesce((SELECT proconfig FROM pg_proc WHERE oid=oid_::oid),ARRAY[]::text[]))) THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p, unnest(coalesce(p.proconfig,ARRAY[]::text[])) cfg
+    WHERE p.oid=oid_::oid
+      AND replace(cfg,'"','')='search_path=pg_catalog, public, auth, pg_temp'
+  ) THEN
     RAISE EXCEPTION 'SECURITY DEFINER search_path is not hardened: %',oid_;
   END IF;
  END LOOP;
