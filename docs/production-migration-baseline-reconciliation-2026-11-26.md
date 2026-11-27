@@ -222,3 +222,10 @@ These are source-level findings from the current function definitions; no unauth
 
 - All database checks in this section were read-only catalog/function-definition queries.
 - No production data, function, grants, schema, or policy was changed. PR #41 remains Draft/unmerged and the website was not deployed.
+
+### admin_adjust_growth_points follow-up
+
+- The live `admin_adjust_growth_points(uuid, integer, text)` function checks `public.is_admin()`, rejects a blank reason, and delegates the point change to `public.award_growth_points(..., 'admin', ..., auth.uid())`; it does not directly update profiles itself.
+- Its current ACL still permits anon, authenticated, and service_role EXECUTE. Migration 202611250004 places it in the admin allowlist, revoking PUBLIC/anon/service_role and granting authenticated execution. This preserves the intended admin UI call while removing direct anonymous/backend-role RPC exposure; the internal admin check remains necessary.
+- The current `admin_apply_competition_rewards`, `admin_mark_competition_member_attendance`, `admin_settle_competition`, and `admin_reset_growth_member` bodies still contain direct growth_points/growth_level updates. Migration 202611250001 replaces these bodies with calls to award_growth_points/refresh_growth_level under the dedicated restricted owner. This is a material reason not to apply the field-protection trigger change without the corresponding writer rewrites in the same transaction.
+- The browser admin UI calls admin_adjust_growth_points from admin.js using the authenticated request headers. No direct Edge Function call to this RPC was found in the audited current source set.
