@@ -1,5 +1,11 @@
 -- Candidate-only SECURITY DEFINER ACL hardening. Do not apply to production
 -- until the live migration baseline and all function call sites are reconciled.
+-- This is the final ACL layer and intentionally supersedes the temporary
+-- service_role grants in migrations 002/003: application RPCs must run with
+-- the signed-in user's authenticated JWT so auth.uid() and in-function
+-- authorization checks identify the real caller. No in-repository
+-- service_role Edge Function call sites were found in the audited source set;
+-- external integrations remain outside that inventory.
 BEGIN;
 DO $acl$
 DECLARE
