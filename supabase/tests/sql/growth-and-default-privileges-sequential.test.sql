@@ -151,6 +151,8 @@ CREATE FUNCTION auth.sequential_default_function() RETURNS integer
 LANGUAGE sql AS 'SELECT 1';
 CREATE FUNCTION storage.sequential_default_function() RETURNS integer
 LANGUAGE sql AS 'SELECT 1';
+CREATE FUNCTION extensions.sequential_default_function() RETURNS integer
+LANGUAGE sql AS 'SELECT 1';
 
 DO $combined_defaults$
 BEGIN
