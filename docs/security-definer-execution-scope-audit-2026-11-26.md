@@ -13,6 +13,12 @@ Read-only production inspection found 36 public SECURITY DEFINER functions. At a
 
 Migration 202611250004 and its disposable SQL test implement/test the ACL classification. This is a candidate only; function inventory counts fail closed if production differs.
 
+### service_role compatibility decision
+
+Migrations 202611250002 and 202611250003 temporarily grant `service_role` EXECUTE on four RPCs (`admin_delete_growth_reward`, `admin_upsert_growth_reward`, `check_growth_achievements`, and `check_activity_badges`). Migration 202611250004 intentionally supersedes those grants and removes direct `service_role` execution from all application RPCs. The intended caller is the signed-in user through the `authenticated` role, so the function's `auth.uid()` and admin/self-scope checks evaluate the actual user identity rather than a service key.
+
+The candidate ACL regression test asserts that `service_role` cannot directly execute the admin/member RPC allowlist. The audited repository source set found no direct calls to these four RPCs from the reviewed service-role Edge Functions. Production `pg_stat_statements` shows activity for the member achievement/badge RPCs, but does not identify the caller role; external integrations and manually issued API calls are not covered. Therefore this is a deliberate least-privilege candidate policy, not proof that no external service-role dependency exists. Reconcile any external consumers before release.
+
 ## Preconditions and caveats
 
 The check_growth_achievements and check_activity_badges target-user authorization fix is separately handled by migration 202611250003. ACL restrictions do not replace function-body checks. The test uses stub functions and verifies grants/trigger dispatch, not full business logic. The production migration ledger is still unresolved, and service_role dependencies/default privileges require separate review.
