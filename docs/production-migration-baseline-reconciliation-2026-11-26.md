@@ -184,3 +184,41 @@ A further read-only comparison was made between the two existing growth/default-
 - Notification Page Checks Run #63: 2/2 jobs passed.
 - Total: **5/5 jobs passed** on the exact candidate head after correcting the sequential fixture to create its extensions-schema probe before asserting its ACL.
 - These are isolated CI results only. Production remains read-only, PR #41 remains Draft/unmerged, and no deployment occurred.
+
+## 2026-11-27 growth SECURITY DEFINER function and caller audit
+
+Read-only production function-definition checks were compared with migrations 202611160001 and 202611250001–202611250004, then cross-checked against app.js, admin.js, and the currently inspected Supabase Edge Function source files.
+
+### Confirmed live authorization gaps addressed by candidate migrations
+
+- public.admin_delete_growth_reward(uuid) and public.admin_upsert_growth_reward(...): current live bodies use `caller_role <> 'admin'`. When auth.uid() has no matching profile, caller_role is NULL and the IF condition is not true, so the check does not reject the caller. Migration 202611250002 changes this to an explicit non-null auth identity plus `IS DISTINCT FROM 'admin'`.
+- public.check_growth_achievements(uuid): current live body accepts a caller-supplied p_user_id without first requiring auth.uid() or checking that the target is the caller/admin. Migration 202611250003 adds the authenticated identity and target-scope guard.
+- public.check_activity_badges(uuid): current live body has a target-user/admin check and rejects a null target; migration 202611250003 makes the identity/target-scope checks explicit and consistent.
+
+These are source-level findings from the current function definitions; no unauthenticated exploit test was run against production.
+
+### Protected growth-field write paths
+
+- The live function scan identified direct writes to profiles.growth_points/growth_level in admin_apply_competition_rewards, admin_settle_competition, admin_reset_growth_member, admin_mark_competition_member_attendance, award_growth_points, and refresh_growth_level. Some other flows call award_growth_points or refresh_growth_level rather than writing the profile columns themselves.
+- Migration 202611250001 replaces the inspected competition/admin writer bodies so they call the restricted growth functions instead of directly updating protected profile columns. It also transfers award_growth_points and refresh_growth_level to the dedicated NOLOGIN BYPASSRLS role and restricts direct execution.
+- The existing admin_adjust_growth_points path was found in admin.js; its exact database body and transaction/logging behavior remain a separate item to verify before release.
+
+### Caller inventory and ACL compatibility
+
+- Candidate ACL migration 202611250004's 36 named SECURITY DEFINER functions all currently exist exactly once in the production public schema, matching its expected inventory check.
+- Browser call-site scan found member RPC calls in app.js for checkin_competition, close_my_support_ticket, join_competition_waitlist, record_growth_activity, complete_growth_task, check_growth_achievements, redeem_growth_reward, use_growth_coupon, and increment_download_count.
+- Browser call-site scan found admin RPC calls in admin.js for admin_activity_analytics, admin_adjust_growth_points, admin_cancel_order, admin_complete_order, admin_delete_video, admin_grant_competition_reward, admin_mark_competition_member_attendance, admin_mark_order_paid, admin_promote_competition_waitlist, admin_reset_growth_member, admin_settle_competition, and admin_upsert_video.
+- The audited Edge Function files did not contain direct calls to the 36 functions in the candidate ACL inventory. This is limited to the current repository source set and does not rule out external clients, older deployments, manual SQL, or integrations outside the repository.
+- The public-facing RLS helper is_admin() must retain anon EXECUTE because six existing public-read policies invoke it; migration 004 explicitly preserves this narrow grant.
+
+### Remaining release checks
+
+- Inspect admin_adjust_growth_points and every remaining profile growth-field writer for transaction consistency, authorization, idempotency, and audit logging.
+- Compare all 36 live function definitions with candidate replacements/guards and verify every browser call still uses the expected authenticated JWT.
+- Confirm no external service_role or direct RPC consumers exist before relying on the final ACL allowlist.
+- Do not apply migrations to production until the baseline/order issue is resolved and an exact managed-Supabase rehearsal is available.
+
+### Scope
+
+- All database checks in this section were read-only catalog/function-definition queries.
+- No production data, function, grants, schema, or policy was changed. PR #41 remains Draft/unmerged and the website was not deployed.
