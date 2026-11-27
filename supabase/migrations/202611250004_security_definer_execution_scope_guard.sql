@@ -56,5 +56,13 @@ BEGIN
     EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, service_role',oid_);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon, authenticated',oid_);
   END LOOP;
+  FOR oid_ IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef
+    AND p.proname = ANY(admin_names || member_names || trigger_names || internal_names || helper_names || ARRAY['increment_download_count'])
+  LOOP
+    -- Put pg_temp last: PostgreSQL otherwise searches it before ordinary
+    -- schemas for relation/type names inside SECURITY DEFINER functions.
+    -- pg_catalog first, followed by the only trusted application schemas.
+    EXECUTE format('ALTER FUNCTION %s SET search_path TO pg_catalog, public, auth, pg_temp', oid_);
+  END LOOP;
 END $acl$;
 COMMIT;
