@@ -23,7 +23,11 @@ DECLARE nm text;
 BEGIN
  FOREACH nm IN ARRAY alln LOOP
   IF nm=ANY(trg) THEN
-   EXECUTE format('CREATE FUNCTION public.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $body$ BEGIN RETURN NEW; END $body   EXECUTE 'CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '''' AS $body$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role=''admin'') $body$';
+   EXECUTE format('CREATE FUNCTION public.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $body$ BEGIN RETURN NEW; END $body$',nm);
+  ELSIF nm=ANY(ARRAY['award_growth_points','refresh_growth_level']) THEN
+   EXECUTE format('CREATE FUNCTION public.%I() RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path TO %L AS $body$ SELECT true $body$',nm,'pg_catalog, public, auth, pg_temp');
+  ELSIF nm='is_admin' THEN
+   EXECUTE format('CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO %L AS $body$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role=''admin'') $body$','');
   ELSE
    EXECUTE format('CREATE FUNCTION public.%I() RETURNS boolean LANGUAGE sql SECURITY DEFINER AS $body$ SELECT true $body$',nm);
   END IF;
