@@ -32,6 +32,29 @@ A read-only review of the live definitions for the 16 admin RPCs and 10 member R
 
 These findings are based on the inspected live function definitions, policy catalog, candidate migrations and disposable test coverage. They do not establish that every external client or manual SQL integration has been inventoried, nor do isolated tests substitute for a production-baseline rehearsal.
 
+## Production baseline reconciliation — read-only, 2026-11-27
+
+The Supabase migration-list API currently returns an empty migration list. The expected application migration ledger relation `supabase_migrations.schema_migrations` is also absent. Consequently, repository migration filenames cannot be treated as proof of what ran in production.
+
+Observed production catalog facts:
+
+- Public schema currently contains 44 tables and one view. All 44 tables have RLS enabled; none has FORCE ROW LEVEL SECURITY. The single view is `activity_member_stats`.
+- `activity_member_stats` currently has no `security_invoker=true` option and its view definition exposes `user_id`, attendance totals, check-in points, completion points and activity points. The current role grants include every table privilege (including SELECT, INSERT, UPDATE, DELETE and TRUNCATE) for `anon`, `authenticated` and `service_role`. Candidate migration 202611250005 is intended to revoke access to this internal view and replace public access with a narrower leaderboard projection. This production exposure must be treated as a release blocker until the migration is safely rehearsed and its public data disclosure is approved.
+- `activity_public_leaderboard` does not currently exist. The `growth_points_executor` role does not currently exist. The `private` maintenance schema and its maintenance tables do not currently exist.
+- The live `app_releases` table matches the shape and policies in `202610310001_app_releases.sql` (including `created_by`, and without `is_latest`). The separate `20261031_app_releases.sql` file defines a conflicting shape and must not be applied as a second migration.
+- PostgreSQL default privileges for owner `postgres` in `public` still grant table, sequence and function privileges to API roles. This does not match the intended revocations in repository migrations `202611160001_growth_function_authorization_hardening.sql` and `202611170001_default_privileges_and_trigger_hardening.sql`. The live defaults need explicit reconciliation; do not infer either migration was applied from its presence in Git.
+- The live `activity_member_stats` view is not security-invoker, and the above API-role grants remain broad. This independently confirms that the candidate view-hardening migration has not been applied.
+
+Release gates:
+
+1. Obtain an authoritative schema-only production dump or equivalent complete catalog snapshot and preserve it as the baseline.
+2. Reconcile the duplicate app-release migration pair; retain the live-matching migration as the canonical history and mark the conflicting variant as non-applicable.
+3. Reconcile the observed default ACLs and current trigger/function definitions with migrations 202611160001 and 202611170001, including which statements were applied manually, partially, or not at all.
+4. Rehearse candidate migrations 001–005 against a disposable PostgreSQL/Supabase-compatible baseline that reproduces the live schema, roles, ownership, ACLs, triggers, views and RLS policies.
+5. Decide and document consent/notice for the intentionally public per-member leaderboard before making its view available.
+
+These observations are read-only. No production SQL, ACL, schema, data, deployment or PR merge was changed.
+
 ## Preconditions and caveats
 
 The check_growth_achievements and check_activity_badges target-user authorization fix is separately handled by migration 202611250003. ACL restrictions do not replace function-body checks. The test uses stub functions and verifies grants/trigger dispatch, not full business logic. The production migration ledger is still unresolved, and service_role dependencies/default privileges require separate review.
