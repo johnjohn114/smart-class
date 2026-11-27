@@ -186,7 +186,9 @@ BEGIN
  END LOOP;
  FOREACH nm IN ARRAY helpern LOOP
   oid_:=to_regprocedure(format('public.%I()',nm));
-  IF oid_ IS NULL OR has_function_privilege('anon',oid_,'EXECUTE') OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Helper ACL mismatch: %',nm; END IF;
+  IF oid_ IS NULL OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Helper ACL mismatch: %',nm; END IF;
+  IF nm='is_admin' AND NOT has_function_privilege('anon',oid_,'EXECUTE') THEN RAISE EXCEPTION 'anon must execute is_admin for public RLS policies'; END IF;
+  IF nm='is_admin_user' AND has_function_privilege('anon',oid_,'EXECUTE') THEN RAISE EXCEPTION 'anon must not execute is_admin_user'; END IF;
  END LOOP;
  oid_:=to_regprocedure('public.increment_download_count()');
  IF oid_ IS NULL OR NOT has_function_privilege('anon',oid_,'EXECUTE') OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') OR has_function_privilege('service_role',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Public counter ACL mismatch'; END IF;
@@ -200,8 +202,83 @@ DO $deny$ DECLARE denied boolean:=false; BEGIN
  IF NOT denied THEN RAISE EXCEPTION 'anon can directly execute trigger function'; END IF;
 END $deny$;
 RESET ROLE;
-\echo 'PASS: SECURITY DEFINER ACL classes and trigger dispatch'
-;
+
+-- Reproduce the six live PUBLIC policies that invoke is_admin().
+CREATE TABLE public.competitions(id integer PRIMARY KEY, published boolean NOT NULL, published_at timestamptz);
+CREATE TABLE public.competition_results(id integer PRIMARY KEY, competition_id integer REFERENCES public.competitions(id), user_id uuid);
+CREATE TABLE public.forms(id integer PRIMARY KEY, published boolean NOT NULL);
+CREATE TABLE public.form_questions(id integer PRIMARY KEY, form_id integer REFERENCES public.forms(id));
+CREATE TABLE public.products(id integer PRIMARY KEY, active boolean NOT NULL);
+CREATE TABLE public.quick_links(id integer PRIMARY KEY, label text NOT NULL);
+
+INSERT INTO public.competitions VALUES (1,true,NULL),(2,false,NULL);
+INSERT INTO public.competition_results VALUES (1,1,NULL),(2,2,NULL);
+INSERT INTO public.forms VALUES (1,true),(2,false);
+INSERT INTO public.form_questions VALUES (1,1),(2,2);
+INSERT INTO public.products VALUES (1,true),(2,false);
+INSERT INTO public.quick_links VALUES (1,'admin-only');
+
+ALTER TABLE public.competitions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.competition_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.form_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_links ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY competition_public_read ON public.competitions FOR SELECT TO PUBLIC
+USING (is_admin() OR (published = true AND (published_at IS NULL OR published_at <= now())));
+CREATE POLICY competition_result_public_read ON public.competition_results FOR SELECT TO PUBLIC
+USING (is_admin() OR user_id = auth.uid() OR EXISTS (
+  SELECT 1 FROM public.competitions c
+  WHERE c.id = competition_results.competition_id
+    AND c.published = true
+    AND (c.published_at IS NULL OR c.published_at <= now())
+));
+CREATE POLICY forms_public_read ON public.forms FOR SELECT TO PUBLIC
+USING (published = true OR is_admin());
+CREATE POLICY form_questions_public_read ON public.form_questions FOR SELECT TO PUBLIC
+USING (EXISTS (
+  SELECT 1 FROM public.forms f
+  WHERE f.id = form_questions.form_id AND (f.published = true OR is_admin())
+));
+CREATE POLICY product_public_read ON public.products FOR SELECT TO PUBLIC
+USING (is_admin() OR active = true);
+CREATE POLICY quick_links_admin_all ON public.quick_links FOR ALL TO PUBLIC
+USING (is_admin()) WITH CHECK (is_admin());
+
+GRANT SELECT ON public.competitions, public.competition_results, public.forms,
+  public.form_questions, public.products, public.quick_links TO anon;
+GRANT INSERT ON public.quick_links TO anon;
+
+SET ROLE anon;
+DO $anonymous_rls$
+DECLARE n integer;
+BEGIN
+  IF public.is_admin() IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'Anonymous is_admin() must return false';
+  END IF;
+  SELECT count(*) INTO n FROM public.competitions;
+  IF n <> 1 THEN RAISE EXCEPTION 'Anonymous competition visibility expected 1 row, got %',n; END IF;
+  SELECT count(*) INTO n FROM public.competition_results;
+  IF n <> 1 THEN RAISE EXCEPTION 'Anonymous competition result visibility expected 1 row, got %',n; END IF;
+  SELECT count(*) INTO n FROM public.forms;
+  IF n <> 1 THEN RAISE EXCEPTION 'Anonymous form visibility expected 1 row, got %',n; END IF;
+  SELECT count(*) INTO n FROM public.form_questions;
+  IF n <> 1 THEN RAISE EXCEPTION 'Anonymous form question visibility expected 1 row, got %',n; END IF;
+  SELECT count(*) INTO n FROM public.products;
+  IF n <> 1 THEN RAISE EXCEPTION 'Anonymous product visibility expected 1 row, got %',n; END IF;
+  SELECT count(*) INTO n FROM public.quick_links;
+  IF n <> 0 THEN RAISE EXCEPTION 'Anonymous quick_links visibility expected 0 rows, got %',n; END IF;
+  BEGIN
+    INSERT INTO public.quick_links(id,label) VALUES (2,'anonymous-write');
+    RAISE EXCEPTION 'Anonymous unexpectedly inserted an admin quick link';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END
+$anonymous_rls$;
+RESET ROLE;
+\echo 'PASS: SECURITY DEFINER ACL classes, trigger dispatch, and anonymous public RLS'\n;
   ELSE
    EXECUTE format('CREATE FUNCTION public.%I() RETURNS boolean LANGUAGE sql SECURITY DEFINER AS $f$ SELECT true $fEND $stub$;
 \ir ../../migrations/202611250004_security_definer_execution_scope_guard.sql
