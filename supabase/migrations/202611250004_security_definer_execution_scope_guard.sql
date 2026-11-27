@@ -42,6 +42,10 @@ BEGIN
       EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',oid_);
     END LOOP;
   END LOOP;
+
+  -- Public-facing RLS policies call is_admin() even for anon requests.
+  -- The helper returns only a boolean and evaluates auth.uid() as NULL for anon.
+  GRANT EXECUTE ON FUNCTION public.is_admin() TO anon;
   FOR oid_ IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef AND p.proname='increment_download_count' LOOP
     EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, service_role',oid_);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon, authenticated',oid_);
