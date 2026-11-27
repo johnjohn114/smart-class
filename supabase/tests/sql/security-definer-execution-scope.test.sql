@@ -65,6 +65,15 @@ BEGIN
   IF nm='is_admin' AND NOT has_function_privilege('anon',oid_,'EXECUTE') THEN RAISE EXCEPTION 'anon must execute is_admin for public RLS policies'; END IF;
   IF nm='is_admin_user' AND has_function_privilege('anon',oid_,'EXECUTE') THEN RAISE EXCEPTION 'anon must not execute is_admin_user'; END IF;
  END LOOP;
+ FOR oid_ IN
+  SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND p.prosecdef
+    AND p.proname = ANY(adminn||membern||restrictn||helpern||ARRAY['increment_download_count'])
+ LOOP
+  IF NOT ('search_path=pg_catalog, public, auth, pg_temp'=ANY(coalesce((SELECT proconfig FROM pg_proc WHERE oid=oid_::oid),ARRAY[]::text[]))) THEN
+    RAISE EXCEPTION 'SECURITY DEFINER search_path is not hardened: %',oid_;
+  END IF;
+ END LOOP;
  oid_:=to_regprocedure('public.increment_download_count()');
  IF oid_ IS NULL OR NOT has_function_privilege('anon',oid_,'EXECUTE') OR NOT has_function_privilege('authenticated',oid_,'EXECUTE') OR has_function_privilege('service_role',oid_,'EXECUTE') THEN RAISE EXCEPTION 'Public counter ACL mismatch'; END IF;
 END $check$;
