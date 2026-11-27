@@ -148,3 +148,39 @@ A further read-only check of live database objects and the candidate visitor Edg
 - This establishes that the inspected active visitor-account creation/reset path is centered on `profiles` + `visitor_accounts`, not `visitor_profiles`. It does not establish that all deployed clients or external integrations have stopped using the separate table.
 
 **Updated assessment:** `visitor_profiles` appears disconnected from the currently inspected visitor-account lifecycle and is a plausible legacy table. Keep it in a **retirement candidate** state only. Before removal, confirm no live external consumer and preserve a rollback/export plan. Do not drop it or alter grants in this audit. No production changes were made.
+
+## 2026-11-27 migration-sequence and live-artifact cross-check
+
+A further read-only comparison was made between the two existing growth/default-ACL migrations (202611160001 and 202611170001), the five candidate migrations (202611250001–202611250005), and the current production function catalog.
+
+### Expected artifacts from 202611160001
+
+- The migration defines the internal helper public._refresh_growth_level_internal(uuid); that function is absent from the current production catalog.
+- The migration replaces the growth RPC bodies and narrows their ACLs. The live catalog still shows API-role EXECUTE on the sampled functions:
+  - admin_delete_growth_reward(uuid): anon, authenticated, service_role all true.
+  - admin_upsert_growth_reward(...): anon, authenticated, service_role all true.
+  - award_growth_points(...): anon and service_role true; authenticated false.
+  - refresh_growth_level(uuid), complete_growth_task(text), check_growth_achievements(uuid), and check_activity_badges(uuid): anon, authenticated, service_role all true.
+  - increment_download_count(uuid): anon, authenticated, service_role all true.
+- This means the expected end-state of the inspected migration is not present in production. It does not establish whether the migration was never run, was partially applied, or was later changed manually; the missing application migration ledger prevents that historical conclusion.
+
+### Expected artifacts from 202611170001
+
+- The live postgres default ACLs in public still grant broad table, sequence, and function privileges to the API roles. The expected default-privilege tightening is therefore not reflected in the current catalog.
+- The global default PUBLIC EXECUTE revoke appears in both 202611160001 and 202611170001. Repeating this revoke is idempotent, but it remains global for future postgres-owned functions across schemas.
+- The new standalone and sequential CI probes now test that a newly created function in extensions does not inherit API EXECUTE, while the explicit Storage-specific function defaults remain intact. This tests the intended ACL behavior in disposable PostgreSQL; it does not predict every future extension vendor migration or prove managed-platform execution order.
+
+### Sequencing disposition
+
+- The candidate release sequence must treat 202611160001 and 202611170001 as separate prerequisite migrations, followed by candidate migrations 202611250001–202611250005, only after a trusted production baseline is established.
+- Do not mark either prerequisite as applied based solely on its filename or repository presence.
+- Do not replay either prerequisite against production until its exact SQL has been reconciled against live function definitions, grants, default ACLs, trigger bindings, and all external callers.
+- The production application migration ledger remains absent; therefore the actual historical ordering remains unknown.
+
+### Latest candidate verification
+
+- Candidate head: 1753b1808344b77f6938064fb82a35936086f270.
+- Maintenance Edge Function Checks Run #572: 3/3 jobs passed.
+- Notification Page Checks Run #63: 2/2 jobs passed.
+- Total: **5/5 jobs passed** on the exact candidate head after correcting the sequential fixture to create its extensions-schema probe before asserting its ACL.
+- These are isolated CI results only. Production remains read-only, PR #41 remains Draft/unmerged, and no deployment occurred.
