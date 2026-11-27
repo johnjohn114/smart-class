@@ -23,7 +23,14 @@ DECLARE nm text;
 BEGIN
  FOREACH nm IN ARRAY alln LOOP
   IF nm=ANY(trg) THEN
-   EXECUTE format('CREATE FUNCTION public.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $f$ BEGIN RETURN NEW; END $fEND $stub$;
+   EXECUTE format('CREATE FUNCTION public.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $body$ BEGIN RETURN NEW; END $body$',nm);
+  ELSIF nm='is_admin' THEN
+   EXECUTE 'CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '''' AS $body$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role=''admin'') $body$';
+  ELSE
+   EXECUTE format('CREATE FUNCTION public.%I() RETURNS boolean LANGUAGE sql SECURITY DEFINER AS $body$ SELECT true $body$',nm);
+  END IF;
+ END LOOP;
+END $stub$;
 \ir ../../migrations/202611250004_security_definer_execution_scope_guard.sql
 DO $check$
 DECLARE nm text; oid_ regprocedure;
@@ -136,6 +143,12 @@ BEGIN
   IF n <> 1 THEN RAISE EXCEPTION 'Anonymous product visibility expected 1 row, got %',n; END IF;
   SELECT count(*) INTO n FROM public.quick_links;
   IF n <> 0 THEN RAISE EXCEPTION 'Anonymous quick_links visibility expected 0 rows, got %',n; END IF;
+  BEGIN
+    INSERT INTO public.quick_links(id,label) VALUES (2,'anonymous-write');
+    RAISE EXCEPTION 'Anonymous unexpectedly inserted an admin quick link';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
 END
 $anonymous_rls$;
 RESET ROLE;
