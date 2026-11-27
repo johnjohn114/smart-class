@@ -32,7 +32,7 @@ CREATE OR REPLACE FUNCTION public.award_growth_points(p_user_id uuid, p_amount i
  RETURNS integer
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path TO 'pg_catalog, public, auth, pg_temp'
 AS $function$
 declare
   new_points integer;
@@ -73,6 +73,10 @@ begin
   end if;
   return new_points;
 end; $function$;
+
+-- Harden the existing refresh routine before transferring its ownership.
+ALTER FUNCTION public.refresh_growth_level(uuid)
+  SET search_path TO 'pg_catalog, public, auth, pg_temp';
 
 -- PostgreSQL 16+ gives a non-superuser CREATEROLE creator ADMIN OPTION on
 -- the role it creates, but SET FALSE by default. Temporarily allow SET ROLE
