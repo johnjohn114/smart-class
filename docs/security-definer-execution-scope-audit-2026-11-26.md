@@ -20,6 +20,18 @@ Migrations 202611250002 and 202611250003 temporarily grant `service_role` EXECUT
 
 The candidate ACL regression test asserts that `service_role` cannot directly execute the admin/member RPC allowlist. The audited repository source set found no direct calls to these four RPCs from the reviewed service-role Edge Functions. Production `pg_stat_statements` shows activity for the member achievement/badge RPCs, but does not identify the caller role; external integrations and manually issued API calls are not covered. Therefore this is a deliberate least-privilege candidate policy, not proof that no external service-role dependency exists. Reconcile any external consumers before release.
 
+## Function-body authorization and write-path review
+
+A read-only review of the live definitions for the 16 admin RPCs and 10 member RPCs found the following candidate protections and remaining verification boundaries:
+
+- Admin RPCs use either a direct `profiles.id = auth.uid() AND role = 'admin'` check or the `is_admin()` / `is_admin_user()` helper. The two growth-reward administration RPCs previously used a nullable role comparison; migration 202611250002 changes this to an explicit non-null identity check plus `IS DISTINCT FROM 'admin'`, preventing SQL NULL from bypassing the rejection condition.
+- The member RPCs derive the acting member from `auth.uid()` or constrain writes to that identity. The two RPCs accepting a target user ID (`check_growth_achievements` and `check_activity_badges`) are hardened by migration 202611250003 to require a non-null authenticated identity and permit a different target only for an administrator.
+- Production `checkin_competition` directly updates protected `profiles.growth_points`. Migration 202611250001 replaces this write with `award_growth_points()`. The same migration routes the other competition reward, settlement, attendance and growth-reset writers through the dedicated executor, so those paths do not bypass the protected-profile trigger.
+- The protected-profile regression test covers registration's five-point reward, member check-in and duplicate check-in, admin reward grant, reset, badge-only level synchronization, settlement idempotency, denial of direct member edits to protected fields, and denial of direct API execution of the internal award/refresh functions.
+- Six production policies granted to PUBLIC call `is_admin()`. Production currently denies anon direct EXECUTE on that helper, while migration 202611250004 deliberately grants anon only this boolean helper so public RLS policy evaluation can proceed; the isolated test checks that anonymous users see only published/active rows and cannot write admin-only rows.
+
+These findings are based on the inspected live function definitions, policy catalog, candidate migrations and disposable test coverage. They do not establish that every external client or manual SQL integration has been inventoried, nor do isolated tests substitute for a production-baseline rehearsal.
+
 ## Preconditions and caveats
 
 The check_growth_achievements and check_activity_badges target-user authorization fix is separately handled by migration 202611250003. ACL restrictions do not replace function-body checks. The test uses stub functions and verifies grants/trigger dispatch, not full business logic. The production migration ledger is still unresolved, and service_role dependencies/default privileges require separate review.
