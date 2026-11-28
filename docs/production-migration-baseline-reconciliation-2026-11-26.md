@@ -260,3 +260,30 @@ These are source-level findings from the current function definitions; no unauth
 - This is a source/catalog compatibility review, not an end-to-end runtime test. Exact managed Supabase rehearsal and the production baseline/order gate remain open.
 
 - PR #41 remains Draft/unmerged; no production SQL changes, deployment, or paid service occurred.
+
+## 2026-11-28 CI completion and end-to-end migration coverage boundary
+
+### Latest CI result
+
+- PR documentation head: 110ae5f52812bfe7cc0829512e110098adbe2e89.
+- Maintenance Edge Function Checks Run #46004850224: all 3 jobs completed successfully (Deno type check/tests, isolated PostgreSQL RPC/RLS tests, GoTrue-issued JWT/PostgREST integration).
+- Notification Page Checks Run #46004850211: both jobs completed successfully (notification contract tests and isolated browser preview).
+- Total: 5/5 workflow jobs passed on the latest documentation head.
+
+### What the SQL tests cover
+
+- The sequential test applies 202611160001 followed by 202611170001 in one disposable PostgreSQL 17 fixture and checks default ACLs, trigger side effects, visitor profile conflict behavior, registration rewards, result rewards, and trigger-function direct EXECUTE denial.
+- The protected-profile regression test applies 202611250001 in a disposable fixture and checks protected-field writes, the dedicated growth executor role, and registration reward behavior.
+- Separate disposable tests exercise 202611250002 (anonymous/member denial and admin reward CRUD), 202611250003 (achievement/badge target-user scope), 202611250004 (SECURITY DEFINER ACL classes, search_path, trigger dispatch, and anonymous RLS policies), and 202611250005 (invoker view, member/admin row scope, and public leaderboard output).
+
+### Remaining integration gap
+
+- The workflow does not currently apply the complete release chain 202611160001 -> 202611170001 -> 202611250001 -> 202611250002 -> 202611250003 -> 202611250004 -> 202611250005 in one coherent database fixture.
+- The five 20261125 migrations are verified through separate disposable fixtures, not one single sequential run. Thus cross-migration interactions involving function ownership, ACL changes, trigger behavior, views, and later migrations have not yet been proven together.
+- The fixtures use PostgreSQL 17 and selected managed-role simulations, but they are not an exact reproduction of the managed production Supabase role catalog, existing objects, extensions, and historical migration baseline.
+- Before release, add a full sequential integration test using a sanitized production-like baseline and managed-role ordering. It must assert the final ACLs, trigger operation, browser RPC access, view visibility, idempotent point awards, and rollback behavior after each migration boundary.
+
+### Release disposition
+
+- CI is green, but this does not clear the production baseline or end-to-end migration gates.
+- PR #41 remains Draft/unmerged. No production SQL, grants, policies, data, or deployment was changed.
