@@ -52,7 +52,7 @@
 以下檔案位於候選分支，尚不可視為正式環境已套用：
 
 1. `202611160001_growth_function_authorization_hardening.sql`
-2. `202611170001_default_privileges_and_trigger_hardening.sql)
+2. `202611170001_default_privileges_and_trigger_hardening.sql
 3. `202611250001_protect_profile_fields_growth_system_updates.sql`
 4. `202611250002_admin_growth_reward_null_auth_guard.sql`
 5. `202611250003_growth_achievement_user_scope_guard.sql`
@@ -130,3 +130,11 @@
 - 讀取或要求任何密碼、access token、refresh token 或 service_role key。
 
 **最終狀態：文件基線已整理；正式 Migration、部署與合併仍為 HOLD。**
+
+## 2026-11-28 最新候選版本與 CI 補充核對
+
+- PR #41 目前候選 head 為 `ec8ccfd58a4c0d853e4c82734aedf63d1e9faec8`（不是本文早先記錄的 `6f661d9d156b88396c1eb6cef40097960c8b49f2`；後者保留為當時檢查的歷史快照）。
+- 在目前 head 上重新確認兩個 GitHub Actions workflow 均成功：Maintenance Edge Function Checks Run #603（4 jobs）與 Notification Page Checks Run #90（2 jobs）。
+- 以上是目前候選分支的 CI 證據，仍是 disposable/isolated fixture；不等於完整正式 schema restore 或正式 Supabase smoke test。
+- 正式 Supabase 最新唯讀重查仍確認：應用 migration ledger、`private` schema、維護 objects、`growth_points_executor` 與 `activity_public_leaderboard` 均不存在；`app_releases` 和公告行事曆欄位仍符合先前記錄的 schema 形態。
+- PR #41、#43、#44 仍為 Draft/open/unmerged。沒有正式 SQL、部署或付費操作。
