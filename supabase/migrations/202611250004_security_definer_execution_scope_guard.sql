@@ -17,9 +17,33 @@ DECLARE
   internal_names text[] := ARRAY['award_growth_points','refresh_growth_level'];
   helper_names text[] := ARRAY['is_admin','is_admin_user'];
   arr text[];
-  expected integer;
   found integer;
+  unexpected_names text[];
+  expected_names text[];
 BEGIN
+  expected_names := admin_names || member_names || trigger_names || internal_names || helper_names || ARRAY['increment_download_count'];
+
+  -- Fail closed if the public SECURITY DEFINER inventory contains any
+  -- function outside this reviewed allowlist. The per-name count below also
+  -- rejects missing routines and unexpected overloads.
+  SELECT array_agg(actual.proname ORDER BY actual.proname)
+    INTO unexpected_names
+  FROM (
+    SELECT p.proname
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef = true
+      AND p.prokind = 'f'
+    EXCEPT
+    SELECT unnest(expected_names)
+  ) AS actual;
+
+  IF unexpected_names IS NOT NULL THEN
+    RAISE EXCEPTION 'Unexpected public SECURITY DEFINER functions: %',
+      array_to_string(unexpected_names, ', ');
+  END IF;
+
   FOREACH nm IN ARRAY admin_names || member_names || trigger_names || internal_names || helper_names LOOP
     SELECT count(*) INTO found FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname='public' AND p.prosecdef AND p.proname=nm;
