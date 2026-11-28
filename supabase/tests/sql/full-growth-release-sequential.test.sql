@@ -162,8 +162,8 @@ DECLARE
   award_oid oid := 'public.award_growth_points(uuid,integer,text,text,text,text,uuid)'::regprocedure;
   refresh_oid oid := 'public.refresh_growth_level(uuid)'::regprocedure;
 BEGIN
-  IF (SELECT count(*) FROM pg_proc WHERE proowner=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor'))<>2 THEN
-    RAISE EXCEPTION 'growth executor must own exactly two functions';
+  IF (SELECT count(*) FROM pg_proc WHERE proowner=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor'))<>3 THEN
+    RAISE EXCEPTION 'growth executor must own exactly three functions';
   END IF;
   IF NOT has_schema_privilege('growth_points_executor','auth','USAGE')
      OR NOT has_function_privilege('growth_points_executor','auth.uid()','EXECUTE') THEN
