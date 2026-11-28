@@ -278,8 +278,8 @@ BEGIN
   SELECT count(*) INTO v_owned
   FROM pg_proc p
   WHERE p.proowner=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor');
-  IF v_owned <> 2 THEN
-    RAISE EXCEPTION 'FAIL: executor must own exactly two growth functions; found %',v_owned;
+  IF v_owned <> 3 THEN
+    RAISE EXCEPTION 'FAIL: executor must own exactly three growth functions; found %',v_owned;
   END IF;
   SELECT count(*) INTO v_other_members
   FROM pg_auth_members
