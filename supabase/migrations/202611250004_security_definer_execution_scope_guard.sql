@@ -17,15 +17,18 @@ DECLARE
   member_names text[] := ARRAY['check_activity_badges','check_growth_achievements','checkin_competition','close_my_support_ticket','complete_growth_task','create_cash_order','join_competition_waitlist','record_growth_activity','redeem_growth_reward','use_growth_coupon'];
   trigger_names text[] := ARRAY['assign_member_no_and_nickname','check_competition_registration_rules','ensure_visitor_profile','growth_registration_reward','growth_result_reward'];
   internal_names text[] := ARRAY['award_growth_points','refresh_growth_level'];
+  growth_executor_internal_names text[] := ARRAY['_refresh_growth_level_internal'];
   helper_names text[] := ARRAY['is_admin','is_admin_user'];
   found integer;
   unexpected_names text[];
   expected_names text[];
 BEGIN
-  expected_names := admin_names || member_names || trigger_names || internal_names || helper_names || ARRAY['increment_download_count'];
+  expected_names := admin_names || member_names || trigger_names || internal_names || growth_executor_internal_names || helper_names || ARRAY['increment_download_count'];
 
   -- Fail closed if the public SECURITY DEFINER inventory contains any
-  -- function outside this reviewed allowlist. The per-name count below also
+  -- function outside this reviewed allowlist. After migration 001, the
+  -- inventory is 37 names: 36 pre-existing routines plus the growth executor
+  -- internal helper. The per-name count below also
   -- rejects missing routines and unexpected overloads.
   SELECT array_agg(actual.proname ORDER BY actual.proname)
     INTO unexpected_names
