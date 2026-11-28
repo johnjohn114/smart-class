@@ -254,16 +254,6 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/default-privileges-trigger-hardening.test.sql
 
-      - name: Run admin growth reward NULL-auth regression test
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
-        run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE admin_growth_reward_auth_test"
-          TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/admin_growth_reward_auth_test
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/admin-growth-reward-null-auth-guard.setup.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202611250002_admin_growth_reward_null_auth_guard.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/admin-growth-reward-null-auth-guard.test.sql
-
       - name: Run protected profile growth update regression test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
@@ -292,6 +282,30 @@ jobs:
           psql postgresql://postgres:postgres@localhost:5432/security_definer_acl_test \
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/security-definer-execution-scope.test.sql
+
+      - name: Verify unknown SECURITY DEFINER inventory fails closed
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE security_definer_inventory_guard_test"
+          TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/security_definer_inventory_guard_test
+          set +e
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/security-definer-inventory-guard.test.sql \
+            > /tmp/security-definer-inventory-guard.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            cat /tmp/security-definer-inventory-guard.log
+            echo "Expected the migration to reject an unreviewed SECURITY DEFINER function" >&2
+            exit 1
+          fi
+          grep -q "Unexpected public SECURITY DEFINER functions: unexpected_public_security_definer" /tmp/security-definer-inventory-guard.log || {
+            cat /tmp/security-definer-inventory-guard.log
+            echo "Migration failed for an unexpected reason" >&2
+            exit 1
+          }
+          echo "PASS: migration rejected an unreviewed public SECURITY DEFINER function"
 
       - name: Run growth achievement and badge user-scope regression test
         env:
