@@ -16,7 +16,6 @@ DECLARE
   trigger_names text[] := ARRAY['assign_member_no_and_nickname','check_competition_registration_rules','ensure_visitor_profile','growth_registration_reward','growth_result_reward'];
   internal_names text[] := ARRAY['award_growth_points','refresh_growth_level'];
   helper_names text[] := ARRAY['is_admin','is_admin_user'];
-  arr text[];
   found integer;
   unexpected_names text[];
   expected_names text[];
@@ -44,7 +43,7 @@ BEGIN
       array_to_string(unexpected_names, ', ');
   END IF;
 
-  FOREACH nm IN ARRAY admin_names || member_names || trigger_names || internal_names || helper_names LOOP
+  FOREACH nm IN ARRAY expected_names LOOP
     SELECT count(*) INTO found FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname='public' AND p.prosecdef AND p.proname=nm;
     IF found <> 1 THEN RAISE EXCEPTION 'SECURITY DEFINER inventory mismatch for %: found %',nm,found; END IF;
