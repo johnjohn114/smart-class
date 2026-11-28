@@ -12,6 +12,14 @@
 -- exactly one SECURITY DEFINER complete_growth_task(text) RPC.
 DROP FUNCTION public.complete_growth_task(text,text);
 
+-- Remove SECURITY DEFINER routines that exist only to test default grants in
+-- the prerequisite fixture. They are not part of the production inventory.
+DROP TRIGGER ci_security_definer_trigger ON public.ci_trigger_source;
+DROP FUNCTION public.ci_security_definer_trigger();
+DROP TABLE public.ci_trigger_source;
+DROP TABLE public.ci_trigger_log;
+DROP FUNCTION public.ci_future_security_definer();
+
 -- Complete the application baseline needed by the five candidate migrations.
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS member_no integer,
