@@ -29,7 +29,7 @@ INSERT INTO public.profiles(id,role,growth_points) VALUES
  ('00000000-0000-4000-8000-000000000002','member',0),
  ('00000000-0000-4000-8000-000000000003','admin',0);
 GRANT SELECT ON public.profiles TO authenticated;
-\ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
+\\ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
 
 -- Anonymous callers cannot invoke either SECURITY DEFINER RPC.
 SET ROLE anon;
@@ -62,10 +62,39 @@ BEGIN
 END $member_scope$;
 RESET ROLE;
 
+-- Explicit NULL is a distinct API input from omitting the argument.
+-- The candidate contract intentionally treats NULL as "the authenticated user".
+INSERT INTO public.growth_achievements(
+ id,title,reward_points,active,achievement_type,requirement_count
+) VALUES(
+ '00000000-0000-4000-8000-000000000010',
+ 'Explicit NULL self-scope regression',0,true,'points',0
+);
+SET ROLE authenticated;
+SELECT public.check_growth_achievements(NULL);
+DO $explicit_null_self_scope$
+BEGIN
+ IF NOT EXISTS(
+   SELECT 1 FROM public.growth_user_achievements
+   WHERE user_id='00000000-0000-4000-8000-000000000001'
+     AND achievement_id='00000000-0000-4000-8000-000000000010'
+ ) THEN
+   RAISE EXCEPTION 'FAIL: explicit NULL did not resolve to the authenticated user';
+ END IF;
+ IF EXISTS(
+   SELECT 1 FROM public.growth_user_achievements
+   WHERE user_id='00000000-0000-4000-8000-000000000002'
+     AND achievement_id='00000000-0000-4000-8000-000000000010'
+ ) THEN
+   RAISE EXCEPTION 'FAIL: explicit NULL changed another member achievement state';
+ END IF;
+END $explicit_null_self_scope$;
+RESET ROLE;
+
 -- Admin can legitimately run checks for a member.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',false);
 SET ROLE authenticated;
 SELECT public.check_growth_achievements('00000000-0000-4000-8000-000000000001');
 SELECT public.check_activity_badges('00000000-0000-4000-8000-000000000001');
 RESET ROLE;
-\echo 'PASS: achievement and badge RPCs enforce authenticated self/admin scope and deny anon execution'
+\\echo 'PASS: achievement and badge RPCs enforce authenticated self/admin scope, explicit NULL self-scope, and deny anon execution'
