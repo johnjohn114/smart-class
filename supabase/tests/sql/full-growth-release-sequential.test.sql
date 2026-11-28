@@ -169,6 +169,12 @@ BEGIN
      OR NOT has_function_privilege('growth_points_executor','auth.uid()','EXECUTE') THEN
     RAISE EXCEPTION 'growth executor is missing minimal auth.uid access';
   END IF;
+  IF NOT has_function_privilege('growth_points_executor','public._refresh_growth_level_internal(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public._refresh_growth_level_internal(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public._refresh_growth_level_internal(uuid)','EXECUTE')
+     OR has_function_privilege('service_role','public._refresh_growth_level_internal(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'internal growth-level helper ACL mismatch';
+  END IF;
   IF has_function_privilege('anon',award_oid,'EXECUTE')
      OR has_function_privilege('authenticated',award_oid,'EXECUTE')
      OR has_function_privilege('service_role',award_oid,'EXECUTE')
