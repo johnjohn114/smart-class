@@ -313,3 +313,14 @@ These are source-level findings from the current function definitions; no unauth
 - Production migration history remains unavailable; do not infer that prerequisite migrations are applied from filenames or CI.
 - External service_role/direct-RPC consumers remain unverified; public leaderboard nickname/activity aggregation still needs explicit product/privacy approval.
 - No production SQL or data was changed. PR #41 remains Draft/unmerged; no deployment occurred.
+
+## 2026-11-28 in-repository service_role / RPC consumer inventory
+
+- Scanned candidate-branch JavaScript, TypeScript, and HTML sources for `.rpc(`, `functions.invoke`, `SUPABASE_SERVICE_ROLE_KEY`, `service_role`, and `serviceRole`.
+- No direct `.rpc()` or `functions.invoke()` call sites were found in the scanned browser or Edge Function sources.
+- Three Edge Functions use `SUPABASE_SERVICE_ROLE_KEY`: `create-visitor`, `reset-visitor-password`, and `send-announcement-push`. The inspected call sites use table operations and/or Auth Admin operations; no direct invocation of the SECURITY DEFINER RPC set targeted by migration 004 was found.
+- `create-visitor` writes `profiles` and `visitor_accounts`; the latter is attached to `ensure_visitor_profile()` trigger. `reset-visitor-password` reads `profiles` and `visitor_accounts` and uses Auth Admin. `send-announcement-push` reads/updates `announcements` and reads `device_push_tokens`.
+- The full-chain CI test already verifies trigger dispatch after direct EXECUTE is revoked from trigger-only functions.
+- This source scan does not cover third-party integrations, manually run SQL, other repositories, deployed code that differs from this branch, or untracked scripts. External `service_role` RPC consumers remain an explicit release gate.
+- Production `list_migrations` still returns an empty application migration list. A catalog check found platform-owned `auth.schema_migrations`, `realtime.schema_migrations`, and `storage.migrations`, but no application `supabase_migrations.schema_migrations` relation. These platform migration tables do not establish the app's historical migration baseline.
+- No production SQL or data was changed.
