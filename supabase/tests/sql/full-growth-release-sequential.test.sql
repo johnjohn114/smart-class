@@ -20,7 +20,7 @@ DROP TABLE public.ci_trigger_source;
 DROP TABLE public.ci_trigger_log;
 DROP FUNCTION public.ci_future_security_definer();
 
--- Complete the application baseline needed by the five candidate migrations.
+-- Complete the application baseline needed by the four remaining candidate migrations.
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS member_no integer,
   ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
