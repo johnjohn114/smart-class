@@ -14,6 +14,10 @@ END
 $role$;
 
 GRANT USAGE ON SCHEMA public TO growth_points_executor;
+-- refresh_growth_level validates auth.uid() inside its SECURITY DEFINER body.
+-- The restricted owner therefore needs only schema lookup plus the UID helper.
+GRANT USAGE ON SCHEMA auth TO growth_points_executor;
+GRANT EXECUTE ON FUNCTION auth.uid() TO growth_points_executor;
 -- PostgreSQL requires CREATE on the target schema while transferring ownership.
 GRANT CREATE ON SCHEMA public TO growth_points_executor;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO growth_points_executor;
