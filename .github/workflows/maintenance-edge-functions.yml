@@ -311,14 +311,6 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-and-default-privileges-sequential.test.sql
 
-      - name: Run complete growth release-chain integration test
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
-        run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE full_growth_release_chain_test"
-          psql postgresql://postgres:postgres@localhost:5432/full_growth_release_chain_test \
-            -v ON_ERROR_STOP=1 \
-            -f supabase/tests/sql/full-growth-release-sequential.test.sql
 
       - name: Run activity_member_stats view security integration tests
         env:
@@ -356,3 +348,30 @@ jobs:
           POSTGREST_URL: http://localhost:3000
           TEST_JWT_SECRET: maintenance-ci-only-secret-key-at-least-32-bytes-long
         run: python supabase/tests/sql/test_postgrest_jwt_rls_concurrency.py
+
+  full-growth-release-chain:
+    name: Full sequential growth release-chain integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: full_growth_release_chain_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d full_growth_release_chain_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Apply the complete growth release chain in one isolated PostgreSQL cluster
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/full_growth_release_chain_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/full-growth-release-sequential.test.sql
