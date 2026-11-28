@@ -116,3 +116,22 @@ These findings were confirmed against the live catalog after the original PR #38
   2. `202611250002_admin_growth_reward_null_auth_guard.sql`
 - PR #41 combines these changes and their isolated tests. Keep it Draft and unmerged until the current head's CI finishes and the separate view/default-privilege findings have their own reviewed remediation plan.
 - CI uses disposable GitHub Actions services; no paid database is required.
+
+
+## Candidate-chain reconciliation — 2026-11-28
+
+The 2026-11-25 finding above remains a real production issue: the live reward RPC definitions still need a reviewed NULL-auth guard, and no production migration has been applied.
+
+During the later candidate-chain review, the same explicit identity check and `IS DISTINCT FROM 'admin'` guard were found already present in `202611160001_growth_function_authorization_hardening.sql`. Therefore `202611250002_admin_growth_reward_null_auth_guard.sql` duplicated the function bodies when the complete candidate chain was applied in sequence. It also temporarily granted `service_role` EXECUTE, which the final ACL migration subsequently removed.
+
+**Candidate-only cleanup:** migration 002 and its duplicate standalone test fixtures were removed from the follow-up branch. The NULL-auth behavior remains covered by `growth-function-authorization.test.sql`, which applies 160001 and checks that both admin reward RPCs reject an authenticated database role with no user identity. This does not fix production by itself; the candidate migration remains unapplied and release remains HOLD.
+
+The remaining candidate sequence after 160001 and 170001 is:
+1. `202611250001_protect_profile_fields_growth_system_updates.sql`
+2. `202611250003_growth_achievement_user_scope_guard.sql`
+3. `202611250004_security_definer_execution_scope_guard.sql`
+4. `202611250005_activity_member_stats_and_public_leaderboard.sql`
+
+Migration 003's explicit NULL target behavior is now covered by a dedicated regression: a signed-in member or admin passing NULL resolves to their own identity; anon cannot invoke either RPC; members cannot target another member. Migration 004 now rejects any unreviewed public SECURITY DEFINER function name and verifies that each expected function name has exactly one SECURITY DEFINER overload before changing ACLs.
+
+This addendum is a candidate-source/test update only. It does not alter production SQL, the release gate, or the approval requirements above.
