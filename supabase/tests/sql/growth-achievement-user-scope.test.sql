@@ -29,7 +29,7 @@ INSERT INTO public.profiles(id,role,growth_points) VALUES
  ('00000000-0000-4000-8000-000000000002','member',0),
  ('00000000-0000-4000-8000-000000000003','admin',0);
 GRANT SELECT ON public.profiles TO authenticated;
-\\ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
+\ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
 
 -- Anonymous callers cannot invoke either SECURITY DEFINER RPC.
 SET ROLE anon;
@@ -97,4 +97,4 @@ SET ROLE authenticated;
 SELECT public.check_growth_achievements('00000000-0000-4000-8000-000000000001');
 SELECT public.check_activity_badges('00000000-0000-4000-8000-000000000001');
 RESET ROLE;
-\\echo 'PASS: achievement and badge RPCs enforce authenticated self/admin scope, explicit NULL self-scope, and deny anon execution'
+\echo 'PASS: achievement and badge RPCs enforce authenticated self/admin scope, explicit NULL self-scope, and deny anon execution'
