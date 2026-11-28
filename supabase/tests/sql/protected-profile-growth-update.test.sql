@@ -66,8 +66,8 @@ $function$;
 CREATE TRIGGER protect_profile_fields BEFORE UPDATE ON public.profiles
 FOR EACH ROW EXECUTE FUNCTION public.protect_profile_fields();
 
-CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+CREATE OR REPLACE FUNCTION public._refresh_growth_level_internal(p_user_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
 AS $function$
 DECLARE lvl public.growth_levels%rowtype;
 BEGIN
@@ -77,6 +77,22 @@ BEGIN
   IF lvl.code IS NULL THEN lvl.code := 'newbie'; END IF;
   UPDATE public.profiles SET growth_level=lvl.code WHERE id=p_user_id;
   RETURN lvl.code;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.refresh_growth_level(p_user_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL
+     OR (auth.uid() IS DISTINCT FROM p_user_id
+         AND NOT EXISTS (
+           SELECT 1 FROM public.profiles
+           WHERE id=auth.uid() AND role='admin'
+         )) THEN
+    RAISE EXCEPTION '沒有權限更新此會員等級';
+  END IF;
+  RETURN public._refresh_growth_level_internal(p_user_id);
 END;
 $function$;
 
