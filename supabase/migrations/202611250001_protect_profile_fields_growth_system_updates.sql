@@ -2,8 +2,8 @@
 -- DO NOT apply to production until isolated tests pass and migration baseline/order is reviewed.
 BEGIN;
 
--- Dedicated NOLOGIN owner for only the two growth-maintenance SECURITY DEFINER
--- functions. Its table privileges are deliberately column/table scoped.
+-- Dedicated NOLOGIN owner for the two public growth RPCs and their internal
+-- level-update helper. Its table privileges are deliberately column-scoped.
 DO $role$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'growth_points_executor') THEN
@@ -58,7 +58,9 @@ begin
   update public.profiles set growth_points=new_points where id=p_user_id;
   insert into public.growth_point_transactions(user_id,amount,reason,source_type,source_id,source_key,admin_user_id)
   values(p_user_id,p_amount,p_reason,p_source_type,p_source_id,p_source_key,p_admin_user_id);
-  new_level:=public.refresh_growth_level(p_user_id);
+  -- Internal awards can run from database triggers without a caller JWT.
+  -- Use the restricted internal helper, not the auth-checked public wrapper.
+  new_level:=public._refresh_growth_level_internal(p_user_id);
 
   if p_source_type not in ('reward','activity_reward','activity_checkin','activity_completion','admin_reset') then
     insert into public.notifications(user_id,title,content,type)
@@ -89,7 +91,11 @@ ALTER FUNCTION public.refresh_growth_level(uuid)
 -- so the creator can transfer function ownership, then restore SET FALSE.
 GRANT growth_points_executor TO postgres WITH SET TRUE, INHERIT FALSE;
 
--- These functions are the only functions owned by this restricted executor.
+-- Only the award routine, authenticated wrapper, and internal helper are
+-- owned by this restricted executor. The helper must run as this role so the
+-- profile protection trigger can recognize the narrowly-scoped update.
+ALTER FUNCTION public._refresh_growth_level_internal(uuid)
+  OWNER TO growth_points_executor;
 ALTER FUNCTION public.award_growth_points(
   uuid, integer, text, text, text, text, uuid
 ) OWNER TO growth_points_executor;
