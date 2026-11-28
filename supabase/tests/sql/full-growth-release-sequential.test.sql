@@ -243,14 +243,14 @@ INSERT INTO public.competition_registrations(id,competition_id,user_id,status)
 VALUES(
   '00000000-0000-4000-8000-000000000071',
   '00000000-0000-4000-8000-000000000061',
-  '00000000-0000-4000-8000-000000000002','active'
+  '00000000-0000-4000-8000-000000000070','active'
 );
 DO $registration_reward$
 BEGIN
   IF (SELECT status FROM public.competition_registrations WHERE id='00000000-0000-4000-8000-000000000071')<>'approved' THEN
     RAISE EXCEPTION 'registration rules trigger did not approve registration';
   END IF;
-  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>15 THEN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000070')<>5 THEN
     RAISE EXCEPTION 'registration reward did not add exactly five points';
   END IF;
   IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='registration:00000000-0000-4000-8000-000000000071')<>1 THEN
@@ -259,17 +259,17 @@ BEGIN
 END
 $registration_reward$;
 
-SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000070',false);
 SET ROLE authenticated;
 SELECT public.checkin_competition('00000000-0000-4000-8000-000000000061','FULL-CI');
 SELECT public.checkin_competition('00000000-0000-4000-8000-000000000061','FULL-CI');
 RESET ROLE;
 DO $checkin_reward$
 BEGIN
-  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>18 THEN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000070')<>8 THEN
     RAISE EXCEPTION 'check-in retry awarded points more than once or failed';
   END IF;
-  IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='checkin:00000000-0000-4000-8000-000000000061:00000000-0000-4000-8000-000000000002')<>1 THEN
+  IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='checkin:00000000-0000-4000-8000-000000000061:00000000-0000-4000-8000-000000000070')<>1 THEN
     RAISE EXCEPTION 'check-in idempotency ledger missing or duplicated';
   END IF;
 END
@@ -306,10 +306,10 @@ SELECT public.admin_settle_competition('00000000-0000-4000-8000-000000000061');
 RESET ROLE;
 DO $settlement$
 BEGIN
-  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>20 THEN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000070')<>10 THEN
     RAISE EXCEPTION 'settlement completion reward missing or duplicated';
   END IF;
-  IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='completion:00000000-0000-4000-8000-000000000061:00000000-0000-4000-8000-000000000002')<>1 THEN
+  IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='completion:00000000-0000-4000-8000-000000000061:00000000-0000-4000-8000-000000000070')<>1 THEN
     RAISE EXCEPTION 'completion reward ledger missing or duplicated';
   END IF;
 END
