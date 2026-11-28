@@ -6,6 +6,12 @@
 
 \ir growth-and-default-privileges-sequential.test.sql
 
+-- The prerequisite sequential fixture creates a two-argument overload only
+-- to probe default EXECUTE behavior. Remove that test-only overload before
+-- applying migration 004, whose production inventory intentionally expects
+-- exactly one SECURITY DEFINER complete_growth_task(text) RPC.
+DROP FUNCTION public.complete_growth_task(text,text);
+
 -- Complete the application baseline needed by the five candidate migrations.
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS member_no integer,
