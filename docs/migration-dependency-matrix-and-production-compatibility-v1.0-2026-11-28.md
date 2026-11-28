@@ -3,7 +3,7 @@
 > 日期：2026-11-28（Asia/Taipei）  
 > Repository：`johnjohn114/smart-class`  
 > 候選來源分支：`integration/growth-registration-and-reward-security-20261125`  
-> 候選來源 commit：`6f661d9d156b88396c1eb6cef40097960c8b49f2`  
+> 候選來源 commit（目前核對）：`ec8ccfd58a4c0d853e4c82734aedf63d1e9faec8`  
 > 正式 Supabase project：`fsoowongtavlsrwvzbze`  
 > 性質：唯讀正式 catalog 核對 + SQL/測試原始碼審查 + CI 結果核對。  
 > **決策：HOLD。此矩陣是審查文件，不是 Migration 執行順序核准。**
@@ -136,3 +136,10 @@ migration 暫時授予 postgres SET ROLE 以轉移 ownership，之後撤銷 SET�
 本輪只讀取 GitHub 原始碼/測試/CI 結果，並對正式 Supabase 執行 SELECT catalog 查詢。沒有執行正式 DDL/DML、GRANT/REVOKE、Migration、migration repair、部署、PR merge 或付費操作。
 
 **最終判定：候選 SQL 的主要依賴順序已可描述，36 個 SECURITY DEFINER 名稱與 executor role 建立前提也已做唯讀核對；但正式 baseline、owner/ACL 全量比對及外部消費者仍未完成，故維持 HOLD。**
+
+## 2026-11-28 最新候選 head 與 CI 核對補充
+
+- 本矩陣前段記錄的 commit `6f661d9d156b88396c1eb6cef40097960c8b49f2` 是當時的歷史檢查快照；目前 PR #41 head 已更新為 `ec8ccfd58a4c0d853e4c82734aedf63d1e9faec8`。
+- 目前 head 的 Maintenance Edge Function Checks Run #603 與 Notification Page Checks Run #90 均成功；總計 6/6 jobs。
+- 此 exact-head CI 不改變「HOLD」決策：CI 是隔離 fixture，不是完整正式 schema restore；migration baseline、managed Supabase 完整執行、外部 service_role 消費者與 leaderboard 隱私/告知仍未關閉。
+- 重新唯讀查詢正式 DB：PostgreSQL 17.11；應用 migration ledger、private schema、maintenance objects、growth_points_executor、activity_public_leaderboard 均不存在；既有 app_releases/calendar 欄位現況未變。
