@@ -311,6 +311,15 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-and-default-privileges-sequential.test.sql
 
+      - name: Run complete growth release-chain integration test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE full_growth_release_chain_test"
+          psql postgresql://postgres:postgres@localhost:5432/full_growth_release_chain_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/full-growth-release-sequential.test.sql
+
       - name: Run activity_member_stats view security integration tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
