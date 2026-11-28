@@ -165,6 +165,10 @@ BEGIN
   IF (SELECT count(*) FROM pg_proc WHERE proowner=(SELECT oid FROM pg_roles WHERE rolname='growth_points_executor'))<>2 THEN
     RAISE EXCEPTION 'growth executor must own exactly two functions';
   END IF;
+  IF NOT has_schema_privilege('growth_points_executor','auth','USAGE')
+     OR NOT has_function_privilege('growth_points_executor','auth.uid()','EXECUTE') THEN
+    RAISE EXCEPTION 'growth executor is missing minimal auth.uid access';
+  END IF;
   IF has_function_privilege('anon',award_oid,'EXECUTE')
      OR has_function_privilege('authenticated',award_oid,'EXECUTE')
      OR has_function_privilege('service_role',award_oid,'EXECUTE')
