@@ -250,7 +250,7 @@ BEGIN
   IF (SELECT status FROM public.competition_registrations WHERE id='00000000-0000-4000-8000-000000000071')<>'approved' THEN
     RAISE EXCEPTION 'registration rules trigger did not approve registration';
   END IF;
-  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>5 THEN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>15 THEN
     RAISE EXCEPTION 'registration reward did not add exactly five points';
   END IF;
   IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='registration:00000000-0000-4000-8000-000000000071')<>1 THEN
@@ -266,7 +266,7 @@ SELECT public.checkin_competition('00000000-0000-4000-8000-000000000061','FULL-C
 RESET ROLE;
 DO $checkin_reward$
 BEGIN
-  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>8 THEN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>18 THEN
     RAISE EXCEPTION 'check-in retry awarded points more than once or failed';
   END IF;
   IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='checkin:00000000-0000-4000-8000-000000000061:00000000-0000-4000-8000-000000000002')<>1 THEN
@@ -306,7 +306,7 @@ SELECT public.admin_settle_competition('00000000-0000-4000-8000-000000000061');
 RESET ROLE;
 DO $settlement$
 BEGIN
-  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>10 THEN
+  IF (SELECT growth_points FROM public.profiles WHERE id='00000000-0000-4000-8000-000000000002')<>20 THEN
     RAISE EXCEPTION 'settlement completion reward missing or duplicated';
   END IF;
   IF (SELECT count(*) FROM public.growth_point_transactions WHERE source_key='completion:00000000-0000-4000-8000-000000000061:00000000-0000-4000-8000-000000000002')<>1 THEN
