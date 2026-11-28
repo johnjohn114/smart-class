@@ -32,7 +32,7 @@ INSERT INTO public.profiles(id,role,growth_points) VALUES
  ('00000000-0000-4000-8000-000000000001','member',0),
  ('00000000-0000-4000-8000-000000000002','member',0),
  ('00000000-0000-4000-8000-000000000003','admin',0);
-GRANT SELECT ON public.profiles TO authenticated;
+GRANT SELECT ON public.profiles, public.growth_user_achievements, public.user_activity_badges TO authenticated;
 \ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
 
 -- Anonymous callers cannot invoke either SECURITY DEFINER RPC.
