@@ -132,6 +132,6 @@ The remaining candidate sequence after 160001 and 170001 is:
 3. `202611250004_security_definer_execution_scope_guard.sql`
 4. `202611250005_activity_member_stats_and_public_leaderboard.sql`
 
-Migration 003's explicit NULL target behavior is now covered by a dedicated regression: a signed-in member or admin passing NULL resolves to their own identity; anon cannot invoke either RPC; members cannot target another member. Migration 004 now rejects any unreviewed public SECURITY DEFINER function name and verifies that each expected function name has exactly one SECURITY DEFINER overload before changing ACLs.
+Migration 003's explicit NULL target behavior is now covered by a dedicated regression: a signed-in member or admin passing NULL resolves to their own identity; anon cannot invoke either RPC; members cannot target another member. Migration 004 now rejects any unreviewed public SECURITY DEFINER function name and verifies that each expected function name has exactly one SECURITY DEFINER overload before changing ACLs. Its post-001 inventory contains 37 names: the 36 pre-existing routines plus `_refresh_growth_level_internal`, owned and ACL-hardened by the growth executor migration.
 
 This addendum is a candidate-source/test update only. It does not alter production SQL, the release gate, or the approval requirements above.
