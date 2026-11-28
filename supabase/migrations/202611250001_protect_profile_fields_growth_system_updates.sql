@@ -21,6 +21,8 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO growth_points_executor;
 -- PostgreSQL requires CREATE on the target schema while transferring ownership.
 GRANT CREATE ON SCHEMA public TO growth_points_executor;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO growth_points_executor;
+GRANT EXECUTE ON FUNCTION public._refresh_growth_level_internal(uuid)
+  TO growth_points_executor;
 GRANT SELECT ON public.profiles, public.growth_levels,
                 public.growth_point_transactions
 TO growth_points_executor;
