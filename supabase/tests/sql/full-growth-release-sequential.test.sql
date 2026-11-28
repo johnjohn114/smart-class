@@ -342,4 +342,4 @@ END
 $admin_view$;
 RESET ROLE;
 
-\echo 'PASS: complete 202611160001 -> 202611170001 -> 202611250001..005 release chain in one PostgreSQL 17 database'
+\echo 'PASS: complete 202611160001 -> 202611170001 -> 202611250001, 250003..005 release chain in one PostgreSQL 17 database'
