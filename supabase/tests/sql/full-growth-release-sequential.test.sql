@@ -277,6 +277,8 @@ $checkin_reward$;
 
 -- Member can see only their own invoker-view row and cannot inspect another
 -- member's achievements or call an admin reward RPC without admin identity.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000070',false);
+SET ROLE authenticated;
 DO $member_denials$
 DECLARE denied boolean:=false; n integer;
 BEGIN
