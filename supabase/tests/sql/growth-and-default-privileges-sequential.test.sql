@@ -189,7 +189,8 @@ RETURNS boolean LANGUAGE sql SECURITY DEFINER AS 'SELECT true';
 DO $overload_acl$
 BEGIN
   IF has_function_privilege('anon','public.complete_growth_task(text,text)','EXECUTE')
-     OR has_function_privilege('authenticated','public.complete_growth_task(text,text)','EXECUTE') THEN
+     OR has_function_privilege('authenticated','public.complete_growth_task(text,text)','EXECUTE')
+     OR has_function_privilege('service_role','public.complete_growth_task(text,text)','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: newly added SECURITY DEFINER overload became a public RPC';
   END IF;
 END
