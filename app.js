@@ -611,7 +611,7 @@ async function loadMyGrowth(){
       await fetch(SUPABASE_URL+'/rest/v1/rpc/complete_growth_task',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_task_code:task.code})}).catch(()=>{});
     }
     await fetch(SUPABASE_URL+'/rest/v1/rpc/check_growth_achievements',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_user_id:u.id})}).catch(()=>{});
-    await fetch(SUPABASE_URL+'/rest/v1/rpc/refresh_growth_level',{method:'POST',headers:{...auth(),Prefer:'return=representation'},body:JSON.stringify({p_user_id:u.id})}).catch(()=>{});
+    // Growth level is refreshed by trusted database routines; do not call the internal RPC from the browser.
 
     const pr=await fetch(SUPABASE_URL+'/rest/v1/profiles?id=eq.'+encodeURIComponent(u.id)+'&select=growth_points,growth_level,nickname',{headers:auth()});
     const p=pr.ok?(await pr.json())[0]:null;
@@ -728,16 +728,16 @@ async function loadMyActivityBadges(){
 }
 async function loadMyActivityHistory(){
   const box=$('myActivityHistory'); if(!box||!visitorToken())return; const uid=(await getCurrentUser())?.id;if(!uid)return;
-  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?user_id=eq.'+encodeURIComponent(uid)+'&select=*',{headers:auth()}); const s=(r.ok?(await r.json()):[])[0];
+  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?user_id=eq.'+encodeURIComponent(uid)+'&select=attended_count,late_count,no_show_count,activity_points',{headers:auth()}); const s=(r.ok?(await r.json()):[])[0];
   const ar=await fetch(SUPABASE_URL+'/rest/v1/competition_attendance?select=status,checked_in_at,points_awarded,completion_points_awarded,competitions(name,category,event_date)&user_id=eq.'+encodeURIComponent(uid)+'&order=created_at.desc&limit=100',{headers:auth()}); const rows=ar.ok?await ar.json():[];
   box.innerHTML='<article class="notice"><h3>📊 活動總覽</h3><p>參加 <b>'+Number(s?.attended_count||0)+'</b> 場 · 遲到 '+Number(s?.late_count||0)+' 次 · 未到 '+Number(s?.no_show_count||0)+' 次 · 活動積分 <b>'+Number(s?.activity_points||0)+'</b></p></article>'+(rows.length?rows.map(x=>'<article class="notice"><div class="date">'+esc(x.competitions?.event_date||'')+' · '+esc(x.status==='checked_in'?'🟢 準時':x.status==='late'?'🟡 遲到':x.status==='no_show'?'🔴 未到':'⚪ 取消')+'</div><h3>'+esc(x.competitions?.name||'活動')+'</h3><p>簽到 '+Number(x.points_awarded||0)+' 點 · 完成 '+Number(x.completion_points_awarded||0)+' 點</p></article>').join(''):'<div class="empty">尚無活動履歷。</div>');
 }
 async function loadActivityLeaderboard(){
   const box=$('activityLeaderboardList'),summary=$('activityLeaderboardSummary'); if(!box||!configured())return; box.innerHTML='<div class="loading">正在整理活動達人榜…</div>';
-  let r=await fetch(SUPABASE_URL+'/rest/v1/activity_public_leaderboard?select=nickname,attended_count,late_count,no_show_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY}});
-  // Keep the existing public leaderboard available until the new restricted
-  // projection is installed. Never request user_id or internal point columns.
-  if(r.status===404)r=await fetch(SUPABASE_URL+'/rest/v1/activity_member_stats?select=nickname,attended_count,late_count,no_show_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY}});
+  // Fail closed if the restricted public projection is not installed.
+  // Never fall back to activity_member_stats, which contains member identifiers
+  // and private point totals and is restricted to authenticated self/admin reads.
+  const r=await fetch(SUPABASE_URL+'/rest/v1/activity_public_leaderboard?select=nickname,attended_count,late_count,no_show_count,activity_points&order=activity_points.desc,attended_count.desc&limit=100',{headers:{apikey:SUPABASE_ANON_KEY}});
   const rows=r.ok?await r.json():[];
   if(summary)summary.innerHTML='<div class="leaderboardStat"><b>'+rows.length+'</b><span>活動會員</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.attended_count||0),0)+'</b><span>累計出席</span></div><div class="leaderboardStat"><b>'+rows.reduce((n,x)=>n+Number(x.activity_points||0),0)+'</b><span>活動積分</span></div>';
   box.innerHTML=rows.length?rows.slice(0,20).map((x,i)=>'<article class="leaderboardRow'+(i<3?' topRank':'')+'"><div class="leaderboardRank">'+(i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅')+' <b>#'+(i+1)+'</b></div><div class="leaderboardPlayer"><h3>'+esc(x.nickname||'會員')+'</h3><div class="leaderboardMeta">活動積分 <b>'+Number(x.activity_points||0)+'</b> · 出席 '+Number(x.attended_count||0)+' 場 · 遲到 '+Number(x.late_count||0)+' · 未到 '+Number(x.no_show_count||0)+'</div></div></article>').join(''):'<div class="empty">目前還沒有活動達人榜資料。</div>';

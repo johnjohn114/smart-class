@@ -6,6 +6,7 @@
 -- Extend the growth fixture with the minimum schema needed by the five
 -- production trigger functions. Existing growth tables/functions are reused.
 CREATE SCHEMA IF NOT EXISTS storage;
+CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE TABLE auth.users(id uuid PRIMARY KEY, email text);
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS member_no integer;
 CREATE TABLE public.member_no_counter(id boolean PRIMARY KEY DEFAULT true, next_no integer NOT NULL);
@@ -150,6 +151,8 @@ CREATE FUNCTION auth.sequential_default_function() RETURNS integer
 LANGUAGE sql AS 'SELECT 1';
 CREATE FUNCTION storage.sequential_default_function() RETURNS integer
 LANGUAGE sql AS 'SELECT 1';
+CREATE FUNCTION extensions.sequential_default_function() RETURNS integer
+LANGUAGE sql AS 'SELECT 1';
 
 DO $combined_defaults$
 BEGIN
@@ -166,7 +169,10 @@ BEGIN
   IF has_function_privilege('anon','public.sequential_default_function()','EXECUTE')
      OR has_function_privilege('authenticated','public.sequential_default_function()','EXECUTE')
      OR has_function_privilege('service_role','public.sequential_default_function()','EXECUTE')
-     OR has_function_privilege('anon','auth.sequential_default_function()','EXECUTE') THEN
+     OR has_function_privilege('anon','auth.sequential_default_function()','EXECUTE')
+     OR has_function_privilege('anon','extensions.sequential_default_function()','EXECUTE')
+     OR has_function_privilege('authenticated','extensions.sequential_default_function()','EXECUTE')
+     OR has_function_privilege('service_role','extensions.sequential_default_function()','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: PUBLIC/API function defaults remain open';
   END IF;
   IF NOT has_function_privilege('anon','storage.sequential_default_function()','EXECUTE')

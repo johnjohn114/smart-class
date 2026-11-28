@@ -254,6 +254,54 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/default-privileges-trigger-hardening.test.sql
 
+      - name: Run admin growth reward NULL-auth regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE admin_growth_reward_auth_test"
+          TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/admin_growth_reward_auth_test
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/admin-growth-reward-null-auth-guard.setup.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202611250002_admin_growth_reward_null_auth_guard.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/admin-growth-reward-null-auth-guard.test.sql
+
+      - name: Run protected profile growth update regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE protected_profile_growth_test"
+          psql postgresql://postgres:postgres@localhost:5432/protected_profile_growth_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/protected-profile-growth-update.test.sql
+
+      - name: Run managed-role growth executor ownership-order regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE growth_executor_managed_role_test"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE migration_runner NOLOGIN CREATEROLE BYPASSRLS"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "GRANT CREATE ON DATABASE growth_executor_managed_role_test TO migration_runner"
+          psql postgresql://postgres:postgres@localhost:5432/growth_executor_managed_role_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/growth-executor-managed-role-order.test.sql
+
+      - name: Run SECURITY DEFINER execution-scope ACL regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE security_definer_acl_test"
+          psql postgresql://postgres:postgres@localhost:5432/security_definer_acl_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/security-definer-execution-scope.test.sql
+
+      - name: Run growth achievement and badge user-scope regression test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE growth_achievement_scope_test"
+          psql postgresql://postgres:postgres@localhost:5432/growth_achievement_scope_test \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/growth-achievement-user-scope.test.sql
+
       - name: Run sequential growth and default-privilege integration test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
@@ -263,6 +311,7 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/sql/growth-and-default-privileges-sequential.test.sql
 
+
       - name: Run activity_member_stats view security integration tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maintenance_test
@@ -270,8 +319,7 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE activity_member_stats_test"
           TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/activity_member_stats_test
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening_setup.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_member_stats_view_hardening.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/candidate_sql/activity_public_leaderboard_view.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202611250005_activity_member_stats_and_public_leaderboard.sql
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/sql/activity_member_stats_view_hardening.test.sql
 
       - name: Start PostgREST after database roles are provisioned
@@ -300,3 +348,30 @@ jobs:
           POSTGREST_URL: http://localhost:3000
           TEST_JWT_SECRET: maintenance-ci-only-secret-key-at-least-32-bytes-long
         run: python supabase/tests/sql/test_postgrest_jwt_rls_concurrency.py
+
+  full-growth-release-chain:
+    name: Full sequential growth release-chain integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: full_growth_release_chain_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d full_growth_release_chain_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Apply the complete growth release chain in one isolated PostgreSQL cluster
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/full_growth_release_chain_test
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/sql/full-growth-release-sequential.test.sql

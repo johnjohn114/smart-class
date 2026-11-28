@@ -1,8 +1,10 @@
 -- Default privilege and trigger-side-effect hardening.
 -- Apply only after isolated PostgreSQL 17 regression tests pass.
--- This migration intentionally changes defaults for the application migration
--- owner (postgres) in public only. Supabase-managed supabase_admin defaults
--- are deliberately untouched pending platform-owner review.
+-- This migration tightens table/sequence defaults for postgres-owned
+-- objects in public, and revokes the global default PUBLIC EXECUTE grant for
+-- future postgres-owned functions in every schema. Supabase-managed
+-- supabase_admin defaults are deliberately untouched pending platform-owner
+-- review.
 BEGIN;
 
 -- Make future application-owned objects opt-in for API roles.

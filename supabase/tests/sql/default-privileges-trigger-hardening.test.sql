@@ -14,6 +14,7 @@ $roles$;
 CREATE SCHEMA auth;
 CREATE TABLE auth.users(id uuid PRIMARY KEY, email text);
 CREATE SCHEMA storage;
+CREATE SCHEMA extensions;
 GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
@@ -194,6 +195,7 @@ CREATE FUNCTION public.default_acl_probe_fn() RETURNS integer LANGUAGE sql AS 'S
 -- The PUBLIC EXECUTE default is global, so verify it is closed outside public too.
 CREATE FUNCTION auth.default_acl_probe_fn() RETURNS integer LANGUAGE sql AS 'SELECT 1';
 CREATE FUNCTION storage.default_acl_storage_probe_fn() RETURNS integer LANGUAGE sql AS 'SELECT 1';
+CREATE FUNCTION extensions.default_acl_extension_probe_fn() RETURNS integer LANGUAGE sql AS 'SELECT 1';
 DO $default_acl$
 BEGIN
   IF has_table_privilege('anon','public.default_acl_probe','SELECT')
@@ -209,7 +211,10 @@ BEGIN
   IF has_function_privilege('anon','public.default_acl_probe_fn()','EXECUTE')
      OR has_function_privilege('authenticated','public.default_acl_probe_fn()','EXECUTE')
      OR has_function_privilege('service_role','public.default_acl_probe_fn()','EXECUTE')
-     OR has_function_privilege('anon','auth.default_acl_probe_fn()','EXECUTE') THEN
+     OR has_function_privilege('anon','auth.default_acl_probe_fn()','EXECUTE')
+     OR has_function_privilege('anon','extensions.default_acl_extension_probe_fn()','EXECUTE')
+     OR has_function_privilege('authenticated','extensions.default_acl_extension_probe_fn()','EXECUTE')
+     OR has_function_privilege('service_role','extensions.default_acl_extension_probe_fn()','EXECUTE') THEN
     RAISE EXCEPTION 'FAIL: new function inherited PUBLIC/API-role EXECUTE';
   END IF;
   -- Existing schema-specific storage grants remain after the global PUBLIC revoke.
