@@ -179,7 +179,7 @@ BEGIN
      OR has_function_privilege('service_role','public.is_admin()','EXECUTE') THEN
     RAISE EXCEPTION 'is_admin narrow public policy helper ACL mismatch';
   END IF;
-  IF has_function_privilege('anon','public.activity_member_stats','SELECT')
+  IF has_table_privilege('anon','public.activity_member_stats','SELECT')
      OR NOT has_table_privilege('authenticated','public.activity_member_stats','SELECT')
      OR NOT has_table_privilege('anon','public.activity_public_leaderboard','SELECT') THEN
     RAISE EXCEPTION 'view ACL mismatch after full chain';
