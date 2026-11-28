@@ -2,7 +2,7 @@
 -- Run only in a fresh disposable PostgreSQL 17 database as postgres.
 -- This composes the already-tested 202611160001 -> 202611170001 fixture,
 -- extends that SAME database to the minimum application schema, then applies
--- 202611250001 -> 202611250005 in order. Production is never contacted.
+-- the remaining candidate migrations in order (250001, 250003, 250004, 250005). Production is never contacted.
 
 \ir growth-and-default-privileges-sequential.test.sql
 
@@ -12,7 +12,15 @@
 -- exactly one SECURITY DEFINER complete_growth_task(text) RPC.
 DROP FUNCTION public.complete_growth_task(text,text);
 
--- Complete the application baseline needed by the five candidate migrations.
+-- Remove SECURITY DEFINER routines that exist only to test default grants in
+-- the prerequisite fixture. They are not part of the production inventory.
+DROP TRIGGER ci_security_definer_trigger ON public.ci_trigger_source;
+DROP FUNCTION public.ci_security_definer_trigger();
+DROP TABLE public.ci_trigger_source;
+DROP TABLE public.ci_trigger_log;
+DROP FUNCTION public.ci_future_security_definer();
+
+-- Complete the application baseline needed by the four remaining candidate migrations.
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS member_no integer,
   ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
@@ -148,9 +156,8 @@ FROM public.competition_attendance a
 LEFT JOIN public.profiles p ON p.id=a.user_id
 GROUP BY a.user_id,p.nickname;
 
--- Apply the complete candidate release chain in one database, in order.
+-- Apply the complete remaining candidate release chain in one database, in order.
 \ir ../../migrations/202611250001_protect_profile_fields_growth_system_updates.sql
-\ir ../../migrations/202611250002_admin_growth_reward_null_auth_guard.sql
 \ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
 \ir ../../migrations/202611250004_security_definer_execution_scope_guard.sql
 \ir ../../migrations/202611250005_activity_member_stats_and_public_leaderboard.sql
@@ -343,4 +350,4 @@ END
 $admin_view$;
 RESET ROLE;
 
-\echo 'PASS: complete 202611160001 -> 202611170001 -> 202611250001..005 release chain in one PostgreSQL 17 database'
+\echo 'PASS: complete 202611160001 -> 202611170001 -> 202611250001, 250003..005 release chain in one PostgreSQL 17 database'

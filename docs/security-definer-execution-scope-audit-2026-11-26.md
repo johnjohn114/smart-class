@@ -16,7 +16,7 @@ Migration 202611250004 and its disposable SQL test implement/test the ACL classi
 
 ### service_role compatibility decision
 
-Migrations 202611250002 and 202611250003 temporarily grant `service_role` EXECUTE on four RPCs (`admin_delete_growth_reward`, `admin_upsert_growth_reward`, `check_growth_achievements`, and `check_activity_badges`). Migration 202611250004 intentionally supersedes those grants and removes direct `service_role` execution from all application RPCs. The intended caller is the signed-in user through the `authenticated` role, so the function's `auth.uid()` and admin/self-scope checks evaluate the actual user identity rather than a service key.
+Migration 202611250003 temporarily grants `service_role` EXECUTE on the two member-scoped achievement/badge RPCs. Migration 202611250004 intentionally supersedes those grants and removes direct `service_role` execution from all application RPCs. The duplicate migration 202611250002 was removed from the follow-up candidate branch because 202611160001 already contains the same NULL-safe admin reward guards and its regression test. The intended caller is the signed-in user through the `authenticated` role, so the function's `auth.uid()` and admin/self-scope checks evaluate the actual user identity rather than a service key.
 
 The candidate ACL regression test asserts that `service_role` cannot directly execute the admin/member RPC allowlist. The audited repository source set found no direct calls to these four RPCs from the reviewed service-role Edge Functions. Production `pg_stat_statements` shows activity for the member achievement/badge RPCs, but does not identify the caller role; external integrations and manually issued API calls are not covered. Therefore this is a deliberate least-privilege candidate policy, not proof that no external service-role dependency exists. Reconcile any external consumers before release.
 
@@ -24,7 +24,7 @@ The candidate ACL regression test asserts that `service_role` cannot directly ex
 
 A read-only review of the live definitions for the 16 admin RPCs and 10 member RPCs found the following candidate protections and remaining verification boundaries:
 
-- Admin RPCs use either a direct `profiles.id = auth.uid() AND role = 'admin'` check or the `is_admin()` / `is_admin_user()` helper. The two growth-reward administration RPCs previously used a nullable role comparison; migration 202611250002 changes this to an explicit non-null identity check plus `IS DISTINCT FROM 'admin'`, preventing SQL NULL from bypassing the rejection condition.
+- Admin RPCs use either a direct `profiles.id = auth.uid() AND role = 'admin'` check or the `is_admin()` / `is_admin_user()` helper. The two growth-reward administration RPCs previously used a nullable role comparison; candidate migration 202611160001 already contains the explicit non-null identity check plus `IS DISTINCT FROM 'admin'`, preventing SQL NULL from bypassing the rejection condition. The later duplicate 202611250002 was removed from the follow-up candidate branch; production still requires an approved migration to receive this fix.
 - The member RPCs derive the acting member from `auth.uid()` or constrain writes to that identity. The two RPCs accepting a target user ID (`check_growth_achievements` and `check_activity_badges`) are hardened by migration 202611250003 to require a non-null authenticated identity and permit a different target only for an administrator.
 - Production `checkin_competition` directly updates protected `profiles.growth_points`. Migration 202611250001 replaces this write with `award_growth_points()`. The same migration routes the other competition reward, settlement, attendance and growth-reset writers through the dedicated executor, so those paths do not bypass the protected-profile trigger.
 - The protected-profile regression test covers registration's five-point reward, member check-in and duplicate check-in, admin reward grant, reset, badge-only level synchronization, settlement idempotency, denial of direct member edits to protected fields, and denial of direct API execution of the internal award/refresh functions.
@@ -50,7 +50,7 @@ Release gates:
 1. Obtain an authoritative schema-only production dump or equivalent complete catalog snapshot and preserve it as the baseline.
 2. Reconcile the duplicate app-release migration pair; retain the live-matching migration as the canonical history and mark the conflicting variant as non-applicable.
 3. Reconcile the observed default ACLs and current trigger/function definitions with migrations 202611160001 and 202611170001, including which statements were applied manually, partially, or not at all.
-4. Rehearse candidate migrations 001–005 against a disposable PostgreSQL/Supabase-compatible baseline that reproduces the live schema, roles, ownership, ACLs, triggers, views and RLS policies.
+4. Rehearse candidate migrations 001, 003, 004 and 005 (after 160001/170001) against a disposable PostgreSQL/Supabase-compatible baseline that reproduces the live schema, roles, ownership, ACLs, triggers, views and RLS policies.
 5. Decide and document consent/notice for the intentionally public per-member leaderboard before making its view available.
 
 These observations are read-only. No production SQL, ACL, schema, data, deployment or PR merge was changed.

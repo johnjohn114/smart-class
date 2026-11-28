@@ -19,12 +19,12 @@ CREATE TABLE public.profiles(id uuid PRIMARY KEY, role text NOT NULL);
 DO $stub$
 DECLARE nm text;
  trg text[]:=ARRAY['assign_member_no_and_nickname','check_competition_registration_rules','ensure_visitor_profile','growth_registration_reward','growth_result_reward'];
- alln text[]:=ARRAY['admin_activity_analytics','admin_adjust_growth_points','admin_apply_competition_rewards','admin_cancel_order','admin_complete_order','admin_delete_growth_reward','admin_delete_video','admin_grant_competition_reward','admin_mark_competition_attendance','admin_mark_competition_member_attendance','admin_mark_order_paid','admin_promote_competition_waitlist','admin_reset_growth_member','admin_settle_competition','admin_upsert_growth_reward','admin_upsert_video','check_activity_badges','check_growth_achievements','checkin_competition','close_my_support_ticket','complete_growth_task','create_cash_order','join_competition_waitlist','record_growth_activity','redeem_growth_reward','use_growth_coupon','assign_member_no_and_nickname','check_competition_registration_rules','ensure_visitor_profile','growth_registration_reward','growth_result_reward','award_growth_points','refresh_growth_level','is_admin','is_admin_user','increment_download_count'];
+ alln text[]:=ARRAY['admin_activity_analytics','admin_adjust_growth_points','admin_apply_competition_rewards','admin_cancel_order','admin_complete_order','admin_delete_growth_reward','admin_delete_video','admin_grant_competition_reward','admin_mark_competition_attendance','admin_mark_competition_member_attendance','admin_mark_order_paid','admin_promote_competition_waitlist','admin_reset_growth_member','admin_settle_competition','admin_upsert_growth_reward','admin_upsert_video','check_activity_badges','check_growth_achievements','checkin_competition','close_my_support_ticket','complete_growth_task','create_cash_order','join_competition_waitlist','record_growth_activity','redeem_growth_reward','use_growth_coupon','assign_member_no_and_nickname','check_competition_registration_rules','ensure_visitor_profile','growth_registration_reward','growth_result_reward','award_growth_points','refresh_growth_level','_refresh_growth_level_internal','is_admin','is_admin_user','increment_download_count'];
 BEGIN
  FOREACH nm IN ARRAY alln LOOP
   IF nm=ANY(trg) THEN
    EXECUTE format('CREATE FUNCTION public.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $body$ BEGIN RETURN NEW; END $body$',nm);
-  ELSIF nm=ANY(ARRAY['award_growth_points','refresh_growth_level']) THEN
+  ELSIF nm=ANY(ARRAY['award_growth_points','refresh_growth_level','_refresh_growth_level_internal']) THEN
    EXECUTE format('CREATE FUNCTION public.%I() RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path TO %L AS $body$ SELECT true $body$',nm,'pg_catalog, public, auth, pg_temp');
   ELSIF nm='is_admin' THEN
    EXECUTE format('CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO %L AS $body$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role=''admin'') $body$','');
@@ -33,12 +33,17 @@ BEGIN
   END IF;
  END LOOP;
 END $stub$;
+-- Simulate the post-001 executor-owned helper state; 004 must inventory it
+-- without changing its ownership or API-role-denied ACL.
+REVOKE ALL PRIVILEGES ON FUNCTION public._refresh_growth_level_internal()
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public._refresh_growth_level_internal() TO postgres;
 \ir ../../migrations/202611250004_security_definer_execution_scope_guard.sql
 DO $check$
 DECLARE nm text; oid_ regprocedure;
  adminn text[]:=ARRAY['admin_activity_analytics','admin_adjust_growth_points','admin_apply_competition_rewards','admin_cancel_order','admin_complete_order','admin_delete_growth_reward','admin_delete_video','admin_grant_competition_reward','admin_mark_competition_attendance','admin_mark_competition_member_attendance','admin_mark_order_paid','admin_promote_competition_waitlist','admin_reset_growth_member','admin_settle_competition','admin_upsert_growth_reward','admin_upsert_video'];
  membern text[]:=ARRAY['check_activity_badges','check_growth_achievements','checkin_competition','close_my_support_ticket','complete_growth_task','create_cash_order','join_competition_waitlist','record_growth_activity','redeem_growth_reward','use_growth_coupon'];
- restrictn text[]:=ARRAY['assign_member_no_and_nickname','check_competition_registration_rules','ensure_visitor_profile','growth_registration_reward','growth_result_reward','award_growth_points','refresh_growth_level'];
+ restrictn text[]:=ARRAY['assign_member_no_and_nickname','check_competition_registration_rules','ensure_visitor_profile','growth_registration_reward','growth_result_reward','award_growth_points','refresh_growth_level','_refresh_growth_level_internal'];
  helpern text[]:=ARRAY['is_admin','is_admin_user'];
 BEGIN
  FOREACH nm IN ARRAY adminn||membern LOOP

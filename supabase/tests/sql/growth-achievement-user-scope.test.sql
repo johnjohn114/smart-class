@@ -24,11 +24,15 @@ CREATE TABLE public.user_activity_badges(user_id uuid NOT NULL,badge_id uuid NOT
 CREATE TABLE public.notifications(user_id uuid,title text,content text,type text);
 CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
 AS $$ SELECT EXISTS(SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role='admin') $$;
+INSERT INTO public.growth_achievements(id,title,reward_points,active,achievement_type,requirement_count)
+VALUES ('00000000-0000-4000-8000-000000000090','NULL target self scope',0,true,'active_days',0);
+INSERT INTO public.activity_badges(id,active,requirement_type,requirement_value)
+VALUES ('00000000-0000-4000-8000-000000000091',true,'activity_count',0);
 INSERT INTO public.profiles(id,role,growth_points) VALUES
  ('00000000-0000-4000-8000-000000000001','member',0),
  ('00000000-0000-4000-8000-000000000002','member',0),
  ('00000000-0000-4000-8000-000000000003','admin',0);
-GRANT SELECT ON public.profiles TO authenticated;
+GRANT SELECT ON public.profiles, public.growth_user_achievements, public.user_activity_badges TO authenticated;
 \ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
 
 -- Anonymous callers cannot invoke either SECURITY DEFINER RPC.
@@ -40,14 +44,45 @@ BEGIN
  BEGIN PERFORM public.check_growth_achievements('00000000-0000-4000-8000-000000000001'); EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon can execute check_growth_achievements'; END IF;
  denied:=false;
+ BEGIN PERFORM public.check_growth_achievements(NULL); EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon can execute check_growth_achievements with NULL target'; END IF;
+ denied:=false;
  BEGIN PERFORM public.check_activity_badges('00000000-0000-4000-8000-000000000001'); EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
  IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon can execute check_activity_badges'; END IF;
+ denied:=false;
+ BEGIN PERFORM public.check_activity_badges(NULL); EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'FAIL: anon can execute check_activity_badges with NULL target'; END IF;
 END $anon$;
 RESET ROLE;
 
 -- A logged-in member can check only their own progress.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
 SET ROLE authenticated;
+DO $null_target_self$
+DECLARE unlocked integer;
+BEGIN
+ unlocked := public.check_growth_achievements(NULL);
+ IF unlocked <> 1 THEN RAISE EXCEPTION 'FAIL: explicit NULL achievement target did not resolve to the signed-in member'; END IF;
+ IF NOT EXISTS (
+   SELECT 1 FROM public.growth_user_achievements
+   WHERE user_id='00000000-0000-4000-8000-000000000001'
+     AND achievement_id='00000000-0000-4000-8000-000000000090'
+ ) THEN RAISE EXCEPTION 'FAIL: explicit NULL achievement target did not write the member own achievement'; END IF;
+ IF EXISTS (
+   SELECT 1 FROM public.growth_user_achievements
+   WHERE user_id='00000000-0000-4000-8000-000000000002'
+     AND achievement_id='00000000-0000-4000-8000-000000000090'
+ ) THEN RAISE EXCEPTION 'FAIL: explicit NULL achievement target crossed user scope'; END IF;
+ IF (public.check_activity_badges(NULL)->>'success')::boolean IS DISTINCT FROM true THEN
+   RAISE EXCEPTION 'FAIL: explicit NULL badge target did not resolve to the signed-in member';
+ END IF;
+ IF NOT EXISTS (
+   SELECT 1 FROM public.user_activity_badges
+   WHERE user_id='00000000-0000-4000-8000-000000000001'
+     AND badge_id='00000000-0000-4000-8000-000000000091'
+ ) THEN RAISE EXCEPTION 'FAIL: explicit NULL badge target did not write the member own badge'; END IF;
+END
+$null_target_self$;
 SELECT public.check_growth_achievements();
 SELECT public.check_activity_badges();
 DO $member_scope$
@@ -65,6 +100,16 @@ RESET ROLE;
 -- Admin can legitimately run checks for a member.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',false);
 SET ROLE authenticated;
+DO $admin_null_target$
+DECLARE unlocked integer;
+BEGIN
+ unlocked := public.check_growth_achievements(NULL);
+ IF unlocked <> 1 THEN RAISE EXCEPTION 'FAIL: admin explicit NULL target did not resolve to the admin own account'; END IF;
+ IF (public.check_activity_badges(NULL)->>'success')::boolean IS DISTINCT FROM true THEN
+   RAISE EXCEPTION 'FAIL: admin explicit NULL badge target failed';
+ END IF;
+END
+$admin_null_target$;
 SELECT public.check_growth_achievements('00000000-0000-4000-8000-000000000001');
 SELECT public.check_activity_badges('00000000-0000-4000-8000-000000000001');
 RESET ROLE;
