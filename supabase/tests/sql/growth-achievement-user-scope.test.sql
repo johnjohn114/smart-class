@@ -72,6 +72,7 @@ INSERT INTO public.growth_achievements(
 );
 SET ROLE authenticated;
 SELECT public.check_growth_achievements(NULL);
+RESET ROLE;
 DO $explicit_null_self_scope$
 BEGIN
  IF NOT EXISTS(
