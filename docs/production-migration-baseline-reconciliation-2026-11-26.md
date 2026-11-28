@@ -287,3 +287,29 @@ These are source-level findings from the current function definitions; no unauth
 
 - CI is green, but this does not clear the production baseline or end-to-end migration gates.
 - PR #41 remains Draft/unmerged. No production SQL, grants, policies, data, or deployment was changed.
+## 2026-11-28 full release-chain integration result and executor corrections
+
+### Integration issues found and corrected
+
+- The first full-chain attempt exposed that the growth executor lacked USAGE on schema auth and EXECUTE on auth.uid(), even though refresh_growth_level() checks auth.uid(). Migration 202611250001 now grants only those two required capabilities.
+- The next run showed that registration/result trigger rewards can run without a caller JWT, while the public refresh_growth_level() wrapper correctly requires an authenticated self/admin identity. award_growth_points() therefore must not call that wrapper for internal level synchronization.
+- Migration 202611250001 now routes award_growth_points() directly to _refresh_growth_level_internal(uuid), and transfers that SECURITY DEFINER helper to growth_points_executor as well. The helper then runs with the same restricted current_user that the profile-protection trigger explicitly permits. The executor owns exactly three routines: award_growth_points, refresh_growth_level, and _refresh_growth_level_internal.
+- The standalone protected-profile fixture now includes the prerequisite internal helper and authenticated wrapper from migration 202611160001, so it accurately represents the required precondition for migration 202611250001.
+- The full-chain fixture also removes the temporary two-argument complete_growth_task overload used only by the earlier default-ACL probe before migration 004 checks the production function inventory. It runs in a dedicated PostgreSQL service because PostgreSQL roles are cluster-wide and the other CI databases intentionally create the same role name.
+
+### Full sequential release-chain result
+
+- Added `supabase/tests/sql/full-growth-release-sequential.test.sql` and a dedicated `full-growth-release-chain` CI job.
+- The test applies 202611160001 -> 202611170001 -> 202611250001 -> 202611250002 -> 202611250003 -> 202611250004 -> 202611250005 in one disposable PostgreSQL 17 database.
+- It verifies final ownership/ACLs, trigger dispatch after direct EXECUTE revocation, visitor profile creation, registration reward, check-in idempotency, settlement idempotency, member/admin invoker-view visibility, and the public leaderboard projection.
+- Exact candidate head: `e2c58c37b1e61e9429177002e14588ff79f1fbce`.
+- Maintenance Edge Function Checks Run #46137872546: 4/4 jobs passed, including the new full sequential release-chain job.
+- Notification Page Checks Run #46137872538: 2/2 jobs passed.
+- Total: **6/6 jobs passed** on the exact candidate head.
+
+### Remaining release gates
+
+- This is a sanitized PostgreSQL 17 fixture, not an exact managed Supabase production rehearsal. Production role ownership/default ACLs, extensions, and the historical schema baseline still require reconciliation.
+- Production migration history remains unavailable; do not infer that prerequisite migrations are applied from filenames or CI.
+- External service_role/direct-RPC consumers remain unverified; public leaderboard nickname/activity aggregation still needs explicit product/privacy approval.
+- No production SQL or data was changed. PR #41 remains Draft/unmerged; no deployment occurred.
