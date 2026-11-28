@@ -2,7 +2,7 @@
 -- Run only in a fresh disposable PostgreSQL 17 database as postgres.
 -- This composes the already-tested 202611160001 -> 202611170001 fixture,
 -- extends that SAME database to the minimum application schema, then applies
--- 202611250001 -> 202611250005 in order. Production is never contacted.
+-- the remaining candidate migrations in order (250001, 250003, 250004, 250005). Production is never contacted.
 
 \ir growth-and-default-privileges-sequential.test.sql
 
@@ -148,9 +148,8 @@ FROM public.competition_attendance a
 LEFT JOIN public.profiles p ON p.id=a.user_id
 GROUP BY a.user_id,p.nickname;
 
--- Apply the complete candidate release chain in one database, in order.
+-- Apply the complete remaining candidate release chain in one database, in order.
 \ir ../../migrations/202611250001_protect_profile_fields_growth_system_updates.sql
-\ir ../../migrations/202611250002_admin_growth_reward_null_auth_guard.sql
 \ir ../../migrations/202611250003_growth_achievement_user_scope_guard.sql
 \ir ../../migrations/202611250004_security_definer_execution_scope_guard.sql
 \ir ../../migrations/202611250005_activity_member_stats_and_public_leaderboard.sql
